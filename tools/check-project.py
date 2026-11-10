@@ -45,9 +45,11 @@ def audit(build_dir=None):
             if source.relative_to(ROOT).parts[0] in ('lunaros', 'components', 'components_device'):
                 if re.search(r'(?:#\s*include\s*["<][^">]*|\$\{[^}]+\}/)main/(?:product|smart_speaker)', text):
                     errors.append('Reverse product dependency: ' + str(source.relative_to(ROOT)))
-    subprocess.run(['cmake', '-P', str(ROOT / 'lunaros/source_ownership.cmake')], check=True)
-    subprocess.run([os.sys.executable, str(ROOT / 'tools/check-generated.py'),
-                    str(ROOT / 'lunaros/services/required/service_network/src/ports/espnow/generated.json'), str(ROOT)], check=True)
+    # This baseline keeps LunarOS as one IDF component, with domain owners
+    # selected by its original subsystem and desktop source declarations.
+    for relative in ('lunaros/src/subsystems.cmake', 'lunaros/src/desktop/sources.cmake'):
+        if not (ROOT / relative).is_file():
+            errors.append('Missing source ownership declaration: ' + relative)
     if build_dir:
         build_dir = build_dir.resolve()
         description = json.loads((build_dir / 'project_description.json').read_text())
@@ -73,9 +75,31 @@ def audit(build_dir=None):
             if not any(inside(source.resolve(), base) for base in allowed):
                 errors.append('External compilation source: ' + str(source))
         print(f'Build paths: {len(commands)} translation units checked')
+        # IRAM annotations alone do not prove cache safety: inspect the linked
+        # image, including the GPIO callee, transition table and ISR state.
+        compiler = Path(description['c_compiler'])
+        objdump = compiler.with_name(compiler.name.replace('-gcc', '-objdump'))
+        symbols = subprocess.check_output(
+            [str(objdump), '-t', str(build_dir / description['app_elf'])], text=True)
+        sections = {row.split()[-1]: row.split()[-3] for row in symbols.splitlines()
+                    if len(row.split()) >= 6}
+        internal = {
+            '_ZN13smart_speaker6detail11encoder_isrEPv': '.iram',
+            'gpio_get_level': '.iram',
+            'xTaskGetTickCountFromISR': '.iram',
+            '_ZZN13smart_speaker6detail11encoder_isrEPvE11kTransition': '.dram',
+            '_ZN13smart_speaker6detail14g_encoder_lockE': '.dram',
+            '_ZN13smart_speaker6detail15g_encoder_deltaE': '.dram',
+            '_ZN13smart_speaker6detail15g_encoder_stateE': '.dram',
+            '_ZN13smart_speaker6detail24g_encoder_last_edge_tickE': '.dram',
+        }
+        for symbol, prefix in internal.items():
+            if not sections.get(symbol, '').startswith(prefix):
+                errors.append('Encoder ISR cache safety: ' + symbol + ' in ' +
+                              sections.get(symbol, 'missing'))
     if errors:
         raise SystemExit('\n'.join(errors))
-    print(f'Standalone boundary: {len(components)} local components; OS ownership and generated port verified')
+    print(f'Standalone boundary: {len(components)} local components; baseline subsystem ownership verified')
 
 
 if __name__ == '__main__':

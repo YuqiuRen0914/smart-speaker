@@ -1,43 +1,73 @@
 #pragma once
 #include "smart_speaker_runtime.h"
-#include "lunaredu_music_lyrics.h"
-#include "lunaredu_music_playback_coordinator.h"
+#include "smart_speaker_lyrics_store.h"
 #include "sdkconfig.h"
 #include <array>
-#include <atomic>
 #include <mutex>
 #include <memory>
 #include <freertos/FreeRTOS.h>
-namespace smart_speaker {namespace lyrics=lunaredu::music::lyrics;}
 namespace smart_speaker::detail {
 constexpr int kInitialVolume =
     CONFIG_LUNAREDU_SMART_SPEAKER_STARTUP_VOLUME;
 constexpr int kMaxVolume = CONFIG_LUNAREDU_SMART_SPEAKER_MAX_VOLUME;
-using CommandType=lunaredu::music::PlaybackCommandType;
-using Command=lunaredu::music::PlaybackCommand;
+constexpr size_t kAudioDebugFrameCount = 96;
+enum class CommandType : uint8_t {
+  kPlay,
+  kPlayTrack,
+  kPause,
+  kStop,
+  kNext,
+  kPrevious,
+  kSetVolume,
+  kAdjustVolume,
+  kRescan,
+  kAutoNext,
+  kSkipFailed,
+  kCycleMode,
+};
 
-struct Runtime:lunaredu::music::PlaybackState {
-  Runtime(){volume=kInitialVolume;}
+struct Command {
+  CommandType type = CommandType::kPlay;
+  int value = 0;
+  uint32_t playlist_revision = 0;
+};
+
+struct Runtime {
   std::shared_ptr<const lyrics::Document> lyrics;
   int lyrics_delay_ms = 0;
   std::mutex mutex;
+  PlaybackMode playback_mode = PlaybackMode::Sequential;
+  uint32_t mode_sequence = 0, mode_updated_ms = 0;
+  uint32_t playback_generation = 0;
+  bool advance_queued = false;
+  unsigned failed_tracks = 0;
   std::vector<TrackInfo> playlist;
-  bool sd_ready=false;
-
+  uint32_t playlist_revision = 0;
+  int current_index = -1;
+  int volume = kInitialVolume;
+  bool sd_ready = false;
+  bool audio_ready = false;
+  bool playing = false;
+  bool paused = false;
+  bool paused_by_volume = false;
+  bool uploading = false;
+  bool auto_advance = true;
+  bool first_frame_seen = false;
+  bool decode_timeout_skip_sent = false;
+  uint32_t play_started_ms = 0;
+  std::string last_error;
 };
-extern const lunaredu::lunaros::DeviceCapabilityDescriptor kCapability;
-extern lunaredu::lunaros::DeviceProjectionBinding g_projection;
+extern const DeviceCapabilityDescriptor kCapability;
 extern Runtime g_runtime;
 extern std::mutex g_player_operation_mutex;
-extern lunaredu::audio::AudioHistory g_audio_history;
+extern std::array<AudioDebugFrame,kAudioDebugFrameCount> g_audio_debug_frames;
+extern portMUX_TYPE g_audio_debug_lock;
+extern uint32_t g_audio_debug_sequence;
 bool enqueue_command(CommandType type, int value = 0, uint32_t playlist_revision = 0);
 uint32_t now_ms();
 void set_error_locked(const char *error);
 void clear_error_locked();
 bool ensure_music_dir();
-// Caller holds the player-operation mutex; disk I/O never holds Runtime::mutex.
-void rescan_library();
-bool stop_music_locked(std::string &error);
-void publish_imported_track(const std::string &path,size_t size);
+void rescan_locked();
 bool play_index(int index);
 }

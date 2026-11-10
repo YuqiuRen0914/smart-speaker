@@ -1,9 +1,7 @@
-#include "device_api/device_operation_builders.h"
-#include "model/device_model.h"
 #include "mpu6050_instance_internal.h"
 #include "mpu6050_local_api.h"
 #include "bsp/lunaredu_bsp.h"
-#include "device_api/device_projection.h"
+#include "lunaredu_lunaros/device_api/device_projection.h"
 
 namespace lunaredu::device {
 
@@ -12,27 +10,13 @@ using lunaredu::lunaros::DeviceModuleProjection;
 using lunaredu::lunaros::DeviceModuleProjectionMetadata;
 using lunaredu::lunaros::DeviceOperationDefinition;
 using lunaredu::lunaros::DeviceOperationMethod;
-using lunaredu::lunaros::DeviceProjectionBinding;
+using lunaredu::lunaros::deactivate_device_capability;
 using lunaredu::lunaros::device_operation_method;
 using lunaredu::lunaros::make_device_json_command;
 using lunaredu::lunaros::make_device_json_query;
+using lunaredu::lunaros::register_device_projection;
 
 namespace {
-bool describe_mpu6050(lunaredu::lunaros::DeviceApiContext &,
-                     lunaredu::lunaros::DeviceOperationDiagnosticFacts &facts) {
-  const auto config = mpu6050_instance_diagnostic_facts(default_mpu6050_instance());
-  if (!config.initialized) return false;
-  facts.signal_count = config.has_interrupt_pin ? 3 : 2;
-  facts.signals[0] = {"sda", nullptr, config.bus_pins_known ? static_cast<int16_t>(config.sda_pin) : int16_t{-1}};
-  facts.signals[1] = {"scl", nullptr, config.bus_pins_known ? static_cast<int16_t>(config.scl_pin) : int16_t{-1}};
-  if (config.has_interrupt_pin) facts.signals[2] = {"interrupt", nullptr, config.interrupt_pin};
-  facts.parameter_count = 4;
-  facts.parameters[0] = {"sample_rate_hz", "Hz", true, 5, 1000};
-  facts.parameters[1] = {"acceleration", "g", true, -2, 2};
-  facts.parameters[2] = {"angular_velocity", "deg/s", true, -250, 250};
-  facts.parameters[3] = {"temperature", "degC"};
-  return true;
-}
 
 constexpr const char *kMpu6050PresenceTags[] = {
     "imu_mpu6050",
@@ -48,13 +32,11 @@ const DeviceCapabilityDescriptor kMpu6050Capability = []() {
 }();
 
 constexpr DeviceOperationDefinition kMpu6050Operations[] = {
-    lunaredu::lunaros::device_operation_diagnostics(
-        make_device_json_query("status.get", fill_mpu6050_status_payload), describe_mpu6050),
+    make_device_json_query("status.get", fill_mpu6050_status_payload),
     make_device_json_command("sampling.start", handle_mpu6050_sampling_start),
     make_device_json_command("sampling.stop", handle_mpu6050_sampling_stop),
     make_device_json_command("config.set", handle_mpu6050_config_set),
-    lunaredu::lunaros::device_operation_diagnostics(
-        make_device_json_query("telemetry.latest.get", fill_mpu6050_telemetry_latest_payload), describe_mpu6050),
+    make_device_json_query("telemetry.latest.get", fill_mpu6050_telemetry_latest_payload),
     make_device_json_command("telemetry.batch.get", fill_mpu6050_telemetry_batch_payload, device_operation_method(DeviceOperationMethod::Get)),
 };
 
@@ -69,7 +51,6 @@ const DeviceModuleProjection kMpu6050LocalApi = {
     kMpu6050Operations,
     sizeof(kMpu6050Operations) / sizeof(kMpu6050Operations[0]),
 };
-DeviceProjectionBinding g_projection;
 
 } // namespace
 
@@ -80,7 +61,7 @@ bool setup_mpu6050(const Mpu6050ModuleConfig &config) {
 }
 
 bool setup_mpu6050_with_bus(const Mpu6050ModuleConfig &config, i2c_master_bus_handle_t bus) {
-  g_projection.deactivate(kMpu6050Capability.id);
+  deactivate_device_capability(kMpu6050Capability.id);
   if (!mpu6050_instance_deinit(default_mpu6050_instance())) return false;
   auto resolved = config;
   if (bus) resolved.external_i2c_bus = bus;
@@ -94,16 +75,16 @@ bool setup_mpu6050_with_bus(const Mpu6050ModuleConfig &config, i2c_master_bus_ha
   // already live and expose MPU telemetry through a product-specific endpoint.
   // Keep the sensor running even if the optional standalone projection cannot
   // be registered at that point.
-  (void)g_projection.activate(kMpu6050Capability);
+  (void)register_device_projection(
+      {&kMpu6050Capability, &kMpu6050LocalApi, nullptr, true});
   return true;
 }
 
 bool mpu6050_deinit() {
-  g_projection.deactivate(kMpu6050Capability.id);
+  deactivate_device_capability(kMpu6050Capability.id);
   return mpu6050_instance_deinit(default_mpu6050_instance());
 }
 void tick_mpu6050() { tick_mpu6050_instance(default_mpu6050_instance()); }
-bool mpu6050_read_now() { return mpu6050_instance_read_now(default_mpu6050_instance()); }
 bool mpu6050_available() { return mpu6050_instance_available(default_mpu6050_instance()); }
 Mpu6050Status mpu6050_status() { return mpu6050_instance_status(default_mpu6050_instance()); }
 Mpu6050Pose mpu6050_pose() { return mpu6050_instance_pose(default_mpu6050_instance()); }
@@ -115,16 +96,8 @@ bool mpu6050_start_sampling(std::string &error) {
   return mpu6050_instance_start_sampling(default_mpu6050_instance(), error);
 }
 void mpu6050_stop_sampling() { mpu6050_instance_stop_sampling(default_mpu6050_instance()); }
-bool mpu6050_set_sleep(bool sleep, std::string &error) {
-  return mpu6050_instance_set_sleep(default_mpu6050_instance(), sleep, error);
-}
 bool mpu6050_set_sample_rate_hz(uint16_t rate, std::string &error) {
   return mpu6050_instance_set_sample_rate_hz(default_mpu6050_instance(), rate, error);
-}
-
-bool declare_mpu6050_projection(lunaredu::lunaros::DeviceProjectionRegistry &registry,
-                                std::string &error) {
-  return g_projection.declare(registry, {&kMpu6050Capability, &kMpu6050LocalApi}, error);
 }
 
 void fill_mpu6050_telemetry_batch_payload(JsonObject payload,

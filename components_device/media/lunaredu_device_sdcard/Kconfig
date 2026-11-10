@@ -1,13 +1,5 @@
 menu "LunarEdu sdcard"
 
-config LUNAREDU_DEVICE_SDCARD_NATIVE_SESSION
-    bool "Enable explicit caller-configured SDMMC session"
-    default n
-    help
-        Add a standalone one-bit SDMMC FAT session. The caller supplies pins,
-        mount path and exclusive host/pin/VFS resource callbacks. Does not
-        select or change the legacy BSP mount, start tasks, or format a card.
-
 config LUNAREDU_DEVICE_ENABLE_TFCARD
     bool "Enable TF card store module"
     default n

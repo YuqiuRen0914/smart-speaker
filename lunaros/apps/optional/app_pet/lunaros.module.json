@@ -1,9 +1,0 @@
-{
-  "schema": 1,
-  "entries": {
-    "default": {
-      "header": "lunaredu_pet_desktop_entry.h",
-      "type": "lunaredu::pet::DesktopEntry"
-    }
-  }
-}

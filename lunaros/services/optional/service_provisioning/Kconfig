@@ -1,9 +1,0 @@
-menu "LunarOS provisioning function"
-config LUNAROS_PROVISIONING
-    bool "Enable assisted network provisioning"
-    select ESP_PROTOCOMM_SUPPORT_SECURITY_VERSION_1
-    default y
-    help
-        Own temporary setup windows and client confirmation independently of
-        Settings, USB, Network and Pet. Uses the existing network executor.
-endmenu

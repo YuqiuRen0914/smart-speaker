@@ -4,12 +4,21 @@
 #include <cstdint>
 #include <cstddef>
 #include <string>
-#include "lunaredu_imu_service.h"
 
 namespace smart_speaker {
 
 constexpr size_t kSmartSpeakerI2cScanMaxAddresses = 16;
 
+enum class TouchGesture : uint8_t {
+  None,
+  Tap,
+  LongPress,
+  LongPressRelease,
+  SwipeLeft,
+  SwipeRight,
+  SwipeUp,
+  SwipeDown,
+};
 
 struct SmartSpeakerMpuSnapshot {
   bool initialized = false;
@@ -33,24 +42,27 @@ struct SmartSpeakerTouchSnapshot {
   bool initialized = false;
   bool pressed = false;
   uint8_t address = 0;
-  uint8_t contact_count = 0;
   uint16_t x = 0;
   uint16_t y = 0;
   uint32_t sample_count = 0;
-  uint32_t sampled_at_ms = 0;
+  uint32_t gesture_count = 0;
   std::string last_error;
 };
 
-
+struct SmartSpeakerMotionInput {
+  bool valid = false;
+  float tilt_x = 0;
+  float tilt_y = 0;
+  float twist_z = 0;
+  float angular_speed_dps = 0;
+};
 
 bool setup_smart_speaker_sensors();
 void tick_smart_speaker_sensors();
-void set_smart_speaker_imu_service(lunaredu::services::imu::ImuService *service);
-bool start_smart_speaker_imu(std::string &error);
-bool read_smart_speaker_imu(lunaredu::services::imu::ImuSample &sample,
-                            std::string &error);
-bool stop_smart_speaker_imu(std::string &error);
 SmartSpeakerMpuSnapshot smart_speaker_mpu_snapshot();
 SmartSpeakerTouchSnapshot smart_speaker_touch_snapshot();
+SmartSpeakerMotionInput smart_speaker_motion_input();
+TouchGesture smart_speaker_take_touch_gesture();
+const char *touch_gesture_name(TouchGesture gesture);
 
 } // namespace smart_speaker

@@ -1,37 +1,23 @@
 # 独立工程的架构边界
 
-状态：active。核对日期：2026-11-10。依据为产品装配、显式组件清单与 LunarOS 源码所有权声明；本次只调整源码归属和构建依赖，没有重新设计播放、任务或设备生命周期。
+状态：active。核对日期：2026-11-10。当前基线为用户此前回退、确认旧版界面的 1.0.35；错误抽离的 1.2.5 已由本次修正替代。保留该版本原有所有者和生命周期，不把后来版本的 API 与产品页面混装。
 
-## 目录与所有权
-
-| 目录 | 负责什么 | 修改入口 |
+| 目录 | 负责什么 | 入口 |
 | --- | --- | --- |
-| `main/` | 音箱启动、硬件装配、页面、网页曲库和产品策略 | `product.cmake`、`main/product/`、`main/smart_speaker/` |
-| `lunaros/os/` | Core 资源与调度、Runtime 生命周期、公开配置/设备接口、桌面与显示机制 | 各组件公开头与 `source_ownership.json` |
-| `lunaros/apps/` | 音乐等应用的领域状态及行为 | `app_music` 等真实所有者 |
-| `lunaros/services/` | Audio、Network、Storage、OTA、Local Web 等服务及其资源 | 各服务公开契约与端口 |
-| `lunaros/bsp/`、`components_device/` | 板级适配、外设驱动与设备资源接口 | 对应设备组件 |
-| `components/` | 协议、编解码、图形和执行引擎 | 对应公共接口；上游源码与端口分开 |
-| `lunaros/assets/`、`data/` | 固定 UI/字体资产、工厂存储输入 | 资源来源及许可证 |
-| `cmake/`、`tools/` | 独立构建、依赖约束、资源暂存与验证 | `tools/build.py`、`cmake/components.cmake` |
-| `test/` | 产品主机行为回归 | `test/run_host_tests.mjs` |
+| `main/` | 产品启动、服务组合、引脚策略、旧版页面、音乐与网页曲库 | `main/product/`、`main/smart_speaker/` |
+| `lunaros/` | OS 内核、执行器、网络、交付、存储、资源、设备 API、设备连接、桌面基础 | `include/lunaredu_lunaros/`、`src/subsystems.cmake` |
+| `lunaros_apps/lunaredu_pet/` | 原版 Pet/Assistant 的状态和行为 | 组件公开头与 `src/` 内部域 |
+| `components/` | 原版 BSP、音频辅助、账号资源、字符资产、JSON、NVS | 各组件公开头与 CMake |
+| `components_device/` | GPIO 按键、I²S、SD、SPI LCD、MPU6050 驱动 | 对应组件契约 |
+| `lunaros/assets/fonts/`、`data/` | 字体和工厂存储输入 | `cmake/storage.cmake` |
+| `cmake/`、`tools/` | 独立组件闭包、构建任务、资源暂存和路径检查 | `tools/build.py`、`tools/check-project.py` |
 
-产品通过公开头文件和组件契约调用 App、Service、OS 和驱动。下层不引用 `main/` 的产品实现；跨模块组合保留在产品层。音乐状态、音频资源、网络生命周期仍各有唯一所有者，不另加泛化 shared/common 装配层，也不把系统源码摊平到 `main/`。
+该版本的 LunarOS 本来就是单一 IDF 组件，内部按 kernel/model/app/persistence/network/delivery/device_api/device_link/device_web/desktop 分域。保留原版 `src/subsystems.cmake` 和 `desktop/sources.cmake`，不导入后来版本的 Runtime、Resource、Music、Desktop 契约去拼接旧产品，也不新增泛化 shared/common 层。
 
-## 独立构建契约
+`cmake/components.cmake` 显式列出 13 个本地组件。`LUNAREDU_REPO_ROOT` 兼容名固定指向本 checkout；没有外部 SDK、父目录搜索或其他产品依赖。第三方组件通过公开注册表与锁文件获取。固件使用与历史已运行版本一致的 ESP-IDF 6.0.1。
 
-`cmake/components.cmake` 明确列出本产品的 48 个本地 IDF 组件身份（包括嵌套接口适配器）；`product.cmake` 选择直接产品依赖，必需服务由保留的启动装配机制选入。该集合来自原产品实际构建依赖闭包，并非复制所有产品或整个 SDK。
+产品音频、曲库和页面保留原版所有者。旋钮修复属于产品输入：ISR 去抖，音量增量合并，每轮至多处理一条普通命令和一次合并音量，避免持续排空队列占用执行器。真机发现的缓存暂停错误通过 GPIO 控制函数 IRAM 和转换表 DRAM 修复；路径审计检查实际 ELF 存储区。此次未把原版播放状态迁到后来共享 Music，也没有新增后台播放器或另一份曲库。
 
-LunarOS 在本仓库内维护，是工程的本地源码层，不要求用户取得独立 SDK。构建中保留 `LUNAREDU_*` 命名以维持现有组件契约；仓库根兼容变量始终指向当前 checkout。公开注册表组件由 `idf_component.yml`、`dependencies.lock` 和固定约束管理，下载目录不进入版本库。
+后续功能先从产品页面和真实能力所有者扩展。游戏、AI 伴侣和番茄钟的 App 边界在实现时确定；不因规划提前换掉当前交互基线。涉及资源生命周期、公共接口、实时性或物理行为，分别补主机回归和指定硬件验收。
 
-`lunaros/source_ownership.cmake` 继续拒绝未分配或重复归属的 OS 源文件。上游校验清单与许可证保留；WAMR 在构建目录的副本内生成版本头，不改写校验过的源码。ESP-NOW 端口提供有输入/输出摘要的生成文件；修改生成输入需重新生成并更新摘要，不能手工漂移。
-
-字体压缩包、网页 gzip 和 MicroPython QSTR 在构建目录由 Python 生成。存储池使用原有 LRZ1 格式和 `managed/fonts.*` 发布契约；产品只选择资源，不获得另一套存储状态。
-
-## 扩展路由
-
-壁纸和滚动启动器先修改产品页面，只有通用显示能力不足时才扩展 Display/Desktop。音乐封面和歌词状态归 Music，产品持有布局。游戏、AI 伴侣和番茄钟先确定独立 App 边界，再通过公开服务使用音频、网络与存储。网页 EQ 预设配置由产品页面提供，处理仍由 Audio DSP 执行。这些项目均为后续开发路线，本次没有实现。
-
-## 修改后如何验证
-
-构建入口或依赖变化：运行监控构建和 `tools/check-project.py --build-dir .build/firmware`。播放、音量、上传和退出变化：运行产品主机回归。涉及引脚、任务实时性、音频、显示或触摸的变更还需记录指定硬件上的实际观察；主机测试和固件构建不能替代真机验收。
+独立构建时禁止读取原仓库；构建路径审计核对实际组件与编译源文件均来自本工程或指定 ESP-IDF。设备操作和实体验收记录见 [基线修正](baseline-correction.md)，历史错误基线的隔离构建仍保留于 [旧记录](standalone-validation.md)。

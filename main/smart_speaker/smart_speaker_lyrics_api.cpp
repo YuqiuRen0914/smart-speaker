@@ -1,10 +1,9 @@
 #include "lyrics_api.h"
 #include "runtime_internal.h"
-#include "device_api/device_operation_types.h"
+#include "lunaredu_lunaros/device_api/device_projection_json.h"
 #include <algorithm>
 #include <cstring>
 namespace smart_speaker {
-using namespace lunaredu::lunaros;
 using namespace detail;
 bool lyric_track_exists(const std::string &path) {
   std::lock_guard<std::mutex> lock(g_runtime.mutex);
@@ -15,7 +14,6 @@ bool lyric_track_exists(const std::string &path) {
 void publish_lyrics(const std::string &path,
                     std::shared_ptr<const lyrics::Document> doc, int delay) {
   std::lock_guard<std::mutex> lock(g_runtime.mutex);
-  ++g_runtime.playlist_revision;
   for (auto &track : g_runtime.playlist) if (track.path == path) {
     track.has_lyrics = doc != nullptr;
     track.lyrics_delay_ms = delay;
@@ -27,7 +25,7 @@ void publish_lyrics(const std::string &path,
   }
 }
 
-DeviceOperationResult handle_lyrics_upload(DeviceApiContext &, const DeviceBulkRequest &request, JsonObject response) {
+DeviceOperationResult handle_lyrics_upload(const DeviceBulkRequest &request, JsonObject response) {
   std::unique_lock<std::mutex> player_lock(g_player_operation_mutex, std::try_to_lock);
   if (!player_lock.owns_lock()) return device_operation_error("speaker_busy",409);
   const std::string path = (request.arg ? request.arg("path",request.context) : std::string());
@@ -57,7 +55,7 @@ DeviceOperationResult handle_lyrics_upload(DeviceApiContext &, const DeviceBulkR
   return device_operation_ack();
 }
 
-DeviceOperationResult handle_lyrics_remove(DeviceApiContext &, JsonVariantConst request, JsonObject response) {
+DeviceOperationResult handle_lyrics_remove(JsonVariantConst request, JsonObject response) {
   if (!request["path"].is<const char *>()) return device_operation_error("invalid_track_path",400);
   std::unique_lock<std::mutex> player_lock(g_player_operation_mutex,std::try_to_lock);
   if (!player_lock.owns_lock()) return device_operation_error("speaker_busy",409);
@@ -75,7 +73,7 @@ DeviceOperationResult handle_lyrics_remove(DeviceApiContext &, JsonVariantConst 
   return device_operation_ack();
 }
 
-DeviceOperationResult handle_lyrics_offset(DeviceApiContext &, JsonVariantConst request, JsonObject response) {
+DeviceOperationResult handle_lyrics_offset(JsonVariantConst request, JsonObject response) {
   if (!request["path"].is<const char *>() || !request["delay_ms"].is<int>())
     return device_operation_error("lyrics_offset_invalid",400);
   const int delay=request["delay_ms"].as<int>();

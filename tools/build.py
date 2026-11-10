@@ -138,7 +138,7 @@ def build(jobs, resume=None):
             raise SystemExit('Another build owns this directory; inspect tools/build.py list')
         idf = Path(os.environ.get('IDF_PATH', '')) / 'tools/idf.py'
         if not idf.is_file():
-            raise SystemExit('Load ESP-IDF 6.1.0 export.sh before building')
+            raise SystemExit('Load ESP-IDF 6.0.1 export.sh before building')
         record = {'id': str(uuid.uuid4()), 'status': 'running', 'started_at': now(),
                   'executor': 'local', 'phase': 'configure', 'phases': [{'phase': 'configure', 'at': now()}],
                   'jobs': jobs, 'resumes': resume, 'sample': None}

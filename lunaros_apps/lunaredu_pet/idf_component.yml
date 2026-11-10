@@ -1,0 +1,5 @@
+dependencies:
+  bblanchon/arduinojson: 7.4.3
+  espressif/esp_audio_codec: ^2.3.0
+  espressif/esp-sr: "~2.3.0"
+  espressif/mqtt: "^1.0.0"

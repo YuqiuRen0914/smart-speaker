@@ -1,13 +1,12 @@
 #include "runtime_internal.h"
 #include "smart_speaker_audio.h"
 #include "lunaredu_device_sdcard_tfcard_store.h"
-#include "device_api/device_operation_types.h"
+#include "lunaredu_lunaros/device_api/device_projection_json.h"
 #include <freertos/task.h>
 #include <algorithm>
 namespace smart_speaker {
-using namespace lunaredu::lunaros;
 using namespace detail;
-DeviceOperationResult handle_track_remove_payload(DeviceApiContext &device, JsonVariantConst request,
+DeviceOperationResult handle_track_remove_payload(JsonVariantConst request,
                                                   JsonObject response) {
   if (!request["path"].is<const char *>())
     return device_operation_error("invalid_track_path", 400);
@@ -18,13 +17,13 @@ DeviceOperationResult handle_track_remove_payload(DeviceApiContext &device, Json
     return device_operation_error("sdcard_not_ready", 503);
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
-    if (g_runtime.transfer_active) return device_operation_error("upload_in_progress", 409);
+    if (g_runtime.uploading) return device_operation_error("upload_in_progress", 409);
     // Only a scanned MP3 can be removed; never accept an arbitrary filesystem path.
     const auto track = std::find_if(g_runtime.playlist.begin(), g_runtime.playlist.end(),
         [&path](const TrackInfo &item) { return item.path == path; });
     if (track == g_runtime.playlist.end()) return device_operation_error("track_not_found", 404);
   }
-  bool current = false, resume = false;
+  bool current = false, resume = false, was_paused = false;
   int removed_index = -1;
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
@@ -32,6 +31,7 @@ DeviceOperationResult handle_track_remove_payload(DeviceApiContext &device, Json
       if (g_runtime.playlist[i].path == path) removed_index = static_cast<int>(i);
     current = removed_index == g_runtime.current_index;
     resume = current && g_runtime.playing;
+    was_paused = current && g_runtime.paused;
     if (current) {
       g_runtime.auto_advance = false;
       g_runtime.paused_by_volume = false;
@@ -39,22 +39,29 @@ DeviceOperationResult handle_track_remove_payload(DeviceApiContext &device, Json
   }
   if (current) {
     (void)dual_i2s_audio_fade_to_mute(100);
-    // Shared player cancels a paused decoder directly and acknowledges Idle
-    // only after closing its FILE and retiring both physical output lanes.
+    // This player version leaves STOP-from-PAUSE in PAUSE after closing its
+    // file. Resume under the mute ramp first so its normal IDLE acknowledgement
+    // can be observed, then stop before removing an open FAT file.
+    if (was_paused) {
+      if (audio_player_resume() != ESP_OK) return device_operation_error("playback_stop_failed", 503);
+      const uint32_t resumed = now_ms();
+      while (audio_player_get_state() == AUDIO_PLAYER_STATE_PAUSE && now_ms() - resumed < 500)
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
     {
       std::lock_guard<std::mutex> lock(g_runtime.mutex);
       g_runtime.auto_advance = false;
     }
-    if (file_player_stop() != ESP_OK) {
+    if (audio_player_stop() != ESP_OK) {
       std::lock_guard<std::mutex> lock(g_runtime.mutex);
       g_runtime.auto_advance = resume;
       return device_operation_error("playback_stop_failed", 503);
     }
     vTaskDelay(pdMS_TO_TICKS(10));
     const uint32_t started = now_ms();
-    while (file_player_state() != FilePlayerState::Idle && now_ms() - started < 1500)
+    while (audio_player_get_state() != AUDIO_PLAYER_STATE_IDLE && now_ms() - started < 1500)
       vTaskDelay(pdMS_TO_TICKS(5));
-    if (file_player_state() != FilePlayerState::Idle)
+    if (audio_player_get_state() != AUDIO_PLAYER_STATE_IDLE)
       return device_operation_error("playback_stop_timeout", 503);
   }
   const bool removed = remove(path.c_str()) == 0;
@@ -88,7 +95,7 @@ DeviceOperationResult handle_track_remove_payload(DeviceApiContext &device, Json
   response["playback_continued"] = continued;
   response["removed"] = true;
   response["path"] = path;
-  fill_status_payload(device, response["status"].to<JsonObject>());
+  fill_status_payload(response["status"].to<JsonObject>());
   return device_operation_ack();
 }
 }

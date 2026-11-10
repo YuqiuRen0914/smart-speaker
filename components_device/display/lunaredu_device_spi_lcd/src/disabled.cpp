@@ -3,6 +3,7 @@
 #include <utility>
 #include "lunaredu_device_spi_lcd.h"
 #include "lunaredu_device_spi_lcd_surface.h"
+#include "spi_lcd_surface_local_api.h"
 
 namespace {
 [[maybe_unused]] constexpr const char *kDisabledError = "disabled";
@@ -14,14 +15,6 @@ namespace {
 #if !CONFIG_LUNAREDU_DEVICE_DISPLAY_SPI_LCD
 
 namespace lunaredu::device {
-bool device_spi_lcd_surface_bind_availability(void *, void (*)(void *, bool)) { return false; }
-
-
-bool device_spi_lcd_surface_set_3wire_dma_mode(
-    DeviceSpiLcdThreeWireDmaMode, std::string *error) {
-  if (error != nullptr) *error = "display_unavailable";
-  return false;
-}
 
 DeviceSpiLcdConfig device_spi_lcd_config_from_kconfig() { return {}; }
 
@@ -58,7 +51,6 @@ DeviceSpiLcdStatus device_spi_lcd_status() {
 bool device_spi_lcd_surface_setup() { return false; }
 
 bool device_spi_lcd_surface_ready() { return false; }
-size_t device_spi_lcd_surface_3wire_packed_chunk_bytes() { return 0; }
 
 bool device_spi_lcd_surface_get_panel(DeviceSpiLcdPanel *panel) {
   if (panel != nullptr) {
@@ -94,9 +86,6 @@ void device_spi_lcd_surface_set_canvas_override(bool) {}
 
 bool device_spi_lcd_surface_canvas_override_active() { return false; }
 
-void device_spi_lcd_surface_set_mirror_enabled(bool) {}
-void device_spi_lcd_surface_bind_redraw(void *, void (*)(void *)) {}
-
 bool device_spi_lcd_surface_draw_rgb565_cover(const uint16_t *, uint16_t,
                                               uint16_t, bool,
                                               std::string *error) {
@@ -113,13 +102,6 @@ bool device_spi_lcd_surface_draw_rgb565_bitmap(uint16_t, uint16_t, uint16_t,
   if (error != nullptr) {
     set_error(*error);
   }
-  return false;
-}
-
-bool device_spi_lcd_surface_draw_rgb565_strided_bitmap(
-    uint16_t, uint16_t, uint16_t, uint16_t, const uint16_t *, uint16_t,
-    bool, std::string *error) {
-  if (error != nullptr) set_error(*error);
   return false;
 }
 
@@ -163,7 +145,7 @@ bool device_spi_lcd_surface_set_pixel_mode(DeviceSpiLcdPixelMode,
 }
 
 DeviceSpiLcdPixelMode device_spi_lcd_surface_pixel_mode() {
-  return DeviceSpiLcdPixelMode::kRgb565;
+  return DeviceSpiLcdPixelMode::kRgb666;
 }
 
 DeviceSpiLcdSourcePixelFormat device_spi_lcd_surface_source_pixel_format() {
@@ -233,12 +215,8 @@ bool device_spi_lcd_surface_draw_rgb666_bitmap_background(
 DeviceSpiLcdSurfaceStatus device_spi_lcd_surface_status() {
   DeviceSpiLcdSurfaceStatus status;
   status.last_error = kDisabledError;
-  status.pixel_mode = DeviceSpiLcdPixelMode::kRgb565;
+  status.pixel_mode = DeviceSpiLcdPixelMode::kRgb666;
   return status;
-}
-
-bool device_spi_lcd_surface_try_status(DeviceSpiLcdSurfaceStatus &status) {
-  status=device_spi_lcd_surface_status();return true;
 }
 
 esp_err_t device_spi_lcd_surface_write_bmp(
@@ -252,3 +230,4 @@ esp_err_t device_spi_lcd_surface_write_bmp(
 } // namespace lunaredu::device
 
 #endif
+

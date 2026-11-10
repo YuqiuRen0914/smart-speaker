@@ -413,7 +413,7 @@ esp_err_t draw_bitmap_internal(Ili9488Panel *ili9488, int x_start,
     uint8_t *const transfer_buffer = ili9488->rgb666_buffers[buffer_index];
 
     // Convert before setting the address window. On the first chunk this CPU
-    // work overlaps the final DMA transfer of the preceding draw. After
+    // work overlaps the final DMA transfer of the preceding LVGL flush. After
     // RAMWR, the ILI9488 retains its frame-memory write state while CS is high,
     // so later data-only transactions can remain queued without a polling
     // command draining the DMA queue.

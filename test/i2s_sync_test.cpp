@@ -1,11 +1,11 @@
-#include "lunaros_audio_i2s_monitor.h"
+#include "smart_speaker_i2s_sync.h"
 
 #include <cassert>
 #include <cstdint>
 #include <iostream>
 
-using lunaredu::audio::I2sCompletionFault;
-using lunaredu::audio::I2sCompletionMonitor;
+using smart_speaker::I2sCompletionFault;
+using smart_speaker::I2sCompletionMonitor;
 
 namespace {
 
@@ -54,12 +54,6 @@ void test_right_stall_is_detected_symmetrically() {
 }  // namespace
 
 int main() {
-  I2sCompletionMonitor single;
-  single.reset(0,0,0);
-  assert(single.observe(1024,0,50,true,false)==I2sCompletionFault::kNone);
-  assert(single.observe(2048,0,100,true,false)==I2sCompletionFault::kNone);
-  assert(single.observe(2048,0,150,true,false)==I2sCompletionFault::kNone);
-  assert(single.observe(2048,0,200,true,false)==I2sCompletionFault::kLeftStalled);
   test_large_counter_offset_is_not_a_sync_fault_when_both_advance();
   test_one_sided_stall_requires_two_observation_windows();
   test_both_idle_and_inactive_periods_are_not_sync_faults();

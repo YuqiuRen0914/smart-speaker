@@ -190,17 +190,16 @@
       .wifi-form { grid-template-columns: 1fr; }
     }
   </style>
-<link rel="stylesheet" href="/application.css">
 </head>
 <body>
   <main>
-    <nav class="application-nav" aria-label="设备管理"><a href="/setup">网络</a><a href="/server">服务器</a><a href="/version">系统与升级</a><a href="/debug">日志与诊断</a><a href="/app" aria-current="page">应用</a></nav>
+    <p><a href="/recovery">设备概览、网络、绑定与更新</a></p>
     <header>
       <div>
         <h1>LunarEdu Smart Speaker</h1>
         <div class="message" id="message"></div>
       </div>
-      <a href="/setup">管理网络</a>
+      <div class="status" id="network">网络读取中</div>
     </header>
 
     <section>
@@ -223,7 +222,7 @@
       <div class="message" id="protection"></div>
     </section>
 
-    <details id="audioPanel">
+    <details>
       <summary>高级音频设置</summary><section>
       <div class="controls">
         <label>预设 <select id="eqPreset"><option value="flat">Flat</option><option value="voice">Voice</option><option value="music">Music</option><option value="bass_reduce">Bass Reduce</option></select></label>
@@ -262,15 +261,57 @@
       </div>
     </section>
 
-    <details id="debugPanel">
+    <section>
+      <h2>Wi-Fi</h2>
+      <div class="grid">
+        <div class="stat"><label>连接</label><strong id="wifiState">-</strong></div>
+        <div class="stat"><label>SSID</label><strong id="wifiSsid">-</strong></div>
+        <div class="stat"><label>IP</label><strong id="wifiIp">-</strong></div>
+        <div class="stat"><label>配网热点</label><strong id="wifiAp">-</strong></div>
+      </div>
+      <p><a href="/setup">打开配网设置</a></p>
+      <div class="controls" style="margin-top:12px">
+        <button id="startAp" class="secondary" type="button">开启配网热点</button>
+        <button id="connectSaved" class="secondary" type="button">连接已保存网络</button>
+      </div>
+      <div class="message" id="wifiMessage"></div>
+    </section>
+
+    <details>
+      <summary>维护 · 无线串口</summary><section>
+      <div class="controls">
+        <button id="refreshLogs" class="secondary" type="button">刷新</button>
+        <button id="clearLogs" class="secondary" type="button">清空显示</button>
+        <label class="inline-check"><input id="logsAuto" type="checkbox" checked>自动刷新</label>
+      </div>
+      <pre class="terminal" id="logsOutput">等待应用日志</pre>
+      <p class="hint">设备连入局域网后可直接查看。缓存 app_main 之后最多 96 条应用日志；ROM 和二级 bootloader 日志仍需 USB Serial/JTAG。</p>
+    </section></details>
+
+    <details>
       <summary>维护 · 音频诊断</summary><section>
       <div class="controls">
         <button id="refreshDebug" class="secondary" type="button">刷新</button>
         <button id="clearDebug" class="secondary" type="button">清空显示</button>
         <label class="inline-check"><input id="debugAuto" type="checkbox" checked>自动刷新</label>
       </div>
-      <p class="hint">需要 OS 诊断授权；请在<a href="/debug">日志与诊断</a>页面开启会话，或使用管理员授权。</p>
       <pre class="terminal" id="debugLog"></pre>
+    </section></details>
+
+    <details>
+      <summary>维护 · OTA</summary><section>
+      <p class="hint">选择 lunaredu-smart-speaker.bin，版本必须高于当前版本。上传完成后等待设备重启，再刷新页面确认版本与回滚状态。</p>
+      <div class="hint" id="firmwareIdentity"></div>
+      <div class="upload-row">
+        <input id="firmwareFile" type="file" accept=".bin,application/octet-stream">
+        <button id="uploadOta" type="button">上传固件</button>
+        <button id="cancelOta" class="secondary hidden" type="button">取消上传</button>
+      </div>
+      <div class="upload-status hidden" id="otaStatus">
+        <progress id="otaProgress" value="0" max="100"></progress>
+        <span class="upload-percent" id="otaPercent">0%</span>
+      </div>
+      <div class="message" id="otaMessage"></div>
     </section></details>
 
     <section>
@@ -282,25 +323,24 @@
     </section>
   </main>
 
-  <script src="/device-client.js"></script>
   <script>
     const $ = (id) => document.getElementById(id);
     const buttons = Array.from(document.querySelectorAll("button"));
-    let refreshTimer = null, refreshPromise = null;
-    let playlistRevision = null, audioLoaded = false, debugBlocked = false;
-    let disposed = false, busy = false, polling = false;
-    let mutationRevision=0;
-    let pollAbort = new AbortController();
-    let debugPromise=null;
+    let refreshTimer = null;
+    let debugTimer = null;
+    let logsTimer = null;
+    let latestLogSequence = 0;
+    let renderedLogs = [];
     const uploadState = { active: false, xhr: null, cancelled: false };
+    const otaState = { active: false, xhr: null };
 
-    function setBusy(value) {
-      busy = value;
-      if(value)++mutationRevision;
+    function setBusy(busy) {
       buttons.forEach((button) => {
         if (button.id === "cancelUpload" && uploadState.active) return;
         if (button.id === "upload" && uploadState.active) return;
-        button.disabled = value;
+        if (button.id === "cancelOta" && otaState.active) return;
+        if (button.id === "uploadOta" && otaState.active) return;
+        button.disabled = busy;
       });
     }
 
@@ -312,7 +352,6 @@
 
     function setUploadActive(active) {
       uploadState.active = active;
-      setBusy(active);
       if (active) uploadState.cancelled = false;
       $("file").disabled = active;
       $("upload").disabled = active;
@@ -322,14 +361,20 @@
       if (!active) uploadState.xhr = null;
     }
 
-    function errorMessage(error) {
-      return ({audio_mp3_invalid:'文件不是受支持的 MP3 音频。',audio_file_truncated:'MP3 文件不完整，请检查源文件。',
-        audio_import_read_failed:'上传连接中断，请重新连接后重试。',audio_import_open_failed:'无法保存文件，请检查存储卡。',
-        audio_import_write_failed:'存储卡写入失败，请检查剩余空间。',audio_import_close_failed:'文件保存失败，请检查存储卡。',
-        upload_network_error:'上传连接中断，请重新连接后核对文件。',upload_timeout:'上传超时，请核对文件是否已保存。',
-        upload_cancelled:'上传已取消。',debug_session_required:'请先在 OS 日志与诊断页面开启会话或完成管理员授权。',
-        bound_access_required:'请从已授权的设备管理入口打开此页面。',device_response_invalid:'设备响应无法识别，请重新连接后重试。',
-        device_result_missing:'设备未返回操作结果，请刷新核对。'})[error.code || error.message] || error.message;
+    function setOtaProgress(percent) {
+      const value = Math.max(0, Math.min(100, Math.round(percent)));
+      $("otaProgress").value = value;
+      $("otaPercent").textContent = `${value}%`;
+    }
+
+    function setOtaActive(active) {
+      otaState.active = active;
+      $("firmwareFile").disabled = active;
+      $("uploadOta").disabled = active;
+      $("cancelOta").disabled = !active;
+      $("cancelOta").classList.toggle("hidden", !active);
+      $("otaStatus").classList.toggle("hidden", !active);
+      if (!active) otaState.xhr = null;
     }
 
     function setMessage(text, error = false) {
@@ -337,14 +382,63 @@
       $("message").className = error ? "message error" : "message";
     }
 
-    function bus(operation, payload, options = {}) {
-      return LunarDeviceClient.api('smart_speaker', operation, payload, options);
+    function setWifiMessage(text, error = false) {
+      $("wifiMessage").textContent = text || "";
+      $("wifiMessage").className = error ? "message error" : "message";
     }
+
+    function setOtaMessage(text, error = false) {
+      $("otaMessage").textContent = text || "";
+      $("otaMessage").className = error ? "message error" : "message";
+    }
+
+    async function bus(topic, payload = {}) {
+      const dot = topic.indexOf('.');
+      const module = topic.slice(0, dot);
+      const operation = topic.slice(dot + 1);
+      const query = operation.endsWith('.get') && operation !== 'logs.get' || topic === 'network.provision.status';
+      const response = await fetch(`/api/v1/modules/${module}/${operation}`, {
+        method: query ? 'GET' : 'POST', cache: 'no-store',
+        headers: query ? {} : { 'Content-Type': 'application/json' },
+        ...(query ? {} : { body: JSON.stringify(payload) })
+      });
+      const body = await response.json();
+      if (!response.ok || body.ok === false) throw new Error(body.error?.message || response.statusText);
+      return body.data || {};
+    }
+
     function bulkUpload(file, options = {}) {
-      if(disposed || uploadState.cancelled) return Promise.reject(Object.assign(new Error('upload_cancelled'),{code:'upload_cancelled'}));
-      return LunarDeviceClient.upload(options.url ||
-        `/api/v1/modules/smart_speaker/file.upload?name=${encodeURIComponent(file.name)}`, file,
-        { ...options, onStart(xhr) { uploadState.xhr = xhr; } });
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        const state = options.state || uploadState;
+        state.xhr = xhr;
+        const url = options.url ||
+          `/api/v1/modules/smart_speaker/file.upload?name=${encodeURIComponent(file.name)}`;
+        xhr.open("PUT", url, true);
+        xhr.setRequestHeader("Content-Type", options.contentType || "application/octet-stream");
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable && options.onProgress) {
+            options.onProgress((event.loaded / event.total) * 100);
+          }
+        };
+        xhr.onload = () => {
+          let body = {};
+          try {
+            body = xhr.responseText ? JSON.parse(xhr.responseText) : {};
+          } catch {
+            reject(new Error(xhr.responseText || "upload_response_parse_failed"));
+            return;
+          }
+          if (xhr.status < 200 || xhr.status >= 300 || body.ok === false) {
+            reject(new Error(body.error?.message || body.message || xhr.responseText || xhr.statusText));
+            return;
+          }
+          resolve(body.data || {});
+        };
+        xhr.onerror = () => reject(new Error("upload_network_error"));
+        xhr.onabort = () => reject(new Error("upload_cancelled"));
+        xhr.send(file);
+      });
     }
 
     function debugLine(frame) {
@@ -365,11 +459,8 @@
       ].join(" ");
     }
 
-    function refreshDebug() {
-      if(debugPromise)return debugPromise;
-      debugPromise=(async()=>{
-      const payload = await bus("debug.get",undefined,{signal:pollAbort.signal});
-      if(disposed || document.hidden)return;
+    async function refreshDebug() {
+      const payload = await bus("smart_speaker.debug.get");
       const frames = payload.frames || [];
       const live = payload.dsp && payload.dual_i2s
         ? `DSP ${JSON.stringify(payload.dsp)}\nI2S ${JSON.stringify(payload.dual_i2s)}\n`
@@ -378,8 +469,39 @@
         ? frames.slice(-80).map(debugLine).join("\n")
         : "waiting for audio frames");
       $("debugLog").scrollTop = $("debugLog").scrollHeight;
-      })().finally(()=>{debugPromise=null;});
-      return debugPromise;
+    }
+
+    async function refreshLogs() {
+      const payload = await bus("smart_speaker.logs.get", {
+        after_seq: latestLogSequence,
+        limit: 32
+      });
+      if (payload.gap) renderedLogs = [];
+      for (const entry of payload.entries || []) {
+        renderedLogs.push(entry.text || "");
+        latestLogSequence = Math.max(latestLogSequence, entry.seq || 0);
+      }
+      if (renderedLogs.length > 300) renderedLogs = renderedLogs.slice(-300);
+      const meta = `[buffer ${payload.count || 0}/${payload.capacity || 96}, overwritten=${payload.overwritten || 0}, truncated=${payload.truncated || 0}]`;
+      $("logsOutput").textContent = `${meta}\n${renderedLogs.join("\n")}`;
+      $("logsOutput").scrollTop = $("logsOutput").scrollHeight;
+    }
+
+    async function refreshOta() {
+      try {
+        const payload = await bus("smart_speaker.ota.status.get");
+        $("firmwareIdentity").textContent = `固件 ${payload.version || "-"} · ${payload.rollback_enabled ? "已启用回滚" : "未启用回滚"}`;
+        if (payload.has_result) {
+          setOtaMessage(`${payload.success ? "成功" : "失败"}: ${payload.message || "-"}`,
+                        !payload.success);
+        } else if (payload.upload_active) {
+          setOtaMessage("上传中");
+        } else if (payload.pending_verify) {
+          setOtaMessage(`等待确认: ${payload.boot_confirm_remaining_ms || 0} ms`);
+        }
+      } catch (error) {
+        setOtaMessage(error.message, true);
+      }
     }
 
     function formatBytes(value) {
@@ -412,6 +534,19 @@
       else if (previousStatusError) setMessage('');
       previousStatusError = status.last_error || '';
       $("protection").textContent = status.protection_active ? "扬声器保护正在衰减输出" : "";
+    }
+
+    function renderNetwork(network) {
+      if (!network) return;
+      $("wifiState").textContent = network.connected
+        ? "已连接"
+        : (network.provisioning_active ? "配网中" : "未连接");
+      $("wifiSsid").textContent = network.sta_ssid || "-";
+      $("wifiIp").textContent = network.connected ? (network.ip || "-") : "-";
+      $("wifiAp").textContent = network.ap_ssid || network.provision_ap_name || "-";
+      $("network").textContent = network.connected
+        ? `已连接 ${network.sta_ssid || ""} ${network.ip || ""}`
+        : `配网热点 ${network.ap_ssid || network.provision_ap_name || "-"} ${network.ap_ip || ""}`;
     }
 
     function escapeHtml(value) {
@@ -451,55 +586,72 @@
       `).join("") || `<tr><td colspan="3">暂无 MP3 文件</td></tr>`;
     }
 
-    async function refreshAudio() {
-      const audio = await bus('audio.settings.get',undefined,{signal:pollAbort.signal});
-      if(disposed || document.hidden)return;
-      if (audio.preset !== "custom") $("eqPreset").value = audio.preset || "flat";
-      $("highPassEnabled").checked = !!audio.high_pass_enabled;
-      for (const [id,field,fallback] of [['highPass','high_pass_hz',80],['lowGain','low_gain_db',0],
-        ['midGain','mid_gain_db',0],['highGain','high_gain_db',0],['lowFrequency','low_frequency_hz',120],
-        ['midFrequency','mid_frequency_hz',1000],['midQ','mid_q',1],['highFrequency','high_frequency_hz',8000]]) {
-        $(id).value=audio[field] ?? fallback; $(`${id}Text`).textContent=$(id).value;
+    async function refreshAll() {
+      const [playlist, network, audio] = await Promise.all([
+        bus("smart_speaker.playlist.get").catch(() => null),
+        bus("network.provision.status").catch(() => null),
+        bus("smart_speaker.audio.settings.get").catch(() => null)
+      ]);
+      if (playlist) { renderStatus(playlist.status || {}); renderTracks(playlist.tracks || []); }
+      if (network) {
+        renderNetwork(network);
       }
-      $('testMode').value=audio.test_mode || 'stereo'; audioLoaded=true;
-    }
-    function refreshAll() {
-      if (refreshPromise) return refreshPromise;
-      refreshPromise = (async () => {
-        const revision=mutationRevision;
-        const status=await bus('status.get',undefined,{signal:pollAbort.signal});
-        if(disposed || document.hidden || revision!==mutationRevision)return;
-        renderStatus(status);
-        if(playlistRevision!==status.playlist_revision) {
-          const library=await bus('playlist.get',undefined,{signal:pollAbort.signal});
-          if(disposed || document.hidden || revision!==mutationRevision)return;
-          renderTracks(library.tracks || []);
-          playlistRevision=library.status?.playlist_revision;
-        }
-        if($('audioPanel').open && !audioLoaded)await refreshAudio();
-        if($('debugPanel').open && $('debugAuto').checked && !debugBlocked) {
-          try { await refreshDebug(); }
-          catch(error) { debugBlocked=error.status===401||error.status===403; $('debugLog').textContent=errorMessage(error); }
-        }
-      })().finally(()=>{refreshPromise=null;});
-      return refreshPromise;
-    }
-    async function poll() {
-      if(disposed || polling)return;
-      polling=true;clearTimeout(refreshTimer);
-      try { if(!document.hidden && !busy && !uploadState.active)await refreshAll(); }
-      catch(error) { if(!disposed && error.name!=='AbortError')setMessage(errorMessage(error),true); }
-      finally { polling=false;if(!disposed)refreshTimer=setTimeout(poll,2000); }
+      if (audio) {
+        if (audio.preset !== "custom") $("eqPreset").value = audio.preset || "flat";
+        $("highPassEnabled").checked = !!audio.high_pass_enabled;
+        $("highPass").value = audio.high_pass_hz ?? 80;
+        $("lowGain").value = audio.low_gain_db ?? 0;
+        $("midGain").value = audio.mid_gain_db ?? 0;
+        $("highGain").value = audio.high_gain_db ?? 0;
+        $("lowFrequency").value = audio.low_frequency_hz ?? 120;
+        $("midFrequency").value = audio.mid_frequency_hz ?? 1000;
+        $("midQ").value = audio.mid_q ?? 1;
+        $("highFrequency").value = audio.high_frequency_hz ?? 8000;
+        $("testMode").value = audio.test_mode || "stereo";
+        for (const id of ["highPass", "lowGain", "midGain", "highGain", "lowFrequency", "midFrequency", "midQ", "highFrequency"])
+          $(`${id}Text`).textContent = $(id).value;
+      }
     }
 
     async function control(action, extra = {}) {
       setBusy(true);
       try {
-        const result = await bus("control", { action, ...extra });
+        const result = await bus("smart_speaker.control", { action, ...extra });
         if (result.status) renderStatus(result.status);
         await refreshAll();
       } catch (error) {
-        setMessage(errorMessage(error), true);
+        setMessage(error.message, true);
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function startProvision() {
+      setBusy(true);
+      setWifiMessage("开启中");
+      try {
+        const result = await bus("smart_speaker.provision.start", {
+          mode: "softap",
+          suspend_station: true
+        });
+        renderNetwork(result.status || result);
+        setWifiMessage("热点已开启");
+      } catch (error) {
+        setWifiMessage(error.message, true);
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function connectSavedWifi() {
+      setBusy(true);
+      setWifiMessage("连接中");
+      try {
+        const result = await bus("smart_speaker.provision.connect");
+        renderNetwork(result.status || result);
+        setWifiMessage("已请求连接");
+      } catch (error) {
+        setWifiMessage(error.message, true);
       } finally {
         setBusy(false);
       }
@@ -511,23 +663,65 @@
     $("next").onclick = () => control("next");
     $("stop").onclick = () => control("stop");
     $("refresh").onclick = () => control("rescan");
+    $("startAp").onclick = startProvision;
+    $("connectSaved").onclick = connectSavedWifi;
     $("cancelUpload").onclick = () => {
       uploadState.cancelled = true;
       if (uploadState.xhr) {
         uploadState.xhr.abort();
       }
     };
+    $("cancelOta").onclick = () => {
+      if (otaState.xhr) {
+        otaState.xhr.abort();
+      }
+    };
     $("refreshDebug").onclick = () => refreshDebug().catch((error) => {
-      $("debugLog").textContent = errorMessage(error) || String(error);
+      $("debugLog").textContent = error.message || String(error);
     });
     $("clearDebug").onclick = () => { $("debugLog").textContent = ""; };
+    $("refreshLogs").onclick = () => refreshLogs().catch((error) => {
+      $("logsOutput").textContent = error.message || String(error);
+    });
+    $("clearLogs").onclick = () => {
+      renderedLogs = [];
+      $("logsOutput").textContent = "";
+    };
+    $("uploadOta").onclick = async () => {
+      const file = $("firmwareFile").files && $("firmwareFile").files[0];
+      if (!file) {
+        setOtaMessage("请选择固件", true);
+        return;
+      }
+      if (!file.name.toLowerCase().endsWith(".bin")) {
+        setOtaMessage("只支持 .bin 固件", true);
+        return;
+      }
+      setOtaActive(true);
+      setOtaProgress(0);
+      setOtaMessage(`上传中: ${file.name}`);
+      try {
+        await bulkUpload(file, {
+          state: otaState,
+          url: "/api/v1/modules/smart_speaker/ota.firmware.upload",
+          contentType: "application/octet-stream",
+          onProgress: setOtaProgress
+        });
+        setOtaProgress(100);
+        setOtaMessage("OTA 已提交，设备将重启");
+      } catch (error) {
+        setOtaMessage(error.message === "upload_cancelled" ? "OTA 已取消" : error.message, true);
+      } finally {
+        setOtaActive(false);
+      }
+    };
     $("volume").oninput = () => {
       $("volumeText").textContent = $("volume").value;
     };
     $("volume").onchange = () => control("volume", { volume: Number($("volume").value) });
     async function setAudio(payload) {
-      try { await bus("audio.settings.set", payload); audioLoaded=false; }
-      catch (error) { setMessage(errorMessage(error), true); }
+      try { await bus("smart_speaker.audio.settings.set", payload); }
+      catch (error) { setMessage(error.message, true); }
     }
     $("eqPreset").onchange = () => setAudio({ preset: $("eqPreset").value });
     $("highPassEnabled").onchange = () => setAudio({ high_pass_enabled: $("highPassEnabled").checked });
@@ -536,12 +730,12 @@
       $(id).onchange = () => setAudio({ [field]: Number($(id).value) });
     }
     $("testMode").onchange = async () => {
-      try { await bus("audio.test.set", { mode: $("testMode").value }); }
-      catch (error) { setMessage(errorMessage(error), true); }
+      try { await bus("smart_speaker.audio.test.set", { mode: $("testMode").value }); }
+      catch (error) { setMessage(error.message, true); }
     };
     $("tracks").onclick = async event => {
       const button = event.target.closest('button');
-      if (!button || uploadState.active) return;
+      if (!button || uploadState.active || otaState.active) return;
       if (button.dataset.lyric !== undefined) {
         lyricTarget = libraryTracks[Number(button.dataset.lyric)];
         $("lyricFile").click();
@@ -549,9 +743,9 @@
         const track = libraryTracks[Number(button.dataset.delay)];
         setUploadActive(true);
         try {
-          await bus('lyrics.offset.set', { path: track.path, delay_ms: Math.max(-10000, Math.min(10000, (track.lyrics_delay_ms || 0) + Number(button.dataset.step))) });
+          await bus('smart_speaker.lyrics.offset.set', { path: track.path, delay_ms: Math.max(-10000, Math.min(10000, (track.lyrics_delay_ms || 0) + Number(button.dataset.step))) });
           await refreshAll();
-        } catch (error) { setMessage(errorMessage(error), true); }
+        } catch (error) { setMessage(error.message, true); }
         finally { setUploadActive(false); }
       }
     };
@@ -575,7 +769,7 @@
           if (uploadState.cancelled) throw Error("upload_cancelled");
           setMessage(`正在保存 ${file.name}`);
           if (/\.lrc$/i.test(file.name)) {
-            const playlist = await bus('playlist.get');
+            const playlist = await bus('smart_speaker.playlist.get');
             const matches = (playlist.tracks || []).filter(t => t.name.replace(/\.mp3$/i, '').toLowerCase() === file.name.replace(/\.lrc$/i, '').toLowerCase());
             if (matches.length !== 1) throw Error('歌词未找到唯一的同名歌曲，请在歌曲列表中单独导入。');
             await sendLyric(file, matches[0]);
@@ -587,23 +781,34 @@
         }
         setMessage(`已处理 ${completed} 个文件`); $("file").value = '';
         await refreshAll();
-      } catch (error) { setMessage(`已处理 ${completed} 个文件；${error.code === 'upload_cancelled' ? '上传已取消' : errorMessage(error)}`, true); }
+      } catch (error) { setMessage(`已处理 ${completed} 个文件；${error.message === 'upload_cancelled' ? '上传已取消' : error.message}`, true); }
       finally { setUploadActive(false); }
     };
 
-    $('audioPanel').addEventListener('toggle',()=>{if($('audioPanel').open){audioLoaded=false;void poll();}});
-    $('debugPanel').addEventListener('toggle',()=>{if($('debugPanel').open){debugBlocked=false;void poll();}});
-    document.addEventListener('visibilitychange',()=>{if(!document.hidden)void poll();});
-    window.addEventListener('pagehide',()=>{
-      disposed=true;uploadState.cancelled=true;clearTimeout(refreshTimer);pollAbort.abort();uploadState.xhr?.abort();
+    refreshAll().catch((error) => setMessage(error.message, true));
+    refreshOta();
+    refreshDebug().catch(() => {});
+    refreshLogs().catch(() => {});
+    refreshTimer = setInterval(() => {
+      if (uploadState.active || otaState.active) return;
+      refreshAll().catch(() => {});
+      refreshOta();
+    }, 3000);
+    debugTimer = setInterval(() => {
+      if ($("debugAuto").checked && !uploadState.active && !otaState.active) {
+        refreshDebug().catch(() => {});
+      }
+    }, 1000);
+    logsTimer = setInterval(() => {
+      if ($("logsAuto").checked && !uploadState.active && !otaState.active) {
+        refreshLogs().catch(() => {});
+      }
+    }, 1000);
+    window.addEventListener("beforeunload", () => {
+      clearInterval(refreshTimer);
+      clearInterval(debugTimer);
+      clearInterval(logsTimer);
     });
-    window.addEventListener('pageshow',()=>{
-      if(!disposed)return;
-      disposed=false;pollAbort=new AbortController();
-      playlistRevision=null;audioLoaded=false;debugBlocked=false;
-      void poll();
-    });
-    void poll();
   </script>
 </body>
 </html>

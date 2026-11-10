@@ -1,5 +1,3 @@
-#include "device_api/device_operation_builders.h"
-#include "model/device_model.h"
 #include "lunaredu_device_sdcard_storage.h"
 #include "lunaredu_device_sdcard_tfcard_store.h"
 
@@ -7,8 +5,9 @@
 #include <string.h>
 
 #include "bsp/lunaredu_bsp.h"
-#include "device_api/device_projection.h"
-#include <esp_log.h>
+#include "lunaredu_lunaros/device_api/device_projection.h"
+#include "lunaredu_lunaros/kernel/log.h"
+#include "lunaredu_lunaros/device_api/device_projection_json.h"
 
 namespace lunaredu::device {
 
@@ -18,12 +17,13 @@ using lunaredu::lunaros::DeviceModuleProjection;
 using lunaredu::lunaros::DeviceModuleProjectionMetadata;
 using lunaredu::lunaros::DeviceOperationDefinition;
 using lunaredu::lunaros::DeviceOperationResult;
-using lunaredu::lunaros::DeviceProjectionBinding;
-using lunaredu::lunaros::DeviceProjectionRegistry;
+using lunaredu::lunaros::activate_device_capability;
+using lunaredu::lunaros::deactivate_device_capability;
 using lunaredu::lunaros::device_operation_ack;
 using lunaredu::lunaros::device_operation_error;
 using lunaredu::lunaros::make_device_json_command;
 using lunaredu::lunaros::make_device_json_provider;
+using lunaredu::lunaros::register_device_projection;
 
 namespace {
 
@@ -36,26 +36,24 @@ const DeviceCapabilityDescriptor kTfCardCapability = {
 constexpr const char *kTfCardMountPath = "/sdcard";
 std::recursive_mutex g_tfcard_mutex;
 bool g_tfcard_setup = false;
-DeviceProjectionBinding g_projection;
+bool g_tfcard_local_api_registered = false;
 
 void fill_tfcard_store_payload(JsonObject payload);
 
-void fill_tfcard_current_status_payload(lunaredu::lunaros::DeviceApiContext &,
-                                        JsonObject payload) {
+void fill_tfcard_current_status_payload(JsonObject payload) {
   fill_tfcard_store_payload(payload);
 }
 
 void sync_tfcard_active_capability() {
   if (bsp_sdcard_get_status().mounted) {
-    (void)g_projection.activate(kTfCardCapability);
+    activate_device_capability(kTfCardCapability);
     return;
   }
-  g_projection.deactivate(kTfCardCapability.id);
+  deactivate_device_capability(kTfCardCapability.id);
 }
 
 DeviceOperationResult handle_tfcard_mount(
-    lunaredu::lunaros::DeviceApiContext &, JsonVariantConst request_payload,
-    JsonObject response_payload) {
+    JsonVariantConst request_payload, JsonObject response_payload) {
   (void)request_payload;
   if (!tfcard_store_mount()) {
     fill_tfcard_store_payload(response_payload);
@@ -68,8 +66,7 @@ DeviceOperationResult handle_tfcard_mount(
 }
 
 DeviceOperationResult handle_tfcard_unmount(
-    lunaredu::lunaros::DeviceApiContext &, JsonVariantConst request_payload,
-    JsonObject response_payload) {
+    JsonVariantConst request_payload, JsonObject response_payload) {
   (void)request_payload;
   if (!tfcard_store_unmount()) {
     fill_tfcard_store_payload(response_payload);
@@ -106,22 +103,29 @@ const DeviceMetadataProjection kTfCardMetadata = {
     nullptr,
 };
 
+bool setup_tfcard_local_api() {
+  if (g_tfcard_local_api_registered) {
+    return true;
+  }
+
+  g_tfcard_local_api_registered = register_device_projection(
+      {&kTfCardCapability, &kTfCardLocalApi, &kTfCardMetadata, false});
+  if (!g_tfcard_local_api_registered) {
+    LOGW("device.tfcard", "device contract registration failed");
+  }
+  return g_tfcard_local_api_registered;
+}
+
 } // 匿名命名空间
 
 const DeviceCapabilityDescriptor &tfcard_store_capability_descriptor() {
   return kTfCardCapability;
 }
 
-bool declare_tfcard_store_projection(DeviceProjectionRegistry &registry,
-                                     std::string &error) {
-  return g_projection.declare(
-      registry, {&kTfCardCapability, &kTfCardLocalApi, &kTfCardMetadata, false},
-      error);
-}
-
 bool setup_tfcard_store(bool mount_now) {
   std::lock_guard<std::recursive_mutex> lock(g_tfcard_mutex);
   g_tfcard_setup = true;
+  setup_tfcard_local_api();
   if (!mount_now) {
     sync_tfcard_active_capability();
     return true;
@@ -133,7 +137,7 @@ void tfcard_store_deinit() {
   std::lock_guard<std::recursive_mutex> lock(g_tfcard_mutex);
   const esp_err_t result = bsp_sdcard_unmount();
   if (result != ESP_OK) {
-    ESP_LOGW("device.tfcard", "tf card deinit unmount failed: %s",
+    LOGW("device.tfcard", "tf card deinit unmount failed: %s",
          esp_err_to_name(result));
   } else {
     g_tfcard_setup = false;
@@ -144,14 +148,15 @@ void tfcard_store_deinit() {
 bool tfcard_store_mount() {
   std::lock_guard<std::recursive_mutex> lock(g_tfcard_mutex);
   g_tfcard_setup = true;
+  setup_tfcard_local_api();
   const esp_err_t result = bsp_sdcard_mount(kTfCardMountPath);
   if (result != ESP_OK) {
     sync_tfcard_active_capability();
-    ESP_LOGW("device.tfcard", "tf card mount failed: %s", esp_err_to_name(result));
+    LOGW("device.tfcard", "tf card mount failed: %s", esp_err_to_name(result));
     return false;
   }
   sync_tfcard_active_capability();
-  ESP_LOGI("device.tfcard", "tf card mounted path=%s", kTfCardMountPath);
+  LOGI("device.tfcard", "tf card mounted path=%s", kTfCardMountPath);
   return true;
 }
 
@@ -159,7 +164,7 @@ bool tfcard_store_unmount() {
   std::lock_guard<std::recursive_mutex> lock(g_tfcard_mutex);
   const esp_err_t result = bsp_sdcard_unmount();
   if (result != ESP_OK) {
-    ESP_LOGW("device.tfcard", "tf card unmount failed: %s", esp_err_to_name(result));
+    LOGW("device.tfcard", "tf card unmount failed: %s", esp_err_to_name(result));
     return false;
   }
   sync_tfcard_active_capability();

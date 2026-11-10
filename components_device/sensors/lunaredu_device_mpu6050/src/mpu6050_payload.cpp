@@ -1,7 +1,6 @@
 #include "mpu6050_local_api.h"
 
-#include "device_api/device_operation_types.h"
-#include "device_api/device_api_context.h"
+#include "lunaredu_lunaros/device_api/device_projection_json.h"
 
 namespace lunaredu::device {
 
@@ -56,10 +55,10 @@ void fill_pose_payload(JsonObject payload, const Mpu6050Pose &pose) {
 } // namespace
 
 DeviceOperationResult fill_mpu6050_status_payload(
-    lunaredu::lunaros::DeviceApiContext &device, JsonObject payload) {
+    JsonObject payload) {
   Mpu6050Status status;
   std::string error;
-  if (!dispatch_mpu6050_status(device.runtime, &status, error)) {
+  if (!dispatch_mpu6050_status(&status, error)) {
     return device_operation_error(
         error.empty() ? "mpu6050_status_unavailable" : error.c_str(), 500,
         "mpu6050_payload_unavailable");
@@ -70,12 +69,12 @@ DeviceOperationResult fill_mpu6050_status_payload(
 }
 
 DeviceOperationResult handle_mpu6050_sampling_start(
-    lunaredu::lunaros::DeviceApiContext &device, JsonVariantConst request_payload, JsonObject response_payload) {
+    JsonVariantConst request_payload, JsonObject response_payload) {
   (void)request_payload;
 
   Mpu6050Status status;
   std::string error;
-  if (!dispatch_mpu6050_start_sampling(device.runtime, &status, error)) {
+  if (!dispatch_mpu6050_start_sampling(&status, error)) {
     return device_operation_error(
         error.empty() ? "mpu6050_sampling_start_failed" : error.c_str(), 400,
         "mpu6050_payload_unavailable");
@@ -86,12 +85,12 @@ DeviceOperationResult handle_mpu6050_sampling_start(
 }
 
 DeviceOperationResult handle_mpu6050_sampling_stop(
-    lunaredu::lunaros::DeviceApiContext &device, JsonVariantConst request_payload, JsonObject response_payload) {
+    JsonVariantConst request_payload, JsonObject response_payload) {
   (void)request_payload;
 
   Mpu6050Status status;
   std::string error;
-  if (!dispatch_mpu6050_stop_sampling(device.runtime, &status, error)) {
+  if (!dispatch_mpu6050_stop_sampling(&status, error)) {
     return device_operation_error(
         error.empty() ? "mpu6050_sampling_stop_failed" : error.c_str(), 500,
         "mpu6050_payload_unavailable");
@@ -102,7 +101,7 @@ DeviceOperationResult handle_mpu6050_sampling_stop(
 }
 
 DeviceOperationResult handle_mpu6050_config_set(
-    lunaredu::lunaros::DeviceApiContext &device, JsonVariantConst request_payload, JsonObject response_payload) {
+    JsonVariantConst request_payload, JsonObject response_payload) {
   const uint16_t sample_rate_hz =
       static_cast<uint16_t>(request_payload["sample_rate_hz"] | 0);
   if (sample_rate_hz == 0) {
@@ -112,7 +111,7 @@ DeviceOperationResult handle_mpu6050_config_set(
 
   Mpu6050Status status;
   std::string error;
-  if (!dispatch_mpu6050_set_sample_rate(device.runtime, sample_rate_hz, &status, error)) {
+  if (!dispatch_mpu6050_set_sample_rate(sample_rate_hz, &status, error)) {
     return device_operation_error(
         error.empty() ? "mpu6050_config_set_failed" : error.c_str(), 400,
         "mpu6050_payload_unavailable");
@@ -123,10 +122,10 @@ DeviceOperationResult handle_mpu6050_config_set(
 }
 
 DeviceOperationResult fill_mpu6050_telemetry_latest_payload(
-    lunaredu::lunaros::DeviceApiContext &device, JsonObject payload) {
+    JsonObject payload) {
   Mpu6050Status status;
   std::string error;
-  if (!dispatch_mpu6050_status(device.runtime, &status, error)) {
+  if (!dispatch_mpu6050_status(&status, error)) {
     return device_operation_error(
         error.empty() ? "mpu6050_telemetry_unavailable" : error.c_str(), 500,
         "mpu6050_payload_unavailable");
@@ -137,14 +136,14 @@ DeviceOperationResult fill_mpu6050_telemetry_latest_payload(
 }
 
 DeviceOperationResult fill_mpu6050_telemetry_batch_payload(
-    lunaredu::lunaros::DeviceApiContext &device, JsonVariantConst request_payload, JsonObject response_payload) {
+    JsonVariantConst request_payload, JsonObject response_payload) {
   const uint32_t after_seq =
       static_cast<uint32_t>(request_payload["after_seq"] | 0);
   const uint16_t limit = static_cast<uint16_t>(request_payload["limit"] | 8);
 
   JsonDocument document;
   std::string error;
-  if (!dispatch_mpu6050_fill_telemetry_batch_payload(device.runtime, document, after_seq, limit,
+  if (!dispatch_mpu6050_fill_telemetry_batch_payload(document, after_seq, limit,
                                                      error)) {
     return device_operation_error(
         error.empty() ? "mpu6050_telemetry_unavailable" : error.c_str(), 500,
@@ -160,7 +159,6 @@ void fill_mpu6050_status_payload(JsonObject payload,
   payload["ok"] = status.ok;
   payload["initialized"] = status.initialized;
   payload["sampling"] = status.sampling;
-  payload["sleeping"] = status.sleeping;
   payload["i2c_address"] = status.i2c_address;
   payload["who_am_i"] = status.who_am_i;
   payload["sample_rate_hz"] = status.sample_rate_hz;

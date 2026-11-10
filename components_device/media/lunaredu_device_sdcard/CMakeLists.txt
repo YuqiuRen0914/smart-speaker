@@ -13,13 +13,12 @@ if(CONFIG_LUNAREDU_DEVICE_STORAGE_SDCARD)
 endif()
 
 idf_component_register(
-    SRCS src/example.cpp src/native_session.cpp ${device_sources}
+    SRCS src/test.cpp ${device_sources}
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"
-    PRIV_REQUIRES device_api fatfs sdmmc esp_driver_sdmmc esp_driver_gpio freertos esp_timer vfs bsp core
+    PRIV_REQUIRES esp_timer lunaredu_bsp lunaros
 )
 
 if(device_sources)
     target_compile_options(${COMPONENT_LIB} PRIVATE -Wno-shadow -Wno-conversion)
 endif()
-

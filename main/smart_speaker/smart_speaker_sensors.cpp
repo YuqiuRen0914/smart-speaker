@@ -1,6 +1,7 @@
 #include "smart_speaker_sensors.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <mutex>
 
@@ -9,8 +10,6 @@
 #include <esp_err.h>
 #include <esp_log.h>
 #include <esp_timer.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
 
 #include "lunaredu_device_mpu6050_imu.h"
 #include "sdkconfig.h"
@@ -25,17 +24,37 @@ constexpr uint32_t kTouchClockHz = 100000;
 constexpr uint32_t kMpuClockHz = 100000;
 constexpr uint8_t kMpuRegisterWhoAmI = 0x75;
 constexpr uint32_t kTouchPollMs = 20;
+constexpr uint32_t kTapMaxMs = 450;
+constexpr uint32_t kLongPressMs = 900;
+constexpr uint16_t kSwipeThreshold = 45;
 
 std::mutex g_mutex;
 i2c_master_bus_handle_t g_mpu_bus = nullptr;
 i2c_master_bus_handle_t g_touch_bus = nullptr;
 i2c_master_dev_handle_t g_touch_device = nullptr;
 bool g_setup_attempted = false;
-bool g_imu_running = false;
-lunaredu::services::imu::ImuService *g_imu_service = nullptr;
 uint32_t g_last_touch_poll_ms = 0;
 SmartSpeakerMpuSnapshot g_mpu;
 SmartSpeakerTouchSnapshot g_touch;
+SmartSpeakerMotionInput g_motion;
+TouchGesture g_pending_gesture = TouchGesture::None;
+bool g_motion_zero_valid = false;
+float g_motion_zero_x = 0;
+float g_motion_zero_y = 0;
+float g_motion_twist_z = 0;
+uint32_t g_motion_last_pose_ms = 0;
+
+struct TouchPressState {
+  bool active = false;
+  bool long_sent = false;
+  uint32_t started_ms = 0;
+  uint16_t start_x = 0;
+  uint16_t start_y = 0;
+  uint16_t last_x = 0;
+  uint16_t last_y = 0;
+};
+TouchPressState g_press;
+
 uint32_t now_ms() {
   return static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
 }
@@ -148,6 +167,13 @@ void read_mpu_identity_locked(uint8_t address) {
   ESP_LOGI(kTag, "MPU address=0x%02x WHO_AM_I=0x%02x", address, value);
 }
 
+float angle_delta(float value, float zero) {
+  float delta = value - zero;
+  while (delta > 180.0f) delta -= 360.0f;
+  while (delta < -180.0f) delta += 360.0f;
+  return delta;
+}
+
 void set_touch_error_locked(const std::string &error) {
   g_touch.last_error = error;
   if (!error.empty()) ESP_LOGW(kTag, "touch: %s", error.c_str());
@@ -188,8 +214,75 @@ bool setup_touch_locked() {
       return true;
     }
   }
+  unsigned found = 0;
+  for (uint8_t address = 0x08; address < 0x78; ++address) {
+    if (i2c_master_probe(g_touch_bus, address, 20) == ESP_OK) {
+      ++found;
+      ESP_LOGI(kTag, "[DEBUG-speaker-io] touch bus responds address=0x%02x", address);
+    }
+  }
+  ESP_LOGI(kTag, "[DEBUG-speaker-io] touch scan SDA=%d SCL=%d devices=%u levels=%d/%d int=%d",
+           CONFIG_LUNAREDU_SMART_SPEAKER_TOUCH_SDA_GPIO,
+           CONFIG_LUNAREDU_SMART_SPEAKER_TOUCH_SCL_GPIO, found,
+           gpio_get_level(static_cast<gpio_num_t>(CONFIG_LUNAREDU_SMART_SPEAKER_TOUCH_SDA_GPIO)),
+           gpio_get_level(static_cast<gpio_num_t>(CONFIG_LUNAREDU_SMART_SPEAKER_TOUCH_SCL_GPIO)),
+           gpio_get_level(static_cast<gpio_num_t>(CONFIG_LUNAREDU_SMART_SPEAKER_TOUCH_INT_GPIO)));
   set_touch_error_locked("touch_controller_not_found");
   return false;
+}
+
+void publish_gesture_locked(TouchGesture gesture) {
+  if (gesture == TouchGesture::None) return;
+  g_pending_gesture = gesture;
+  ++g_touch.gesture_count;
+}
+
+void update_touch_gesture_locked(bool pressed, uint16_t x, uint16_t y) {
+  const uint32_t now = now_ms();
+  if (pressed) {
+    if (!g_press.active) {
+      TouchPressState press;
+      press.active = true;
+      press.started_ms = now;
+      press.start_x = x;
+      press.start_y = y;
+      press.last_x = x;
+      press.last_y = y;
+      g_press = press;
+    } else {
+      g_press.last_x = x;
+      g_press.last_y = y;
+      const uint16_t dx = static_cast<uint16_t>(
+          std::abs(static_cast<int>(x) - static_cast<int>(g_press.start_x)));
+      const uint16_t dy = static_cast<uint16_t>(
+          std::abs(static_cast<int>(y) - static_cast<int>(g_press.start_y)));
+      if (!g_press.long_sent && now - g_press.started_ms >= kLongPressMs &&
+          dx < kSwipeThreshold && dy < kSwipeThreshold) {
+        g_press.long_sent = true;
+        publish_gesture_locked(TouchGesture::LongPress);
+      }
+    }
+    return;
+  }
+  if (!g_press.active) return;
+  const int dx = static_cast<int>(g_press.last_x) - g_press.start_x;
+  const int dy = static_cast<int>(g_press.last_y) - g_press.start_y;
+  const uint32_t duration = now - g_press.started_ms;
+  if (g_press.long_sent) {
+    publish_gesture_locked(TouchGesture::LongPressRelease);
+  } else {
+    if (std::abs(dx) >= kSwipeThreshold &&
+        std::abs(dx) > std::abs(dy)) {
+      publish_gesture_locked(dx > 0 ? TouchGesture::SwipeRight
+                                    : TouchGesture::SwipeLeft);
+    } else if (std::abs(dy) >= kSwipeThreshold) {
+      publish_gesture_locked(dy > 0 ? TouchGesture::SwipeDown
+                                    : TouchGesture::SwipeUp);
+    } else if (duration <= kTapMaxMs) {
+      publish_gesture_locked(TouchGesture::Tap);
+    }
+  }
+  g_press = {};
 }
 
 void sample_touch_locked() {
@@ -201,9 +294,9 @@ void sample_touch_locked() {
                                   100);
   if (result != ESP_OK) {
     g_touch.pressed = false;
-    g_touch.contact_count = 0;
     set_touch_error_locked(std::string("touch_read_failed:") +
                            esp_err_to_name(result));
+    update_touch_gesture_locked(false, g_touch.x, g_touch.y);
     return;
   }
   const uint8_t touch_count = std::min<uint8_t>(data[2] & 0x0f, 2);
@@ -219,12 +312,11 @@ void sample_touch_locked() {
     y = std::min<uint16_t>(y, 239);
   }
   g_touch.pressed = pressed;
-  g_touch.contact_count = pressed?touch_count:0;
   g_touch.x = x;
   g_touch.y = y;
   ++g_touch.sample_count;
-  g_touch.sampled_at_ms = now_ms();
   set_touch_error_locked("");
+  update_touch_gesture_locked(pressed, x, y);
 }
 
 bool setup_mpu_locked() {
@@ -301,109 +393,75 @@ void update_mpu_snapshot_locked() {
   if (!status.initialized && g_mpu.scan_complete && !g_mpu.last_error.empty()) {
     g_mpu.last_error += " scan=" + format_addresses(g_mpu);
   }
-
-}
-
-bool stop_mpu_locked(std::string &error) {
-  lunaredu::device::mpu6050_stop_sampling();
-  g_imu_running = false;
-  if (!lunaredu::device::mpu6050_deinit()) {
-    error = "mpu6050_deinit_failed";
-    return false;
-  }
-  if (g_mpu_bus != nullptr) {
-    const esp_err_t result = i2c_del_master_bus(g_mpu_bus);
-    if (result != ESP_OK) {
-      error = std::string("mpu_i2c_release_failed:") + esp_err_to_name(result);
-      return false;
+  if (status.pose.valid) {
+    if (!g_motion_zero_valid) {
+      g_motion_zero_valid = true;
+      g_motion_zero_x = status.pose.angle_x;
+      g_motion_zero_y = status.pose.angle_y;
+      g_motion = {};
+      g_motion_twist_z = 0;
+      g_motion_last_pose_ms = status.pose.t_ms;
     }
-    g_mpu_bus = nullptr;
+    const float tilt_x =
+        std::clamp(angle_delta(status.pose.angle_x, g_motion_zero_x),
+                   -25.0f, 25.0f);
+    const float tilt_y =
+        std::clamp(angle_delta(status.pose.angle_y, g_motion_zero_y),
+                   -25.0f, 25.0f);
+    // MPU6050 has no magnetometer, so absolute yaw drifts indefinitely.
+    // Treat Z gyro motion as a short, damped turn impulse instead of exposing
+    // the accumulated yaw angle; the pet reacts to a twist and then settles.
+    float dt_s = 0.02f;
+    if (g_motion_last_pose_ms != 0 && status.pose.t_ms >= g_motion_last_pose_ms) {
+      dt_s = std::clamp((status.pose.t_ms - g_motion_last_pose_ms) * 0.001f,
+                        0.005f, 0.1f);
+    }
+    g_motion_last_pose_ms = status.pose.t_ms;
+    g_motion_twist_z += status.pose.gyro_z_dps * dt_s;
+    g_motion_twist_z *= std::exp(-dt_s * 3.8f);
+    g_motion_twist_z = std::clamp(g_motion_twist_z, -18.0f, 18.0f);
+    g_motion.valid = true;
+    g_motion.tilt_x = g_motion.tilt_x * 0.86f + tilt_x * 0.14f;
+    g_motion.tilt_y = g_motion.tilt_y * 0.86f + tilt_y * 0.14f;
+    g_motion.twist_z = g_motion.twist_z * 0.72f + g_motion_twist_z * 0.28f;
+    const float angular_speed = std::sqrt(
+        status.pose.gyro_x_dps * status.pose.gyro_x_dps +
+        status.pose.gyro_y_dps * status.pose.gyro_y_dps +
+        status.pose.gyro_z_dps * status.pose.gyro_z_dps);
+    g_motion.angular_speed_dps = g_motion.angular_speed_dps * 0.72f +
+        std::clamp(angular_speed, 0.0f, 360.0f) * 0.28f;
+  } else {
+    g_motion.valid = false;
+    g_motion_zero_valid = false;
+    g_motion_last_pose_ms = 0;
+    g_motion_twist_z = 0;
+    g_motion.tilt_x *= 0.94f;
+    g_motion.tilt_y *= 0.94f;
+    g_motion.twist_z *= 0.94f;
+    g_motion.angular_speed_dps *= 0.94f;
   }
-  g_mpu = {};
-  error.clear();
-  return true;
 }
 
 } // namespace
 
 bool setup_smart_speaker_sensors() {
   std::lock_guard<std::mutex> lock(g_mutex);
-  if (g_setup_attempted) return g_touch.initialized;
+  if (g_setup_attempted) return g_mpu.initialized || g_touch.initialized;
   g_setup_attempted = true;
-  return setup_touch_locked();
+  const bool mpu = setup_mpu_locked();
+  const bool touch = setup_touch_locked();
+  return mpu || touch;
 }
 
 void tick_smart_speaker_sensors() {
-  if (g_imu_service != nullptr) {
-    lunaredu::services::imu::ImuSample sample;
-    std::string error;
-    (void)g_imu_service->snapshot(sample, error);
-  }
   std::lock_guard<std::mutex> lock(g_mutex);
   if (!g_setup_attempted) return;
+  update_mpu_snapshot_locked();
   const uint32_t now = now_ms();
   if (now - g_last_touch_poll_ms >= kTouchPollMs) {
     g_last_touch_poll_ms = now;
     sample_touch_locked();
   }
-}
-
-void set_smart_speaker_imu_service(
-    lunaredu::services::imu::ImuService *service) {
-  g_imu_service = service;
-}
-
-bool start_smart_speaker_imu(std::string &error) {
-  std::lock_guard<std::mutex> lock(g_mutex);
-  if (g_imu_running) { error.clear(); return true; }
-  if (!setup_mpu_locked()) {
-    error = g_mpu.last_error.empty() ? "mpu6050_setup_failed" : g_mpu.last_error;
-    std::string cleanup_error;
-    if (!stop_mpu_locked(cleanup_error)) error += ";" + cleanup_error;
-    g_mpu.last_error = error;
-    return false;
-  }
-  // The IMU service probes its source during start. Allow the 50 Hz driver
-  // several sample intervals before deciding whether the sensor is ready.
-  for (unsigned attempt = 0; attempt < 6; ++attempt) {
-    update_mpu_snapshot_locked();
-    const auto status = lunaredu::device::mpu6050_status();
-    if (status.ok && status.latest.valid) {
-      g_imu_running = true;
-      error.clear();
-      return true;
-    }
-    vTaskDelay(pdMS_TO_TICKS(20));
-  }
-  error = g_mpu.last_error.empty() ? "mpu6050_first_sample_missing"
-                                   : g_mpu.last_error;
-  std::string cleanup_error;
-  if (!stop_mpu_locked(cleanup_error)) error += ";" + cleanup_error;
-  g_mpu.last_error = error;
-  return false;
-}
-
-bool read_smart_speaker_imu(lunaredu::services::imu::ImuSample &sample,
-                            std::string &error) {
-  std::lock_guard<std::mutex> lock(g_mutex);
-  if (!g_imu_running) { error = "mpu6050_not_running"; return false; }
-  update_mpu_snapshot_locked();
-  const auto status = lunaredu::device::mpu6050_status();
-  if (!status.ok || !status.latest.valid) {
-    error = status.last_error.empty() ? "mpu6050_read_failed" : status.last_error;
-    return false;
-  }
-  sample.accel_g = {status.latest.accel_g_x, status.latest.accel_g_y,
-                    status.latest.accel_g_z};
-  sample.gyro_dps = {status.latest.gyro_dps_x, status.latest.gyro_dps_y,
-                     status.latest.gyro_dps_z};
-  error.clear();
-  return true;
-}
-
-bool stop_smart_speaker_imu(std::string &error) {
-  std::lock_guard<std::mutex> lock(g_mutex);
-  return stop_mpu_locked(error);
 }
 
 SmartSpeakerMpuSnapshot smart_speaker_mpu_snapshot() {
@@ -416,6 +474,38 @@ SmartSpeakerTouchSnapshot smart_speaker_touch_snapshot() {
   return g_touch;
 }
 
+SmartSpeakerMotionInput smart_speaker_motion_input() {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  return g_motion;
+}
 
+TouchGesture smart_speaker_take_touch_gesture() {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  const TouchGesture gesture = g_pending_gesture;
+  g_pending_gesture = TouchGesture::None;
+  return gesture;
+}
+
+const char *touch_gesture_name(TouchGesture gesture) {
+  switch (gesture) {
+    case TouchGesture::Tap:
+      return "tap";
+    case TouchGesture::LongPress:
+      return "long_press";
+    case TouchGesture::LongPressRelease:
+      return "long_press_release";
+    case TouchGesture::SwipeLeft:
+      return "swipe_left";
+    case TouchGesture::SwipeRight:
+      return "swipe_right";
+    case TouchGesture::SwipeUp:
+      return "swipe_up";
+    case TouchGesture::SwipeDown:
+      return "swipe_down";
+    case TouchGesture::None:
+    default:
+      return "none";
+  }
+}
 
 } // namespace smart_speaker

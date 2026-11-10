@@ -1,7 +1,5 @@
 #include "lunaredu_device_spi_lcd.h"
-#include "lunaredu_device_rgb565_transfer.h"
 
-#include <algorithm>
 #include <mutex>
 
 #include <driver/gpio.h>
@@ -155,18 +153,6 @@ esp_err_t validate_bsp_spi_pins(const DeviceSpiLcdConfig &config) {
   return ESP_OK;
 }
 
-int spi_transfer_capacity(const DeviceSpiLcdConfig &config) {
-  const size_t rgb565_bytes = static_cast<size_t>(config.width) *
-                              config.height * sizeof(uint16_t);
-#if CONFIG_LUNAREDU_DEVICE_DISPLAY_SPI_LCD_3WIRE_9BIT
-  if (config.controller == DeviceSpiLcdController::kSt7789 && config.three_wire_9bit)
-    return static_cast<int>(kSt7789ThreeWirePackedChunkBytes);
-#endif
-  if (config.controller == DeviceSpiLcdController::kSt7789 && !config.three_wire_9bit)
-    return static_cast<int>(kRgb565TransferBufferBytes);
-  return static_cast<int>(rgb565_bytes);
-}
-
 bsp_spi_bus_t make_bsp_spi_bus(const DeviceSpiLcdConfig &config) {
   return {
       .id = kOwner,
@@ -174,7 +160,9 @@ bsp_spi_bus_t make_bsp_spi_bus(const DeviceSpiLcdConfig &config) {
       .mosi_pin = config.mosi_gpio,
       .miso_pin = config.miso_gpio,
       .sclk_pin = config.sclk_gpio,
-      .max_transfer_sz = spi_transfer_capacity(config),
+      .max_transfer_sz = static_cast<int>(config.width) *
+                         static_cast<int>(config.height) *
+                         static_cast<int>(sizeof(uint16_t)),
       .resource = BSP_RESOURCE_EXPANSION_SPI1,
   };
 }
@@ -321,7 +309,9 @@ esp_err_t device_spi_lcd_create_panel(const DeviceSpiLcdConfig &config,
     bus_config.sclk_io_num = config.sclk_gpio;
     bus_config.quadwp_io_num = GPIO_NUM_NC;
     bus_config.quadhd_io_num = GPIO_NUM_NC;
-    bus_config.max_transfer_sz = spi_transfer_capacity(config);
+    bus_config.max_transfer_sz =
+        static_cast<int>(config.width) * static_cast<int>(config.height) *
+        static_cast<int>(sizeof(uint16_t));
 
     const esp_err_t result =
         spi_bus_initialize(spi_host, &bus_config, SPI_DMA_CH_AUTO);
@@ -353,29 +343,15 @@ esp_err_t device_spi_lcd_create_panel(const DeviceSpiLcdConfig &config,
     io_config.dc_gpio_num = to_gpio(config.dc_gpio);
     io_config.spi_mode = config.spi_mode;
     io_config.pclk_hz = config.pixel_clock_hz;
-    io_config.trans_queue_depth = config.controller == DeviceSpiLcdController::kSt7789 ? 2 : 10;
+    io_config.trans_queue_depth = 10;
     io_config.lcd_cmd_bits = 8;
     io_config.lcd_param_bits = 8;
-    if (config.controller == DeviceSpiLcdController::kSt7789) {
-      // ST7789 reference timings require >=15ns CS setup/hold. Round a
-      // 20ns guard up to SPI bit cycles (40MHz: 1, 80MHz: 2). The default
-      // zero setup and one implicit hold cycle give no margin at 80MHz.
-      const auto guard = static_cast<uint8_t>(std::clamp<uint64_t>(
-          (uint64_t{config.pixel_clock_hz} + 49999999) / 50000000, 1, 16));
-      io_config.cs_ena_pretrans = guard;
-      io_config.cs_ena_posttrans = guard;
-      ESP_LOGI(kLogTag, "ST7789 CS setup/hold guard=%u SPI cycles", guard);
-    }
     result = esp_lcd_new_panel_io_spi(spi_host, &io_config, &panel_io);
     if (result == ESP_OK) {
       esp_lcd_panel_dev_config_t panel_config = {};
       panel_config.reset_gpio_num = to_gpio(config.reset_gpio);
       panel_config.rgb_ele_order = rgb_order(config);
       panel_config.bits_per_pixel = 16;
-      // The official ST7789 driver programs RAMCTRL for little-endian RGB565.
-      // Native frames no longer need a software swap on this four-wire path.
-      if(config.controller==DeviceSpiLcdController::kSt7789)
-        panel_config.data_endian=LCD_RGB_DATA_ENDIAN_LITTLE;
 
       switch (config.controller) {
       case DeviceSpiLcdController::kIli9488:
@@ -439,7 +415,7 @@ esp_err_t device_spi_lcd_create_panel(const DeviceSpiLcdConfig &config,
   panel_out->mirror_y = config.mirror_y;
   panel_out->swap_xy = config.swap_xy;
   panel_out->rgb565_panel_byte_swap =
-      config.controller == DeviceSpiLcdController::kSt7789 && config.three_wire_9bit;
+      config.controller == DeviceSpiLcdController::kSt7789;
   panel_out->backlight_gpio = config.backlight_gpio;
   panel_out->backlight_invert = config.backlight_invert;
 

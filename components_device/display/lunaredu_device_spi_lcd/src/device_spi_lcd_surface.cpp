@@ -4,29 +4,17 @@
 #include <array>
 #include <cstdint>
 #include <mutex>
-#include <memory>
 #include <string>
 #include <vector>
-#include <lvgl/draw/lv_draw_utils.h>
 
 #include <esp_lcd_panel_io.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_log.h>
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
-#include <esp_attr.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
-#include <freertos/task.h>
 
 #include "ili9488_panel.h"
-#include "rgb565_transfer.h"
-#include "diagnostics/current_task_runtime.h"
-#include "diagnostics/cpu_monitor.h"
-#if CONFIG_LUNAREDU_DEVICE_DISPLAY_SPI_LCD_3WIRE_9BIT
-#include "st7789_3wire_panel.h"
-#endif
-#include "surface_snapshot.h"
+#include "spi_lcd_surface_local_api.h"
 
 namespace lunaredu::device {
 namespace {
@@ -34,25 +22,18 @@ namespace {
 constexpr const char *kTag = "device_spi_lcd_surface";
 
 std::recursive_mutex g_mutex;
-std::mutex g_capture_mutex;
-void *g_redraw_context = nullptr;
-void (*g_request_redraw)(void *) = nullptr;
 DeviceSpiLcdPanel g_panel;
 bool g_panel_initialized = false;
 std::string g_last_error;
 std::string g_last_pattern;
 uint32_t g_frame_count = 0;
-uint16_t *g_framebuffer = nullptr;
-size_t g_framebuffer_pixels = 0;
+std::vector<uint16_t> g_framebuffer;
 bool g_framebuffer_valid = false;
 bool g_framebuffer_disabled = true;
-bool g_capture_full_ready = false;
 uint32_t g_framebuffer_generation = 0;
 bool g_canvas_override_active = false;
 uint16_t *g_panel_dma_pixels = nullptr;
 size_t g_panel_dma_pixel_capacity = 0;
-Rgb565Transfer g_rgb565_transfer;
-SemaphoreHandle_t g_rgb565_completed = nullptr;
 constexpr uint16_t kIli9488NativeScrollLines = 480;
 bool g_hardware_scroll_active = false;
 uint16_t g_hardware_scroll_fixed_start = 0;
@@ -95,87 +76,12 @@ bool wait_for_panel_transfer(const char *context) {
   return true;
 }
 
+uint16_t swap_rgb565_bytes(uint16_t pixel) {
+  return static_cast<uint16_t>((pixel << 8) | (pixel >> 8));
+}
+
 uint16_t panel_rgb565(uint16_t pixel) {
-  if(g_panel.rgb565_panel_byte_swap)lv_draw_rgb565_swap(&pixel,1);
-  return pixel;
-}
-
-void *allocate_rgb565_dma(size_t size) {
-  return heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
-}
-
-bool rgb565_window(void *, uint16_t x, uint16_t y, uint16_t width, uint16_t height) {
-  const int left = x + g_panel.offset_x, top = y + g_panel.offset_y;
-  const int right = left + width - 1, bottom = top + height - 1;
-  if (left < 0 || top < 0 || right > 65535 || bottom > 65535) return false;
-  const uint8_t columns[] = {uint8_t(left >> 8), uint8_t(left),
-                             uint8_t(right >> 8), uint8_t(right)};
-  const uint8_t rows[] = {uint8_t(top >> 8), uint8_t(top),
-                          uint8_t(bottom >> 8), uint8_t(bottom)};
-  const bool ok = esp_lcd_panel_io_tx_param(g_panel.panel_io, 0x2A, columns, sizeof(columns)) == ESP_OK &&
-                 esp_lcd_panel_io_tx_param(g_panel.panel_io, 0x2B, rows, sizeof(rows)) == ESP_OK;
-  // Parameter writes drain earlier work, including non-stream surface draws.
-  // Clear their completion tokens only after those transactions are finished.
-  if (ok && g_rgb565_completed)
-    while (xSemaphoreTake(g_rgb565_completed, 0) == pdTRUE) {}
-  return ok;
-}
-
-bool rgb565_send(void *, const void *pixels, size_t size, bool first) {
-  return esp_lcd_panel_io_tx_color(g_panel.panel_io, first ? 0x2C : -1,
-                                  pixels, size) == ESP_OK;
-}
-
-bool rgb565_drain(void *) {
-  const bool ok = esp_lcd_panel_io_tx_param(g_panel.panel_io, -1, nullptr, 0) == ESP_OK;
-  if (ok && g_rgb565_completed)
-    while (xSemaphoreTake(g_rgb565_completed, 0) == pdTRUE) {}
-  return ok;
-}
-
-bool IRAM_ATTR rgb565_color_done(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_data_t *, void *context) {
-  BaseType_t woken = pdFALSE;
-  (void)xSemaphoreGiveFromISR(static_cast<SemaphoreHandle_t>(context), &woken);
-  return woken == pdTRUE;
-}
-
-bool rgb565_wait_one(void *) {
-  return xSemaphoreTake(g_rgb565_completed, pdMS_TO_TICKS(500)) == pdTRUE;
-}
-
-bool ensure_rgb565_completion() {
-  if (g_rgb565_completed) return true;
-  const auto completion = xSemaphoreCreateCounting(2, 0);
-  if (!completion) return false;
-  esp_lcd_panel_io_callbacks_t callbacks{};
-  callbacks.on_color_trans_done = rgb565_color_done;
-  if (esp_lcd_panel_io_register_event_callbacks(g_panel.panel_io, &callbacks, completion) != ESP_OK) {
-    vSemaphoreDelete(completion); return false;
-  }
-  g_rgb565_completed = completion;
-  return true;
-}
-
-uint64_t rgb565_now_us() { return esp_timer_get_time(); }
-
-bool draw_four_wire_rgb565(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
-                           const uint16_t *pixels, uint16_t stride, bool swap_bytes) {
-  if (!ensure_rgb565_completion()) {
-    set_last_error("rgb565_completion_unavailable"); return false;
-  }
-  if (!g_rgb565_transfer.setup({nullptr, allocate_rgb565_dma, heap_caps_free,
-                               rgb565_window, rgb565_send, rgb565_drain,
-                               rgb565_now_us, rgb565_wait_one,
-                               system::cpu_monitor_active,[](){return system::current_task_runtime_us(true);}})) {
-    set_last_error("rgb565_chunk_dma_unavailable_or_faulted");
-    return false;
-  }
-  if (!g_rgb565_transfer.draw(x, y, width, height, pixels, stride,
-                              swap_bytes != g_panel.rgb565_panel_byte_swap)) {
-    set_last_error("rgb565_chunk_transfer_failed");
-    return false;
-  }
-  return true;
+  return g_panel.rgb565_panel_byte_swap ? swap_rgb565_bytes(pixel) : pixel;
 }
 
 uint16_t rgb666_to_rgb565(uint32_t color) {
@@ -252,28 +158,22 @@ bool ensure_framebuffer() {
   }
 
   const size_t pixel_count = static_cast<size_t>(g_panel.width) * g_panel.height;
-  if (g_framebuffer_pixels != pixel_count) {
-    if (g_framebuffer != nullptr) heap_caps_free(g_framebuffer);
-    g_framebuffer = static_cast<uint16_t *>(heap_caps_malloc(
-        pixel_count * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (g_framebuffer == nullptr) {
-      g_framebuffer_pixels = 0;
+  if (g_framebuffer.size() != pixel_count) {
+    std::vector<uint16_t> next;
+    next.resize(pixel_count, 0x0000);
+    if (next.size() != pixel_count) {
+      g_framebuffer.clear();
+      g_framebuffer.shrink_to_fit();
       g_framebuffer_valid = false;
       g_framebuffer_disabled = true;
       ESP_LOGW(kTag, "display mirror framebuffer disabled: no memory");
       return false;
     }
-    g_framebuffer_pixels = pixel_count;
-    std::fill(g_framebuffer, g_framebuffer + pixel_count, uint16_t{0});
+    g_framebuffer = std::move(next);
     g_framebuffer_valid = false;
     ++g_framebuffer_generation;
   }
   return true;
-}
-
-void mirror_complete(uint16_t x,uint16_t y,uint16_t width,uint16_t height) {
-  if(g_framebuffer_valid&&x==0&&y==0&&width==g_panel.width&&height==g_panel.height)
-    g_capture_full_ready=true;
 }
 
 void mirror_rect(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
@@ -288,11 +188,11 @@ void mirror_rect(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
   const uint16_t y_end =
       std::min<uint16_t>(g_panel.height, static_cast<uint16_t>(y + height));
   for (uint16_t row = y; row < y_end; ++row) {
-    auto begin = g_framebuffer + static_cast<size_t>(row) * g_panel.width + x;
+    auto begin = g_framebuffer.begin() +
+                 static_cast<size_t>(row) * g_panel.width + x;
     std::fill(begin, begin + (x_end - x), color);
   }
   g_framebuffer_valid = true;
-  mirror_complete(x,y,width,height);
   ++g_framebuffer_generation;
 }
 
@@ -309,12 +209,11 @@ void mirror_bitmap(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
       std::min<uint16_t>(height, static_cast<uint16_t>(g_panel.height - y));
   for (uint16_t row = 0; row < copy_height; ++row) {
     const uint16_t *source = pixels + static_cast<size_t>(row) * width;
-    auto target = g_framebuffer +
+    auto target = g_framebuffer.begin() +
                   static_cast<size_t>(y + row) * g_panel.width + x;
     std::copy(source, source + copy_width, target);
   }
   g_framebuffer_valid = true;
-  mirror_complete(x,y,width,height);
   ++g_framebuffer_generation;
 }
 
@@ -668,20 +567,8 @@ uint8_t scale_6_to_8(uint16_t value) {
 
 } // namespace
 
-namespace {
-void *availability_context = nullptr;
-void (*availability_observer)(void *, bool) = nullptr;
-}
-bool device_spi_lcd_surface_bind_availability(void *context, void (*observe)(void *, bool)) {
-  bool ready;
-  {
-    std::lock_guard<std::recursive_mutex> lock(g_mutex);
-    if (!context || !observe || (availability_observer &&
-        (availability_context != context || availability_observer != observe))) return false;
-    availability_context = context; availability_observer = observe;
-    ready = g_panel_initialized;
-  }
-  observe(context, ready); return true;
+bool register_device_spi_lcd_surface_projection(std::string &error) {
+  return install_spi_lcd_surface_projection(error);
 }
 
 bool set_pixel_mode_locked(DeviceSpiLcdPixelMode mode) {
@@ -747,27 +634,19 @@ bool draw_full_frame_for_benchmark_locked(const uint8_t *pixels,
 }
 
 bool device_spi_lcd_surface_setup() {
-  bool ready; void *context; void (*observe)(void *, bool);
-  {
-    std::lock_guard<std::recursive_mutex> lock(g_mutex);
-    ready = ensure_panel_initialized_locked();
-    context = availability_context; observe = availability_observer;
+  std::lock_guard<std::recursive_mutex> lock(g_mutex);
+  const bool ready = ensure_panel_initialized_locked();
+  std::string projection_error;
+  if (!set_spi_lcd_surface_projection_available(ready, projection_error)) {
+    ESP_LOGE(kTag, "failed to update screen projection availability: %s",
+             projection_error.c_str());
   }
-  if (observe) observe(context, ready);
   return ready;
 }
 
 bool device_spi_lcd_surface_ready() {
   std::lock_guard<std::recursive_mutex> lock(g_mutex);
   return g_panel_initialized;
-}
-
-size_t device_spi_lcd_surface_3wire_packed_chunk_bytes() {
-#if CONFIG_LUNAREDU_DEVICE_DISPLAY_SPI_LCD_3WIRE_9BIT
-  return kSt7789ThreeWirePackedChunkBytes;
-#else
-  return 0;
-#endif
 }
 
 bool device_spi_lcd_surface_get_panel(DeviceSpiLcdPanel *panel) {
@@ -840,24 +719,6 @@ bool device_spi_lcd_surface_canvas_override_active() {
   return g_canvas_override_active;
 }
 
-void device_spi_lcd_surface_set_mirror_enabled(bool enabled) {
-  std::lock_guard<std::mutex> capture(g_capture_mutex);
-  std::lock_guard<std::recursive_mutex> lock(g_mutex);
-  g_framebuffer_disabled = !enabled;
-  if (!enabled) {
-    if (g_framebuffer != nullptr) heap_caps_free(g_framebuffer);
-    g_framebuffer = nullptr;
-    g_framebuffer_pixels = 0;
-    g_framebuffer_valid = false;
-  }
-}
-
-void device_spi_lcd_surface_bind_redraw(void *context, void (*request)(void *)) {
-  std::lock_guard<std::mutex> capture(g_capture_mutex);
-  std::lock_guard<std::recursive_mutex> lock(g_mutex);
-  g_redraw_context = context; g_request_redraw = request;
-}
-
 bool device_spi_lcd_surface_draw_rgb565_cover(const uint16_t *pixels,
                                               uint16_t src_width,
                                               uint16_t src_height,
@@ -908,11 +769,13 @@ bool device_spi_lcd_surface_draw_rgb565_cover(const uint16_t *pixels,
     for (uint16_t x = 0; x < target_width; ++x) {
       const uint32_t src_x =
           crop_x + static_cast<uint32_t>(x) * crop_width / target_width;
-      line[x] = src_row[src_x];
+      uint16_t pixel = src_row[src_x];
+      if (swap_bytes) {
+        pixel = swap_rgb565_bytes(pixel);
+      }
+      line[x] = pixel;
+      panel_line[x] = panel_rgb565(pixel);
     }
-    if(swap_bytes)lv_draw_rgb565_swap(line.data(),target_width);
-    std::copy_n(line.data(),target_width,panel_line.data());
-    if(g_panel.rgb565_panel_byte_swap)lv_draw_rgb565_swap(panel_line.data(),target_width);
 
     const esp_err_t result = esp_lcd_panel_draw_bitmap(
         g_panel.panel, g_panel.offset_x, y + g_panel.offset_y,
@@ -929,7 +792,7 @@ bool device_spi_lcd_surface_draw_rgb565_cover(const uint16_t *pixels,
       return false;
     }
     if (ensure_framebuffer()) {
-      auto target = g_framebuffer + static_cast<size_t>(y) * target_width;
+      auto target = g_framebuffer.begin() + static_cast<size_t>(y) * target_width;
       std::copy(line.begin(), line.end(), target);
     }
   }
@@ -970,54 +833,8 @@ bool device_spi_lcd_surface_draw_rgb565_bitmap(uint16_t x, uint16_t y,
 
   const size_t pixel_count = static_cast<size_t>(width) * height;
 
-  if (g_panel.controller == DeviceSpiLcdController::kSt7789 && g_panel.panel_io) {
-    if (!draw_four_wire_rgb565(x, y, width, height, pixels, width, swap_bytes)) {
-      copy_error_out(error);
-      return false;
-    }
-    if (!swap_bytes) mirror_bitmap(x, y, width, height, pixels);
-    else if (!g_framebuffer_disabled) {
-      std::vector<uint16_t> line(width);
-      for (uint16_t row = 0; row < height; ++row) {
-        std::copy_n(pixels+size_t{row}*width,width,line.data());
-        lv_draw_rgb565_swap(line.data(),width);
-        mirror_bitmap(x, static_cast<uint16_t>(y + row), width, 1, line.data());
-      }
-    }
-    mirror_complete(x,y,width,height);
-    ++g_frame_count;
-    g_last_pattern = "rgb565_frame";
-    set_last_error(""); clear_error_out(error);
-    return true;
-  }
-
-  // The custom 3-wire ST7789 driver consumes the source synchronously and
-  // packs its in-band D/C bit into a private DMA buffer. When the caller
-  // already supplies panel byte order, the two requested swaps cancel out;
-  // pass the contiguous source directly instead of copying it twice through
-  // canonical and panel-order staging buffers.
-  if (g_panel.controller == DeviceSpiLcdController::kSt7789 &&
-      g_panel.panel_io == nullptr && swap_bytes &&
-      g_panel.rgb565_panel_byte_swap) {
-    const esp_err_t result = esp_lcd_panel_draw_bitmap(
-        g_panel.panel, x + g_panel.offset_x, y + g_panel.offset_y,
-        x + width + g_panel.offset_x, y + height + g_panel.offset_y, pixels);
-    if (result != ESP_OK) {
-      set_last_error(std::string("rgb565_bitmap_draw_failed:") +
-                     esp_err_to_name(result));
-      copy_error_out(error);
-      return false;
-    }
-    mirror_complete(x,y,width,height);
-    ++g_frame_count;
-    g_last_pattern = "rgb565_frame";
-    set_last_error("");
-    clear_error_out(error);
-    return true;
-  }
-
   // The ILI9488 adapter consumes canonical RGB565 synchronously and performs
-  // its required RGB666 conversion into its own DMA buffer. Passing the source
+  // its required RGB666 conversion into its own DMA buffer. Passing the LVGL
   // buffer straight through avoids a second internal-RAM DMA buffer and a
   // redundant full-area RGB565 copy. Native RGB565 panels still use the
   // generic DMA-safe path below.
@@ -1058,10 +875,12 @@ bool device_spi_lcd_surface_draw_rgb565_bitmap(uint16_t x, uint16_t y,
     std::vector<uint16_t> canonical_line(width);
     for (uint16_t row = 0; row < height; ++row) {
       const uint16_t *source = pixels + static_cast<size_t>(row) * width;
-      std::copy_n(source,width,canonical_line.data());
-      if(swap_bytes)lv_draw_rgb565_swap(canonical_line.data(),width);
-      std::copy_n(canonical_line.data(),width,g_panel_dma_pixels);
-      if(g_panel.rgb565_panel_byte_swap)lv_draw_rgb565_swap(g_panel_dma_pixels,width);
+      for (uint16_t column = 0; column < width; ++column) {
+        const uint16_t pixel =
+            swap_bytes ? swap_rgb565_bytes(source[column]) : source[column];
+        canonical_line[column] = pixel;
+        g_panel_dma_pixels[column] = panel_rgb565(pixel);
+      }
 
       const esp_err_t result = esp_lcd_panel_draw_bitmap(
           g_panel.panel, x + g_panel.offset_x,
@@ -1091,13 +910,17 @@ bool device_spi_lcd_surface_draw_rgb565_bitmap(uint16_t x, uint16_t y,
   const uint16_t *mirror_pixels = pixels;
   std::vector<uint16_t> canonical_pixels;
   if (swap_bytes) {
-    canonical_pixels.assign(pixels,pixels+pixel_count);
-    lv_draw_rgb565_swap(canonical_pixels.data(),uint32_t(pixel_count));
+    canonical_pixels.resize(pixel_count);
+    for (size_t index = 0; index < pixel_count; ++index) {
+      canonical_pixels[index] = swap_rgb565_bytes(pixels[index]);
+    }
     mirror_pixels = canonical_pixels.data();
   }
 
-  std::copy_n(mirror_pixels,pixel_count,g_panel_dma_pixels);
-  if(g_panel.rgb565_panel_byte_swap)lv_draw_rgb565_swap(g_panel_dma_pixels,uint32_t(pixel_count));
+  for (size_t index = 0; index < pixel_count; ++index) {
+    const uint16_t pixel = swap_bytes ? canonical_pixels[index] : pixels[index];
+    g_panel_dma_pixels[index] = panel_rgb565(pixel);
+  }
 
   const esp_err_t result = esp_lcd_panel_draw_bitmap(
       g_panel.panel, x + g_panel.offset_x, y + g_panel.offset_y,
@@ -1120,71 +943,6 @@ bool device_spi_lcd_surface_draw_rgb565_bitmap(uint16_t x, uint16_t y,
   set_last_error("");
   clear_error_out(error);
   return true;
-}
-
-bool device_spi_lcd_surface_draw_rgb565_strided_bitmap(
-    uint16_t x, uint16_t y, uint16_t width, uint16_t height,
-    const uint16_t *pixels, uint16_t stride, bool swap_bytes,
-    std::string *error) {
-  std::lock_guard<std::recursive_mutex> lock(g_mutex);
-  if (!ensure_panel_initialized_locked()) {
-    copy_error_out(error);
-    return false;
-  }
-  if (pixels == nullptr || width == 0 || height == 0 ||
-      stride < width ||
-      static_cast<uint32_t>(x) + width > g_panel.width ||
-      static_cast<uint32_t>(y) + height > g_panel.height) {
-    set_last_error("invalid_rgb565_strided_bitmap");
-    copy_error_out(error);
-    return false;
-  }
-  if (g_panel.controller == DeviceSpiLcdController::kSt7789 && g_panel.panel_io) {
-    if (!draw_four_wire_rgb565(x, y, width, height, pixels, stride, swap_bytes)) {
-      copy_error_out(error);
-      return false;
-    }
-    if (!g_framebuffer_disabled) {
-      std::vector<uint16_t> line(width);
-      for (uint16_t row = 0; row < height; ++row) {
-        std::copy_n(pixels+size_t{row}*stride,width,line.data());
-        if(swap_bytes)lv_draw_rgb565_swap(line.data(),width);
-        mirror_bitmap(x, static_cast<uint16_t>(y + row), width, 1, line.data());
-      }
-    }
-    mirror_complete(x,y,width,height);
-    ++g_frame_count;
-    g_last_pattern = "rgb565_frame";
-    set_last_error(""); clear_error_out(error);
-    return true;
-  }
-#if CONFIG_LUNAREDU_DEVICE_DISPLAY_SPI_LCD_3WIRE_9BIT
-  if (width % 4 != 0 || g_panel.controller != DeviceSpiLcdController::kSt7789 ||
-      g_panel.panel_io != nullptr ||
-      !g_panel.rgb565_panel_byte_swap) {
-    set_last_error("rgb565_strided_bitmap_unsupported");
-    copy_error_out(error);
-    return false;
-  }
-  const esp_err_t result = device_st7789_3wire_draw_rgb565_strided(
-      g_panel.panel, x + g_panel.offset_x, y + g_panel.offset_y,
-      width,height,pixels,stride,!swap_bytes);
-  if (result != ESP_OK) {
-    set_last_error(std::string("rgb565_strided_bitmap_draw_failed:") +
-                   esp_err_to_name(result));
-    copy_error_out(error);
-    return false;
-  }
-  ++g_frame_count;
-  g_last_pattern = "rgb565_frame";
-  set_last_error("");
-  clear_error_out(error);
-  return true;
-#else
-  set_last_error("rgb565_strided_bitmap_unsupported");
-  copy_error_out(error);
-  return false;
-#endif
 }
 
 bool device_spi_lcd_surface_draw_rgb666_bitmap(
@@ -1232,26 +990,6 @@ bool device_spi_lcd_surface_draw_rgb666_bitmap(
     copy_error_out(error);
     return false;
   }
-  if (!g_framebuffer_disabled) {
-    std::vector<uint16_t> mirror_line(width);
-    for (uint16_t row = 0; row < height; ++row) {
-      const uint8_t *source = pixels + static_cast<size_t>(row) * width * 3U;
-      for (uint16_t column = 0; column < width; ++column) {
-        const uint8_t *pixel = source + static_cast<size_t>(column) * 3U;
-        const uint8_t red = order == DeviceSpiLcdRgb666Order::kBgr
-                                ? pixel[2] : pixel[0];
-        const uint8_t green = pixel[1];
-        const uint8_t blue = order == DeviceSpiLcdRgb666Order::kBgr
-                                 ? pixel[0] : pixel[2];
-        mirror_line[column] = rgb666_to_rgb565(
-            (static_cast<uint32_t>(red) << 16) |
-            (static_cast<uint32_t>(green) << 8) | blue);
-      }
-      mirror_bitmap(x, static_cast<uint16_t>(y + row), width, 1,
-                    mirror_line.data());
-    }
-  }
-  mirror_complete(x,y,width,height);
   ++g_frame_count;
   g_last_pattern = "rgb666_frame";
   set_last_error("");
@@ -1271,37 +1009,6 @@ bool device_spi_lcd_surface_wait_idle(std::string *error) {
   }
   clear_error_out(error);
   return true;
-}
-
-bool device_spi_lcd_surface_set_3wire_dma_mode(
-    DeviceSpiLcdThreeWireDmaMode mode, std::string *error) {
-  std::lock_guard<std::recursive_mutex> lock(g_mutex);
-  if (!ensure_panel_initialized_locked()) {
-    copy_error_out(error);
-    return false;
-  }
-#if CONFIG_LUNAREDU_DEVICE_DISPLAY_SPI_LCD_3WIRE_9BIT
-  if (g_panel.controller == DeviceSpiLcdController::kSt7789 &&
-      g_panel.panel_io == nullptr) {
-    if (!wait_for_panel_transfer("display_dma_mode_wait_failed")) {
-      copy_error_out(error);
-      return false;
-    }
-    const esp_err_t result =
-        device_st7789_3wire_set_dma_mode(g_panel.panel, mode);
-    if (result == ESP_OK) {
-      clear_error_out(error);
-      return true;
-    }
-    set_last_error(result == ESP_ERR_NO_MEM ? "display_dma_buffer_allocation_failed"
-                                            : "display_dma_mode_failed");
-    copy_error_out(error);
-    return false;
-  }
-#endif
-  set_last_error("display_dma_mode_unsupported");
-  copy_error_out(error);
-  return false;
 }
 
 bool device_spi_lcd_surface_set_pixel_mode(DeviceSpiLcdPixelMode mode,
@@ -1377,12 +1084,8 @@ bool device_spi_lcd_surface_fill_rect_rgb666(
 
 DeviceSpiLcdPixelMode device_spi_lcd_surface_pixel_mode() {
   std::lock_guard<std::recursive_mutex> lock(g_mutex);
-  const auto controller = g_panel_initialized ? g_panel.controller
-      : device_spi_lcd_config_from_kconfig().controller;
-  if (controller == DeviceSpiLcdController::kSt7789) {
-    return DeviceSpiLcdPixelMode::kRgb565;
-  }
-  if (!g_panel_initialized) {
+  if (!g_panel_initialized ||
+      g_panel.controller != DeviceSpiLcdController::kIli9488) {
     return DeviceSpiLcdPixelMode::kRgb666;
   }
   LunareduIli9488PixelMode mode = LunareduIli9488PixelMode::kRgb666;
@@ -1729,7 +1432,6 @@ DeviceSpiLcdSurfaceStatus device_spi_lcd_surface_status() {
   status.source_pixel_format = device_spi_lcd_surface_source_pixel_format();
   status.last_pattern = g_last_pattern;
   status.frame_count = g_frame_count;
-  status.rgb565_transfer = g_rgb565_transfer.stats();
   status.mirror_available = g_framebuffer_valid;
   status.mirror_generation = g_framebuffer_generation;
   status.mirror_width = g_panel_initialized ? g_panel.width : status.config.width;
@@ -1775,12 +1477,16 @@ DeviceSpiLcdSurfaceStatus device_spi_lcd_surface_status() {
   return status;
 }
 
-bool device_spi_lcd_surface_try_status(DeviceSpiLcdSurfaceStatus &status) {
-  return detail::try_surface_snapshot(g_mutex,status,[]{return device_spi_lcd_surface_status();});
-}
-
 esp_err_t device_spi_lcd_surface_write_bmp(
     const DeviceSpiLcdSurfaceBmpWriter &writer, std::string *error) {
+  std::lock_guard<std::recursive_mutex> lock(g_mutex);
+  if (!g_framebuffer_valid || g_framebuffer.empty() || g_panel.width == 0 ||
+      g_panel.height == 0) {
+    if (error != nullptr) {
+      *error = "display_frame_not_available";
+    }
+    return ESP_ERR_NOT_FOUND;
+  }
   if (writer.begin_stream == nullptr || writer.send_chunk == nullptr ||
       writer.end_stream == nullptr) {
     if (error != nullptr) {
@@ -1788,48 +1494,9 @@ esp_err_t device_spi_lcd_surface_write_bmp(
     }
     return ESP_ERR_INVALID_ARG;
   }
-  // One capture leases a temporary mirror. Neither the HTTP sender nor a slow
-  // browser holds the physical display mutex while streaming the snapshot.
-  std::lock_guard<std::mutex> capture(g_capture_mutex);
-  std::unique_lock<std::recursive_mutex> lock(g_mutex);
-  const bool temporary = g_framebuffer_disabled;
-  if (temporary) {
-    if (!g_request_redraw || !g_panel_initialized || g_canvas_override_active) {
-      if (error) *error = "display_frame_not_available";
-      return ESP_ERR_NOT_FOUND;
-    }
-    g_framebuffer_disabled = false;
-    g_capture_full_ready = false;
-    if (!ensure_framebuffer()) {
-      if (error) *error = "display_capture_no_memory";
-      return ESP_ERR_NO_MEM;
-    }
-    const auto request = g_request_redraw; auto *context = g_redraw_context;
-    lock.unlock(); request(context);
-    const auto deadline = esp_timer_get_time() + 1500000;
-    lock.lock();
-    while (!g_capture_full_ready && esp_timer_get_time() < deadline) {
-      lock.unlock(); vTaskDelay(std::max<TickType_t>(1,pdMS_TO_TICKS(5))); lock.lock();
-    }
-  }
-  std::unique_ptr<uint16_t, decltype(&heap_caps_free)> snapshot(nullptr,heap_caps_free);
-  const uint32_t width = g_panel.width, height = g_panel.height;
-  if (temporary) {
-    // Detach before unlocking: all later display updates bypass this storage.
-    snapshot.reset(g_framebuffer); g_framebuffer = nullptr;
-    g_framebuffer_pixels = 0; g_framebuffer_disabled = true;
-  } else if (g_framebuffer_valid && g_framebuffer) {
-    snapshot.reset(static_cast<uint16_t *>(heap_caps_malloc(
-        size_t(width)*height*2,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT)));
-    if (snapshot) std::copy_n(g_framebuffer,size_t(width)*height,snapshot.get());
-  }
-  const bool valid = g_framebuffer_valid && (!temporary||g_capture_full_ready) && snapshot && width && height;
-  if (temporary) g_framebuffer_valid = false;
-  lock.unlock();
-  if (!valid) {
-    if (error) *error = "display_frame_not_available";
-    return ESP_ERR_NOT_FOUND;
-  }
+
+  const uint32_t width = g_panel.width;
+  const uint32_t height = g_panel.height;
   const uint32_t row_stride = (width * 3 + 3) & ~uint32_t{3};
   const uint32_t pixel_data_size = row_stride * height;
   const uint32_t file_size = 54 + pixel_data_size;
@@ -1858,7 +1525,7 @@ esp_err_t device_spi_lcd_surface_write_bmp(
   for (uint32_t y = 0; y < height; ++y) {
     const uint32_t source_y = height - 1 - y;
     const uint16_t *source =
-        snapshot.get() + static_cast<size_t>(source_y) * width;
+        g_framebuffer.data() + static_cast<size_t>(source_y) * width;
     std::fill(row.begin(), row.end(), 0);
     for (uint32_t x = 0; x < width; ++x) {
       const uint16_t pixel = source[x];

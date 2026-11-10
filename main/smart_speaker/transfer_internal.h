@@ -1,6 +1,6 @@
 #pragma once
 #include "smart_speaker_transfer.h"
-#include "device_api/device_operation_types.h"
+#include "lunaredu_lunaros/device_api/device_projection.h"
 #include <mutex>
 namespace smart_speaker::detail {
 using lunaredu::lunaros::DeviceBulkRequest;
@@ -11,5 +11,5 @@ std::string lower_copy(std::string text);
 bool ends_with_mp3(const std::string &name);
 bool safe_upload_name(const std::string &name);
 bool stream_upload_to_file(const DeviceBulkRequest &request,
-                           const std::string &path, size_t &written,std::string &error);
+                           const std::string &path, size_t &written);
 }

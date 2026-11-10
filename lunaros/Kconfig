@@ -1,0 +1,208 @@
+menu "Lunaredu LunarOS"
+
+config LUNAREDU_NETWORK_ENABLE_ESPNOW
+    bool "Enable LunarOS ESP-NOW transport"
+    default n
+    help
+        Compile ESP-NOW under the shared Network service. Products opt in
+        through NetworkPolicy; Wi-Fi lifecycle remains owned by LunarOS.
+
+config LUNAREDU_LUNAROS_MAX_MANAGED_TASKS
+    int "Maximum first-party managed tasks"
+    range 4 24
+    default 20
+    help
+        Hard upper bound for tasks created through the LunarOS managed-task
+        API. ESP-IDF internal tasks such as Wi-Fi, lwIP and HTTPD are outside
+        this count.
+
+config LUNAREDU_LUNAROS_MAX_TRANSIENT_TASKS
+    int "Maximum transient managed tasks"
+    range 0 8
+    default 4
+
+config LUNAREDU_LUNAROS_MAX_RESIDENT_TASKS
+    int "Maximum resident managed tasks"
+    range 1 20
+    default 12
+    help
+        Bounds long-lived first-party tasks separately so feature and
+        transient work cannot be crowded out by new resident services.
+
+config LUNAREDU_LUNAROS_MAX_TASKS_PER_OWNER
+    int "Maximum managed tasks per owner service"
+    range 1 12
+    default 6
+    help
+        Prevents one service from consuming the complete first-party task
+        budget. Prefer queues, timers and shared executors after this limit.
+
+config LUNAREDU_LUNAROS_MAX_INTERNAL_TASK_STACK_BYTES
+    int "Maximum declared internal task stack bytes"
+    range 16384 262144
+    default 65536
+
+config LUNAREDU_LUNAROS_MAX_EXTERNAL_TASK_STACK_BYTES
+    int "Maximum declared external task stack bytes"
+    range 32768 524288
+    default 196608
+
+config LUNAREDU_LUNAROS_FOREGROUND_CAPACITY
+    int "Maximum registered foreground applications"
+    range 1 32
+    default 16
+    help
+        Fixed AppController catalog capacity. Products should keep explicit
+        headroom above their registered launcher applications, system
+        surfaces and hidden modes.
+
+config LUNAREDU_LUNAROS_APPLICATION_CAPABILITY_CAPACITY
+    int "Maximum capabilities per foreground application"
+    range 1 16
+    default 8
+
+config LUNAREDU_LUNAROS_APPLICATION_SERVICE_CAPACITY
+    int "Maximum services per foreground application"
+    range 1 8
+    default 4
+
+config LUNAREDU_LUNAROS_APPLICATION_RESOURCE_CAPACITY
+    int "Maximum resources per foreground application"
+    range 1 8
+    default 4
+
+config LUNAREDU_LUNAROS_CAPABILITY_CONSUMERS
+    int "Maximum app capability dependency declarations"
+    range 1 32
+    default 16
+    help
+        Static references to application dependency manifests, independent of
+        foreground pages. Registration creates no task or service. Products
+        may reduce this bound to their actual number of capability consumers.
+
+config LUNAREDU_LUNAROS_RESOURCE_LEASE_CAPACITY
+    int "Maximum simultaneous foreground resource leases"
+    range 2 64
+    default 32
+    help
+        Fixed logical resource-lease capacity owned by AppController. Allow
+        at least twice the per-application resource capacity so a pending
+        foreground can reserve resources before the previous foreground is
+        released.
+
+config LUNAREDU_SYSTEM_OTA_BOOTSTRAP_PROJECTS
+    string "Factory bootstrap OTA target projects (comma separated)"
+    default ""
+    help
+        Exact ESP application project names, without spaces. Used only while
+        running lunaros-bootstrap. Approve targets only after verifying the
+        chip, physical hardware, partition layout and required data assets.
+        Other products retain same-project, newer-version-only OTA policy.
+
+config LUNAREDU_SYSTEM_OTA_BOOT_CONFIRM_TIMEOUT_MS
+    int "OTA boot confirmation timeout (ms)"
+    depends on BOOTLOADER_APP_ROLLBACK_ENABLE
+    default 30000
+    range 5000 300000
+    help
+        Maximum time a newly booted OTA image may remain pending verification.
+        The product entrypoint must call ota_service_confirm_running_image()
+        after its critical tasks are healthy. If it does not, LunarOS marks
+        the image invalid and asks ESP-IDF to boot the previous image.
+
+config LUNAREDU_NETWORK_ENABLE_PROVISIONING_SERVICE
+    bool "Enable LunarOS Wi-Fi provisioning"
+    default y
+
+config LUNAREDU_NETWORK_ENABLE_BLE_PROVISIONING
+    bool "Enable BLE provisioning transport"
+    depends on BT_NIMBLE_ENABLED
+    default n
+    help
+        Advertise the LunarOS provisioning GATT service. The product must
+        provide a frame handler which reuses the shared provisioning session.
+
+menu "Desktop interaction subsystem"
+
+config LUNAREDU_DESKTOP_LVGL_RUNTIME
+    bool "LVGL physical display runtime"
+    default n
+    help
+        Own LVGL initialization, draw buffering, flush scheduling and touch
+        input. Products supply a physical surface callback and select LVGL.
+        Can run without the optional local shell for custom product views.
+
+config LUNAREDU_DESKTOP_SHARED_FONTS
+    bool "Shared read-only Chinese font partition"
+    select LV_FONT_MONTSERRAT_16
+    select LV_USE_TINY_TTF
+    default n
+    help
+        Load the fonts partition into PSRAM and provide shared TinyTTF sizes.
+        Products select LVGL and initialize it before calling the font runtime.
+        This capability can be used without the local desktop shell.
+
+config LUNAREDU_DESKTOP_LOCAL
+    bool "Local LVGL display"
+    select LV_USE_RLE
+    select LV_BIN_DECODER_RAM_LOAD
+    select LUNAREDU_DESKTOP_SHARED_FONTS
+    default n
+    help
+        Compile viewport-aware local view hosting. The product supplies the initialized
+        display and calls UI updates on its existing LVGL owner executor.
+
+config LUNAREDU_DESKTOP_REMOTE
+    bool "Remote semantic presentation for browsers and host tools"
+    default n
+    help
+        Compile the shared document renderer. Does not require LVGL or a
+        physical display. Product supplies semantic state and intent handling.
+
+endmenu
+
+config LUNAREDU_DEVICE_WEB
+    bool "Device-hosted Web pages"
+    default n
+    help
+        Compile embedded setup and product page support on the existing
+        Device API HTTP server. SoftAP/DNS remain owned by Network.
+
+config LUNAREDU_DEVICE_WEB_MAX_PAGE_BYTES
+    int "Maximum optional filesystem/product Web page bytes"
+    range 4096 131072
+    default 65536
+    depends on LUNAREDU_DEVICE_WEB
+
+
+config LUNAREDU_DEVICE_API_HTTP_SERVER_PORT
+    int "Local Device API HTTP port"
+    default 80
+    range 1 65535
+
+config LUNAREDU_DEVICE_API_HTTP_STACK_SIZE
+    int "Local Device API HTTP task stack size"
+    default 12288
+    range 4096 65536
+
+config LUNAREDU_DEVICE_API_HTTP_SERVER_CORE_ID
+    int "Local Device API HTTP task core"
+    default 1
+    range 0 1
+
+config LUNAREDU_DEVICE_API_HTTP_MAX_URI_HANDLERS
+    int "Local Device API HTTP max URI handlers"
+    default 32
+    range 8 128
+
+config LUNAREDU_DEVICE_API_HTTP_MAX_BUFFERED_BODY_BYTES
+    int "Local Device API max buffered body bytes"
+    default 65536
+    range 1024 1048576
+
+config LUNAREDU_DEVICE_API_HTTP_BODY_RECEIVE_TIMEOUTS
+    int "Local Device API body receive timeout retries"
+    default 3
+    range 0 255
+
+endmenu

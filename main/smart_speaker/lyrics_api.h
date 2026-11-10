@@ -1,13 +1,8 @@
 #pragma once
-#include "device_api/device_operation_types.h"
+#include "lunaredu_lunaros/device_api/device_projection.h"
 namespace smart_speaker {
-lunaredu::lunaros::DeviceOperationResult handle_lyrics_upload(
-    lunaredu::lunaros::DeviceApiContext &,
-    const lunaredu::lunaros::DeviceBulkRequest &request, JsonObject response);
-lunaredu::lunaros::DeviceOperationResult handle_lyrics_remove(
-    lunaredu::lunaros::DeviceApiContext &, JsonVariantConst request,
-    JsonObject response);
-lunaredu::lunaros::DeviceOperationResult handle_lyrics_offset(
-    lunaredu::lunaros::DeviceApiContext &, JsonVariantConst request,
-    JsonObject response);
+using namespace lunaredu::lunaros;
+DeviceOperationResult handle_lyrics_upload(const DeviceBulkRequest &request, JsonObject response);
+DeviceOperationResult handle_lyrics_remove(JsonVariantConst request, JsonObject response);
+DeviceOperationResult handle_lyrics_offset(JsonVariantConst request, JsonObject response);
 }

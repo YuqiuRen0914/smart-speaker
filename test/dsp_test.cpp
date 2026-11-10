@@ -1,12 +1,12 @@
-#include "lunaros_audio_dsp.h"
+#include "smart_speaker_dsp.h"
 
 #include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstdio>
 
-using lunaredu::audio::dsp::AudioProcessor;
-using lunaredu::audio::dsp::Settings;
+using smart_speaker::dsp::AudioProcessor;
+using smart_speaker::dsp::Settings;
 
 static float filtered_rms(float frequency_hz, bool high_pass) {
   AudioProcessor processor;
@@ -33,11 +33,11 @@ static void test_coefficients_and_extremes() {
     settings.mid_gain_db = 6.0f;
     settings.high_gain_db = 6.0f;
     assert(processor.configure(rate, settings));
-    assert(lunaredu::audio::dsp::biquad_is_stable(
+    assert(smart_speaker::dsp::biquad_is_stable(
         processor.high_pass_coefficients()));
-    assert(lunaredu::audio::dsp::biquad_is_stable(processor.low_coefficients()));
-    assert(lunaredu::audio::dsp::biquad_is_stable(processor.mid_coefficients()));
-    assert(lunaredu::audio::dsp::biquad_is_stable(processor.high_coefficients()));
+    assert(smart_speaker::dsp::biquad_is_stable(processor.low_coefficients()));
+    assert(smart_speaker::dsp::biquad_is_stable(processor.mid_coefficients()));
+    assert(smart_speaker::dsp::biquad_is_stable(processor.high_coefficients()));
     assert(processor.effective_high_frequency_hz() <= rate * 0.45f + 0.01f);
     processor.set_volume(100);
     processor.request_unmute(1);
@@ -80,9 +80,9 @@ static void test_unchanged_parameters_do_not_rebuild_every_sample() {
 }
 
 static void test_volume_limiter_and_fade() {
-  assert(lunaredu::audio::dsp::volume_gain(0) == 0.0f);
-  assert(std::fabs(lunaredu::audio::dsp::volume_gain(70) - 0.49f) < 1.0e-6f);
-  assert(lunaredu::audio::dsp::volume_gain(100) <= 0.49f);
+  assert(smart_speaker::dsp::volume_gain(0) == 0.0f);
+  assert(std::fabs(smart_speaker::dsp::volume_gain(70) - 0.49f) < 1.0e-6f);
+  assert(smart_speaker::dsp::volume_gain(100) <= 0.49f);
 
   AudioProcessor limiter;
   Settings settings;
@@ -105,7 +105,7 @@ static void test_volume_limiter_and_fade() {
     assert(l >= previous);
     previous = l;
   }
-  assert(fade.fade_state() == lunaredu::audio::dsp::FadeState::kPlaying);
+  assert(fade.fade_state() == smart_speaker::dsp::FadeState::kPlaying);
   fade.request_mute(40);
   previous = 2.0f;
   for (int i = 0; i < 400; ++i) {
@@ -122,15 +122,12 @@ static void test_volume_limiter_and_fade() {
 static void test_voice_path_bypasses_music_volume() {
   AudioProcessor normal;
   AudioProcessor voice;
-  AudioProcessor quiet_voice;
   Settings settings;
   settings.high_pass_enabled = false;
   assert(normal.configure(16000, settings));
   assert(voice.configure(16000, settings));
-  assert(quiet_voice.configure(16000, settings));
   normal.set_volume(10);
   voice.set_volume(10);
-  quiet_voice.set_volume(10);
 
   float normal_left = 0.0f;
   float normal_right = 0.0f;
@@ -143,17 +140,9 @@ static void test_voice_path_bypasses_music_volume() {
   voice.process_common(16000, 16000, voice_left, voice_right, voice_pre,
                        false);
 
-  float quiet_left = 0.0f;
-  float quiet_right = 0.0f;
-  float quiet_pre = 0.0f;
-  quiet_voice.process_common(16000, 16000, quiet_left, quiet_right, quiet_pre,
-                             false, 0.25f);
-
   assert(std::fabs(normal_left) < 0.01f);
   assert(voice_left > normal_left * 20.0f);
   assert(std::fabs(voice_left - voice_right) < 1.0e-6f);
-  assert(std::fabs(quiet_left - voice_left * 0.25f) < 1.0e-5f);
-  assert(std::fabs(quiet_left - quiet_right) < 1.0e-6f);
 }
 
 static void test_thermal_and_routing() {
@@ -176,13 +165,13 @@ static void test_thermal_and_routing() {
     float r = -0.2f;
     processor.finalize_output(l, r);
   }
-  struct Expected { lunaredu::audio::dsp::ChannelMode mode; float l; float r; };
+  struct Expected { smart_speaker::dsp::ChannelMode mode; float l; float r; };
   for (Expected expected : {
-           Expected{lunaredu::audio::dsp::ChannelMode::kStereo, 0.4f, -0.2f},
-           Expected{lunaredu::audio::dsp::ChannelMode::kLeftOnly, 0.4f, 0.0f},
-           Expected{lunaredu::audio::dsp::ChannelMode::kRightOnly, 0.0f, -0.2f},
-           Expected{lunaredu::audio::dsp::ChannelMode::kMono, 0.05f, 0.05f},
-           Expected{lunaredu::audio::dsp::ChannelMode::kMute, 0.0f, 0.0f},
+           Expected{smart_speaker::dsp::ChannelMode::kStereo, 0.4f, -0.2f},
+           Expected{smart_speaker::dsp::ChannelMode::kLeftOnly, 0.4f, 0.0f},
+           Expected{smart_speaker::dsp::ChannelMode::kRightOnly, 0.0f, -0.2f},
+           Expected{smart_speaker::dsp::ChannelMode::kMono, 0.05f, 0.05f},
+           Expected{smart_speaker::dsp::ChannelMode::kMute, 0.0f, 0.0f},
        }) {
     processor.set_channel_mode(expected.mode);
     float l = 0.4f;
@@ -200,7 +189,7 @@ static void test_thermal_and_routing() {
     alternating.finalize_output(l, r);
   }
   alternating.set_channel_mode(
-      lunaredu::audio::dsp::ChannelMode::kAlternating);
+      smart_speaker::dsp::ChannelMode::kAlternating);
   float l = 0.4f, r = 0.2f;
   alternating.finalize_output(l, r);
   assert(l > 0.39f && r == 0.0f);

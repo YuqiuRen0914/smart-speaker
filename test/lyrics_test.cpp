@@ -1,9 +1,7 @@
-#include "lunaredu_music_lyrics.h"
+#include "smart_speaker_lyrics_store.h"
 #include <cassert>
-#include "lunaros_audio_pcm_clock.h"
-using lunaredu::audio::PcmClock;
 #include <iostream>
-using namespace lunaredu::music::lyrics;
+using namespace smart_speaker::lyrics;
 int main() {
   Document d; std::string error;
   assert(parse("\xef\xbb\xbf[ar:测试]\r\n[offset:100]\r\n[00:02.1][00:04.123]窗外落下一束光\r\n[00:01.00]现在开始\n[00:03.00]\n",d,error));

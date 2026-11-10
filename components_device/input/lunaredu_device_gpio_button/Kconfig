@@ -1,0 +1,58 @@
+menu "LunarEdu gpio_button"
+
+config LUNAREDU_DEVICE_INPUT_PRIMARY_BUTTON
+    bool "Enable primary GPIO button"
+    default n
+    help
+        Build the generic GPIO button helper and expose a primary button
+        configuration. Button semantics belong to the app or runtime adapter.
+
+config LUNAREDU_DEVICE_INPUT_PRIMARY_BUTTON_GPIO
+    int "Primary button GPIO"
+    depends on LUNAREDU_DEVICE_INPUT_PRIMARY_BUTTON
+    range 0 48
+    default 0
+
+config LUNAREDU_DEVICE_INPUT_PRIMARY_BUTTON_ACTIVE_HIGH
+    bool "Primary button active high"
+    depends on LUNAREDU_DEVICE_INPUT_PRIMARY_BUTTON
+    default n
+
+config LUNAREDU_DEVICE_INPUT_PRIMARY_BUTTON_LONG_PRESS_MS
+    int "Primary button long press time in ms"
+    depends on LUNAREDU_DEVICE_INPUT_PRIMARY_BUTTON
+    range 0 60000
+    default 2000
+
+config LUNAREDU_DEVICE_INPUT_PRIMARY_BUTTON_SHORT_PRESS_MS
+    int "Primary button short press time in ms"
+    depends on LUNAREDU_DEVICE_INPUT_PRIMARY_BUTTON
+    range 0 60000
+    default 0
+
+config LUNAREDU_DEVICE_INPUT_PRIMARY_BUTTON_POWER_SAVE
+    bool "Enable primary button power-save wake support"
+    depends on LUNAREDU_DEVICE_INPUT_PRIMARY_BUTTON
+    default n
+
+config LUNAREDU_DEVICE_INPUT_PTT_BUTTON
+    bool "Enable dedicated press-to-talk GPIO button"
+    default n
+
+config LUNAREDU_DEVICE_INPUT_PTT_BUTTON_GPIO
+    int "Press-to-talk button GPIO"
+    depends on LUNAREDU_DEVICE_INPUT_PTT_BUTTON
+    range 0 48
+    default 0
+
+config LUNAREDU_DEVICE_INPUT_PTT_BUTTON_ACTIVE_HIGH
+    bool "Press-to-talk button active high"
+    depends on LUNAREDU_DEVICE_INPUT_PTT_BUTTON
+    default n
+
+config LUNAREDU_DEVICE_INPUT_PTT_BUTTON_POWER_SAVE
+    bool "Enable press-to-talk button power-save wake support"
+    depends on LUNAREDU_DEVICE_INPUT_PTT_BUTTON
+    default n
+
+endmenu

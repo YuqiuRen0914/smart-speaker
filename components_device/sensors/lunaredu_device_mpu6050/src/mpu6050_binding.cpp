@@ -3,7 +3,7 @@
 #include <string>
 
 #include "bsp/lunaredu_bsp.h"
-#include <esp_log.h>
+#include "lunaredu_lunaros/kernel/log.h"
 
 namespace lunaredu::device {
 
@@ -13,7 +13,7 @@ bool setup_main_imu_module() {
   if (i2c_result != ESP_OK) {
     const bsp_resource_claim_snapshot_t claim =
         bsp_resource_last_claim_snapshot();
-    ESP_LOGE("mpu6050", "mpu i2c init failed: %s owner=%s pin=%s",
+    LOGE("mpu6050", "mpu i2c init failed: %s owner=%s pin=%s",
          esp_err_to_name(i2c_result),
          claim.conflict_owner[0] != '\0' ? claim.conflict_owner : "(none)",
          claim.conflict_pin[0] != '\0' ? claim.conflict_pin : "(none)");
@@ -30,7 +30,7 @@ bool setup_main_imu_module() {
   config.default_sample_rate_hz = 50;
 
   if (!setup_mpu6050(config)) {
-    ESP_LOGW("mpu6050", "main imu setup skipped or failed");
+    LOGW("mpu6050", "main imu setup skipped or failed");
     return false;
   }
 

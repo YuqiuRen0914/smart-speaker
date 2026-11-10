@@ -1,7 +1,0 @@
-idf_component_register(SRCS src/usb_device_api.cpp src/usb_frame_dispatcher.cpp INCLUDE_DIRS include PRIV_INCLUDE_DIRS src REQUIRES core device_protocol device_api PRIV_REQUIRES esp_driver_usb_serial_jtag esp_timer esp_hw_support esp_system heap freertos log)
-target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_20)
-if(CONFIG_LUNAROS_USB_HOST_CDC)
-    target_sources(${COMPONENT_LIB} PRIVATE "src/usb_cdc_host.cpp")
-    idf_component_get_property(cdc_lib espressif__usb_host_cdc_acm COMPONENT_LIB)
-    target_link_libraries(${COMPONENT_LIB} PRIVATE ${cdc_lib})
-endif()

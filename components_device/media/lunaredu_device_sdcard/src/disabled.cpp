@@ -15,11 +15,6 @@ namespace {
 
 namespace lunaredu::device {
 
-bool declare_tfcard_store_projection(
-    lunaredu::lunaros::DeviceProjectionRegistry &, std::string &error) {
-  set_error(error);
-  return false;
-}
 bool setup_tfcard_store(bool) { return false; }
 void tfcard_store_deinit() {}
 bool tfcard_store_setup_done() { return false; }
@@ -68,3 +63,4 @@ bool device_sdcard_storage_mounted() { return false; }
 } // namespace lunaredu::device
 
 #endif
+

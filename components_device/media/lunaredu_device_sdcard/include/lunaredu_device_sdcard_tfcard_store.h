@@ -3,8 +3,6 @@
 #include <stdint.h>
 #include <string>
 
-namespace lunaredu::lunaros { class DeviceProjectionRegistry; }
-
 namespace lunaredu::device {
 
 struct TfCardStoreStatus {
@@ -15,9 +13,6 @@ struct TfCardStoreStatus {
 };
 
 bool setup_tfcard_store(bool mount_now = false);
-bool declare_tfcard_store_projection(
-    lunaredu::lunaros::DeviceProjectionRegistry &registry,
-    std::string &error);
 void tfcard_store_deinit();
 bool tfcard_store_setup_done();
 bool tfcard_store_mount();

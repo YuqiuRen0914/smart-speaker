@@ -1,9 +1,0 @@
-{
-  "schema": 1,
-  "entries": {
-    "shell": {
-      "header": "desktop/composition/composition.h",
-      "type": "lunaredu::lunaros::DesktopShellEntry"
-    }
-  }
-}

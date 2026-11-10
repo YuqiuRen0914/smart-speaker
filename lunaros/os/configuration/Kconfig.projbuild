@@ -1,4 +1,0 @@
-config NVS_ALLOCATE_CACHE_IN_SPIRAM
-    bool
-    depends on SPIRAM && (SPIRAM_USE_CAPS_ALLOC || SPIRAM_USE_MALLOC)
-    default y if SPIRAM_USE_MALLOC

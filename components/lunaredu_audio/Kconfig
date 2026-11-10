@@ -1,0 +1,9 @@
+menu "LunarEdu audio"
+config LUNAREDU_AUDIO_REFERENCE_SAMPLES
+    int "Maximum output reference samples"
+    range 256 64000
+    default 8000
+    help
+        Fixed PCM reference ring capacity, allocated only when audio starts.
+        Each sample consumes two bytes. 8000 samples represent 500 ms at 16 kHz.
+endmenu

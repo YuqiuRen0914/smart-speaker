@@ -1,9 +1,0 @@
-{
-  "schema": 1,
-  "entries": {
-    "default": {
-      "header": "lunaros_python_desktop_entry.h",
-      "type": "lunaredu::python::DesktopEntry"
-    }
-  }
-}

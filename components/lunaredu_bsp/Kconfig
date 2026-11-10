@@ -1,0 +1,58 @@
+menu "LunarEdu BSP"
+
+choice LUNAREDU_BSP_BOARD_PROFILE
+    prompt "板载资源配置"
+    default LUNAREDU_BSP_PROFILE_CAM_BUNDLE
+    help
+        当前 BSP 统一建模为同一套 ESP32-S3-N16R8 核心板，差异只体现在
+        板载资源装配 profile 上。
+
+config LUNAREDU_BSP_PROFILE_MINIMAL
+    bool "最小装配（无板载外设）"
+    help
+        最小装配不声明板载 WS2812、状态灯、camera 或 TF 卡资源，适合只使用
+        外接按键、屏幕和无线能力的独立产品。
+
+config LUNAREDU_BSP_PROFILE_YUEZAI
+    bool "月仔 V1（ESP32-S3-N4R2）"
+    help
+        月仔桌面机器人。资源声明与最小装配一致，但向 Local Device API
+        提供 yuezai-202608-v1 / yuezai 的稳定硬件身份。
+
+config LUNAREDU_BSP_PROFILE_BASE
+    bool "基础装配（普通核心板）"
+    help
+        基础装配只带板载 WS2812。只有在底板 GPIO47/GPIO48 I2C 资源
+        未使用时，GPIO48 才能用于板载 WS2812。
+
+config LUNAREDU_BSP_PROFILE_CAM_BUNDLE
+    bool "摄像头扩展装配"
+    help
+        摄像头扩展装配带 GPIO2 小灯、camera、TF 卡；这些都仍然是可选
+        资源，与同一套扩展底板引脚复用。
+
+config LUNAREDU_BSP_PROFILE_REULEAUX_TRIANGLE_V3
+    bool "莱洛三角形 V3（ESP32-WROOM-32）"
+    help
+        coll45 V3 自平衡莱洛三角形硬件。只提供正确的设备身份，
+        不声明 ESP32-S3 扩展底板资源。
+
+endchoice
+
+config LUNAREDU_BSP_HAS_ONBOARD_WS2812
+    bool
+    default y if LUNAREDU_BSP_PROFILE_BASE
+
+config LUNAREDU_BSP_HAS_ONBOARD_STATUS_LED
+    bool
+    default y if LUNAREDU_BSP_PROFILE_CAM_BUNDLE
+
+config LUNAREDU_BSP_HAS_ONBOARD_CAMERA
+    bool
+    default y if LUNAREDU_BSP_PROFILE_CAM_BUNDLE
+
+config LUNAREDU_BSP_HAS_ONBOARD_TFCARD
+    bool
+    default y if LUNAREDU_BSP_PROFILE_CAM_BUNDLE
+
+endmenu

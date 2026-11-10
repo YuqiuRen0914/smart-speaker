@@ -1,4 +1,7 @@
 dependencies:
   bblanchon/arduinojson: 7.4.3
-  joltwallet/littlefs: "1.22.3"
-  espressif/esp32-camera: "2.1.8"
+  chmorgan/esp-audio-player: "~1.1.0"
+  espressif/esp-dsp: "1.7.0"
+  lvgl/lvgl: "^9.5.0"
+  joltwallet/littlefs: '*'
+  espressif/esp32-camera: 2.1.6

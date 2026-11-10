@@ -1,9 +1,0 @@
-menu "Music App"
-config LUNAROS_MUSIC_EXTERNAL_PLAYER
-    bool "Product supplies the Music playback backend"
-    default n
-    help
-        Select exactly one player implementation. The product must bind the
-        public PlayerBackend before declaring the desktop. The built-in mono
-        player and its decoder are omitted for dedicated stereo/DSP hardware.
-endmenu

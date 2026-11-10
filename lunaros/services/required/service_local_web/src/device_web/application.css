@@ -1,6 +1,0 @@
-/* Shared navigation only: product pages retain their own layout and styles. */
-.application-nav { display:flex; gap:28px; border-bottom:1px solid var(--line,#d8e1dd); margin:12px 0 24px; }
-.application-nav a { display:inline-flex; align-items:center; color:var(--muted,#6d7773); min-height:48px; padding:0; text-decoration:none; box-sizing:border-box; }
-.application-nav a[aria-current=page] { color:var(--accent,#246f57); border-bottom:2px solid currentColor; }
-.application-nav a:focus-visible { outline:2px solid currentColor; outline-offset:4px; }
-@media(max-width:600px) { .application-nav { justify-content:space-between; gap:16px; } }

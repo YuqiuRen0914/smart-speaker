@@ -1,7 +1,6 @@
 #include "lunaredu_device_mpu6050_imu.h"
 
-#include "kernel/service_executor.h"
-#include "kernel/runtime.h"
+#include "lunaredu_lunaros/kernel/service_executor.h"
 #include "mpu6050_local_api.h"
 
 namespace lunaredu::device {
@@ -23,9 +22,8 @@ struct Mpu6050Request {
   uint16_t value = 0;
 };
 
-void execute_mpu6050(void *context,
+void execute_mpu6050(Mpu6050Request &request,
                      lunaredu::lunaros::ServiceOperationResult &result) {
-  auto &request = *static_cast<Mpu6050Request *>(context);
   switch (request.operation) {
   case Mpu6050Operation::ReadStatus:
     break;
@@ -54,47 +52,47 @@ void execute_mpu6050(void *context,
   }
 }
 
-bool invoke(lunaredu::lunaros::KernelRuntime &runtime, Mpu6050Request &request, std::string &error) {
-  return runtime.invoke_executor(
-      lunaredu::lunaros::kMainServiceExecutor, execute_mpu6050, &request,
+bool invoke(Mpu6050Request &request, std::string &error) {
+  return lunaredu::lunaros::invoke_service_operation(
+      lunaredu::lunaros::kMainServiceExecutor, execute_mpu6050, request,
       error);
 }
 
 } // namespace
 
-bool dispatch_mpu6050_status(lunaredu::lunaros::KernelRuntime &runtime, Mpu6050Status *status, std::string &error) {
+bool dispatch_mpu6050_status(Mpu6050Status *status, std::string &error) {
   Mpu6050Request request;
   request.status = status;
-  return invoke(runtime, request, error);
+  return invoke(request, error);
 }
 
-bool dispatch_mpu6050_start_sampling(lunaredu::lunaros::KernelRuntime &runtime, Mpu6050Status *status,
+bool dispatch_mpu6050_start_sampling(Mpu6050Status *status,
                                      std::string &error) {
   Mpu6050Request request;
   request.operation = Mpu6050Operation::StartSampling;
   request.status = status;
-  return invoke(runtime, request, error);
+  return invoke(request, error);
 }
 
-bool dispatch_mpu6050_stop_sampling(lunaredu::lunaros::KernelRuntime &runtime, Mpu6050Status *status,
+bool dispatch_mpu6050_stop_sampling(Mpu6050Status *status,
                                     std::string &error) {
   Mpu6050Request request;
   request.operation = Mpu6050Operation::StopSampling;
   request.status = status;
-  return invoke(runtime, request, error);
+  return invoke(request, error);
 }
 
-bool dispatch_mpu6050_set_sample_rate(lunaredu::lunaros::KernelRuntime &runtime, uint16_t sample_rate_hz,
+bool dispatch_mpu6050_set_sample_rate(uint16_t sample_rate_hz,
                                       Mpu6050Status *status,
                                       std::string &error) {
   Mpu6050Request request;
   request.operation = Mpu6050Operation::SetSampleRate;
   request.status = status;
   request.value = sample_rate_hz;
-  return invoke(runtime, request, error);
+  return invoke(request, error);
 }
 
-bool dispatch_mpu6050_fill_telemetry_batch_payload(lunaredu::lunaros::KernelRuntime &runtime, JsonDocument &response,
+bool dispatch_mpu6050_fill_telemetry_batch_payload(JsonDocument &response,
                                                    uint32_t after_seq,
                                                    uint16_t limit,
                                                    std::string &error) {
@@ -103,7 +101,7 @@ bool dispatch_mpu6050_fill_telemetry_batch_payload(lunaredu::lunaros::KernelRunt
   request.document = &response;
   request.after_sequence = after_seq;
   request.value = limit;
-  return invoke(runtime, request, error);
+  return invoke(request, error);
 }
 
 } // namespace lunaredu::device

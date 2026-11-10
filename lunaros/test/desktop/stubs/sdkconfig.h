@@ -1,0 +1,2 @@
+#pragma once
+#define CONFIG_LUNAREDU_DEVICE_WEB_MAX_PAGE_BYTES 4096

@@ -9,11 +9,8 @@
 #include <driver/i2c_master.h>
 #include <esp_err.h>
 #include <esp_timer.h>
-#ifdef ESP_PLATFORM
-#include <esp_attr.h>
-#endif
 
-#include <esp_log.h>
+#include "lunaredu_lunaros/kernel/log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "i2c_bus.h"
@@ -24,7 +21,6 @@ namespace lunaredu::device {
 struct Mpu6050ModuleInstance {
   bool initialized = false;
   bool sampling = false;
-  bool sleeping = false;
   bool owns_i2c_bus = false;
   Mpu6050ModuleConfig config;
   uint8_t i2c_address = 0;
@@ -155,7 +151,6 @@ void reset_runtime_state(Mpu6050ModuleInstance &instance,
   instance.initialized = false;
   instance.sampling = false;
   instance.i2c_address = 0;
-  instance.sleeping = false;
   instance.who_am_i = 0;
   instance.sample_rate_hz =
       sanitize_sample_rate_hz(config.default_sample_rate_hz);
@@ -623,7 +618,6 @@ Mpu6050Status make_status_locked(const Mpu6050ModuleInstance &instance) {
   status.i2c_address = instance.i2c_address;
   status.who_am_i = instance.who_am_i;
   status.sample_rate_hz = instance.sample_rate_hz;
-  status.sleeping = instance.sleeping;
   status.sample_interval_ms = instance.sample_interval_ms;
   status.sample_count = instance.sample_count;
   status.last_sample_ms = instance.last_sample_ms;
@@ -659,17 +653,17 @@ bool setup_mpu6050_instance(Mpu6050ModuleInstance *instance,
   reset_runtime_state(*instance, config);
 
   if (!setup_custom_i2c_transport(*instance)) {
-    ESP_LOGE(kLogTag, "init failed: %s", instance->last_error.c_str());
+    LOGE(kLogTag, "init failed: %s", instance->last_error.c_str());
     return fail_setup(*instance);
   }
 
   if (!detect_device(*instance)) {
-    ESP_LOGW(kLogTag, "init skipped: %s", instance->last_error.c_str());
+    LOGW(kLogTag, "init skipped: %s", instance->last_error.c_str());
     return fail_setup(*instance);
   }
 
   if (!configure_device(*instance)) {
-    ESP_LOGE(kLogTag, "init failed: %s", instance->last_error.c_str());
+    LOGE(kLogTag, "init failed: %s", instance->last_error.c_str());
     return fail_setup(*instance);
   }
 
@@ -678,14 +672,14 @@ bool setup_mpu6050_instance(Mpu6050ModuleInstance *instance,
     if (!calibrate_gyro_offsets(*instance, config.gyro_calibration_samples,
                                 calibration_error)) {
       instance->last_error = calibration_error;
-      ESP_LOGE(kLogTag, "gyro calibration failed: %s",
+      LOGE(kLogTag, "gyro calibration failed: %s",
            instance->last_error.c_str());
       return fail_setup(*instance);
     }
   }
 
   instance->initialized = true;
-  ESP_LOGI(kLogTag, "ready address=0x%02X external_bus=%u sda=%u scl=%u",
+  LOGI(kLogTag, "ready address=0x%02X external_bus=%u sda=%u scl=%u",
        static_cast<unsigned>(instance->i2c_address),
        config.external_i2c_bus != nullptr ? 1U : 0U,
        static_cast<unsigned>(config.sda_pin),
@@ -734,10 +728,6 @@ bool mpu6050_instance_read_now(Mpu6050ModuleInstance *instance) {
     instance->last_error = "sensor_not_initialized";
     return false;
   }
-  if (instance->sleeping) {
-    instance->last_error = "sensor_sleeping";
-    return false;
-  }
   return read_sample(*instance);
 }
 
@@ -748,22 +738,6 @@ bool mpu6050_instance_available(Mpu6050ModuleInstance *instance) {
 
   std::lock_guard<std::recursive_mutex> lock(instance->mutex);
   return instance->initialized;
-}
-
-Mpu6050DiagnosticFacts mpu6050_instance_diagnostic_facts(Mpu6050ModuleInstance *instance) {
-  Mpu6050DiagnosticFacts facts;
-  if (!instance) return facts;
-  std::lock_guard<std::recursive_mutex> lock(instance->mutex);
-  facts.initialized = instance->initialized;
-  facts.bus_pins_known = instance->initialized && instance->owns_i2c_bus;
-  facts.sda_pin = instance->config.sda_pin;
-  facts.scl_pin = instance->config.scl_pin;
-  facts.has_interrupt_pin = instance->config.has_interrupt_pin;
-  facts.interrupt_pin = instance->config.interrupt_pin;
-  facts.address = instance->i2c_address;
-  facts.clock_hz = instance->config.i2c_clock_hz;
-  facts.sample_rate_hz = instance->sample_rate_hz;
-  return facts;
 }
 
 Mpu6050Status mpu6050_instance_status(Mpu6050ModuleInstance *instance) {
@@ -827,7 +801,6 @@ bool mpu6050_instance_start_sampling(Mpu6050ModuleInstance *instance,
     error = "sensor_not_initialized";
     return false;
   }
-  if (!mpu6050_instance_set_sleep(instance, false, error)) return false;
   instance->sampling = true;
   instance->last_tick_ms = 0;
   error.clear();
@@ -841,35 +814,6 @@ void mpu6050_instance_stop_sampling(Mpu6050ModuleInstance *instance) {
 
   std::lock_guard<std::recursive_mutex> lock(instance->mutex);
   instance->sampling = false;
-}
-
-bool mpu6050_instance_set_sleep(Mpu6050ModuleInstance *instance, bool sleep,
-                                std::string &error) {
-  if (!instance) { error = "invalid_instance"; return false; }
-  std::lock_guard<std::recursive_mutex> lock(instance->mutex);
-  if (!instance->initialized) { error = "sensor_not_initialized"; return false; }
-  if (instance->sleeping != sleep) {
-    mpu6050_power_management1_register_t power = {};
-    power.bits.clock_source = MPU6050_GYRO_CS_PLL_X_AXIS_REF;
-    power.bits.sleep_enabled = sleep;
-    mpu6050_power_management1_register_t confirmed = {};
-    if (mpu6050_set_power_management1_register(instance->sensor, power) != ESP_OK ||
-        mpu6050_get_power_management1_register(instance->sensor, &confirmed) != ESP_OK ||
-        confirmed.bits.sleep_enabled != sleep) {
-      instance->last_error = error = "sleep_config_failed";
-      return false;
-    }
-    instance->sleeping = sleep;
-    // Never integrate across a suspension or expose a pre-suspend pose.
-    instance->latest_sample.valid = false;
-    reset_pose_state(*instance);
-    instance->last_tick_ms = 0;
-  }
-  if (sleep) instance->sampling = false;
-  if (instance->last_error == "sleep_config_failed" || instance->last_error == "sensor_sleeping")
-    instance->last_error.clear();
-  error.clear();
-  return true;
 }
 
 bool mpu6050_instance_set_sample_rate_hz(Mpu6050ModuleInstance *instance,
@@ -903,12 +847,6 @@ bool mpu6050_instance_set_sample_rate_hz(Mpu6050ModuleInstance *instance,
 }
 
 Mpu6050ModuleInstance *default_mpu6050_instance() {
-  // Sampling and diagnostics use this on task owners, never from an ISR or
-  // while the flash cache is disabled. Keep its 64-sample history in PSRAM
-  // when the product enables external BSS; other targets retain normal BSS.
-#ifdef ESP_PLATFORM
-  EXT_RAM_BSS_ATTR
-#endif
   static Mpu6050ModuleInstance instance;
   return &instance;
 }

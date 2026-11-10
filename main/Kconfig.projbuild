@@ -18,26 +18,26 @@ config LUNAREDU_SMART_SPEAKER_PLAYER_TASK_STACK_SIZE
 config LUNAREDU_SMART_SPEAKER_ENCODER_A_GPIO
     int "Rotary encoder A GPIO"
     range 0 48
-    default 12
+    default 17
 
 config LUNAREDU_SMART_SPEAKER_ENCODER_B_GPIO
     int "Rotary encoder B GPIO"
     range 0 48
-    default 11
+    default 18
 
 config LUNAREDU_SMART_SPEAKER_ENCODER_REVERSED
     bool "Reverse encoder direction"
-    default y
+    default n
 
 config LUNAREDU_SMART_SPEAKER_LEFT_BUTTON_GPIO
     int "Previous/left button GPIO"
     range 0 48
-    default 8
+    default 42
 
 config LUNAREDU_SMART_SPEAKER_RIGHT_BUTTON_GPIO
     int "Next/right button GPIO"
     range 0 48
-    default 7
+    default 13
 
 config LUNAREDU_SMART_SPEAKER_BUTTON_ACTIVE_LOW
     bool "Buttons are active low"
@@ -72,6 +72,11 @@ config LUNAREDU_SMART_SPEAKER_RIGHT_I2S_DOUT
     int "Right MAX98357 DIN GPIO"
     range 0 48
     default 5
+
+config LUNAREDU_SMART_SPEAKER_MIC_I2S_DIN
+    int "I2S microphone DIN/SD GPIO"
+    range -1 48
+    default 21
 
 config LUNAREDU_SMART_SPEAKER_TOUCH_SDA_GPIO
     int "Touch controller SDA GPIO"

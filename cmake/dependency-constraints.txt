@@ -1,23 +1,19 @@
-# Direct and transitive public registry versions locked for smart-speaker.
+# Exact component versions from f1587d4fa682c33cbb69d0c65805c170ef1ac7e1
 bblanchon/arduinojson==7.4.3
-espressif/cbor==0.6.1~4
-espressif/cmake_utilities==1.3.0
-espressif/esp-dsp==1.8.2
-espressif/esp32-camera==2.1.8
-espressif/esp_asrc==1.1.0
+chmorgan/esp-audio-player==1.1.0
+chmorgan/esp-libhelix-mp3==1.0.3
+espressif/button==4.1.7
+espressif/cjson==1.7.19~2
+espressif/cmake_utilities==1.1.1
+espressif/dl_fft==0.7.0
+espressif/esp-dsp==1.7.0
+espressif/esp-sr==2.3.1
+espressif/esp32-camera==2.1.6
 espressif/esp_audio_codec==2.6.2
-espressif/esp_audio_effects==1.4.3
-espressif/esp_audio_render==1.1.0
-espressif/esp_image_effects==1.2.0
-espressif/esp_jpeg==1.3.2
-espressif/esp_muxer==1.2.4
-espressif/esp_new_jpeg==1.0.2
-espressif/esp_sysview==1.1.2
-espressif/gmf_audio==1.1.0
-espressif/gmf_core==1.1.0
-espressif/gmf_fft==1.1.0
+espressif/esp_jpeg==1.3.1
 espressif/i2c_bus==1.5.2
 espressif/mqtt==1.1.0
 joltwallet/littlefs==1.22.3
 k0i05/esp_mpu6050==1.2.7
 k0i05/esp_type_utils==1.2.7
+lvgl/lvgl==9.5.0

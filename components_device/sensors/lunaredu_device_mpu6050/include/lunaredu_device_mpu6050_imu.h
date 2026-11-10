@@ -3,8 +3,6 @@
 #include <stdint.h>
 #include <string>
 
-namespace lunaredu::lunaros { class DeviceProjectionRegistry; }
-
 #include <driver/i2c_master.h>
 
 namespace lunaredu::device {
@@ -74,7 +72,6 @@ struct Mpu6050Status {
   bool ok = false;
   bool initialized = false;
   bool sampling = false;
-  bool sleeping = false;
   uint8_t i2c_address = 0;
   uint8_t who_am_i = 0;
   uint16_t sample_rate_hz = 50;
@@ -86,14 +83,6 @@ struct Mpu6050Status {
   Mpu6050Pose pose;
 };
 struct Mpu6050ModuleInstance;
-struct Mpu6050DiagnosticFacts {
-  bool initialized = false, bus_pins_known = false, has_interrupt_pin = false;
-  uint8_t sda_pin = 0, scl_pin = 0, interrupt_pin = 0, address = 0;
-  uint32_t clock_hz = 0;
-  uint16_t sample_rate_hz = 0;
-};
-// Configuration-only observation; never reads the I2C device or starts sampling.
-Mpu6050DiagnosticFacts mpu6050_instance_diagnostic_facts(Mpu6050ModuleInstance *);
 
 Mpu6050ModuleInstance *mpu6050_create_instance();
 // A failed release retains the instance and its owned resources for retry.
@@ -112,9 +101,6 @@ void mpu6050_instance_reset_pose(Mpu6050ModuleInstance *instance);
 bool mpu6050_instance_start_sampling(Mpu6050ModuleInstance *instance,
                                      std::string &error);
 void mpu6050_instance_stop_sampling(Mpu6050ModuleInstance *instance);
-// Suspending invalidates old samples and pose; waking does not start polling.
-bool mpu6050_instance_set_sleep(Mpu6050ModuleInstance *instance, bool sleep,
-                                std::string &error);
 bool mpu6050_instance_set_sample_rate_hz(Mpu6050ModuleInstance *instance,
                                          uint16_t sample_rate_hz,
                                          std::string &error);
@@ -125,8 +111,6 @@ bool setup_mpu6050_with_bus(const Mpu6050ModuleConfig &config,
 bool mpu6050_deinit();
 bool setup_main_imu_module();
 void tick_mpu6050();
-// For an I/O owner that already supplies its own sampling deadline.
-bool mpu6050_read_now();
 bool mpu6050_available();
 Mpu6050Status mpu6050_status();
 Mpu6050Pose mpu6050_pose();
@@ -134,9 +118,6 @@ bool mpu6050_calibrate_gyro(uint16_t samples, std::string &error);
 void mpu6050_reset_pose();
 bool mpu6050_start_sampling(std::string &error);
 void mpu6050_stop_sampling();
-bool mpu6050_set_sleep(bool sleep, std::string &error);
 bool mpu6050_set_sample_rate_hz(uint16_t sample_rate_hz, std::string &error);
-bool declare_mpu6050_projection(lunaredu::lunaros::DeviceProjectionRegistry &registry,
-                                std::string &error);
 
 } // namespace lunaredu::device

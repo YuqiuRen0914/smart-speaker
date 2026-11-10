@@ -1,0 +1,293 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lunaredu.cn/contracts/lunaros/presentation.schema.json",
+  "title": "LunarOS Presentation Document",
+  "description": "Resolved, renderer-neutral UI document shared by device and upper-computer renderers.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "revision", "viewport", "theme", "root"],
+  "properties": {
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "schemaHash"],
+      "properties": {
+        "id": { "const": "lunaros.presentation" },
+        "version": { "const": 2 },
+        "schemaHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "revision": { "type": "integer", "minimum": 0 },
+    "transitionId": { "type": "integer", "minimum": 0 },
+    "activeApplicationId": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "viewport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height"],
+      "properties": {
+        "width": { "type": "integer", "minimum": 1, "maximum": 4096 },
+        "height": { "type": "integer", "minimum": 1, "maximum": 4096 },
+        "rotation": { "enum": [0, 90, 180, 270] }
+      }
+    },
+    "theme": { "$ref": "#/$defs/theme" },
+    "resources": {
+      "type": "array",
+      "maxItems": 32,
+      "items": { "$ref": "#/$defs/resource" }
+    },
+    "root": { "$ref": "#/$defs/node" }
+  },
+  "$defs": {
+    "color": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$" },
+    "dimension": {
+      "oneOf": [
+        { "type": "integer", "minimum": 0, "maximum": 4096 },
+        { "enum": ["auto", "fill"] }
+      ]
+    },
+    "edges": {
+      "oneOf": [
+        { "type": "integer", "minimum": 0, "maximum": 256 },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "top": { "type": "integer", "minimum": 0, "maximum": 256 },
+            "right": { "type": "integer", "minimum": 0, "maximum": 256 },
+            "bottom": { "type": "integer", "minimum": 0, "maximum": 256 },
+            "left": { "type": "integer", "minimum": 0, "maximum": 256 }
+          }
+        }
+      ]
+    },
+    "theme": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["background", "surface", "surfaceMuted", "foreground", "muted", "primary", "border", "danger"],
+      "properties": {
+        "background": { "$ref": "#/$defs/color" },
+        "surface": { "$ref": "#/$defs/color" },
+        "surfaceMuted": { "$ref": "#/$defs/color" },
+        "foreground": { "$ref": "#/$defs/color" },
+        "muted": { "$ref": "#/$defs/color" },
+        "primary": { "$ref": "#/$defs/color" },
+        "border": { "$ref": "#/$defs/color" },
+        "danger": { "$ref": "#/$defs/color" }
+      }
+    },
+    "style": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "width": { "$ref": "#/$defs/dimension" },
+        "height": { "$ref": "#/$defs/dimension" },
+        "minWidth": { "type": "integer", "minimum": 0, "maximum": 4096 },
+        "minHeight": { "type": "integer", "minimum": 0, "maximum": 4096 },
+        "padding": { "$ref": "#/$defs/edges" },
+        "gap": { "type": "integer", "minimum": 0, "maximum": 256 },
+        "direction": { "enum": ["row", "column"] },
+        "align": { "enum": ["start", "center", "end", "stretch"] },
+        "justify": { "enum": ["start", "center", "end", "space-between"] },
+        "wrap": { "type": "boolean" },
+        "grow": { "type": "integer", "minimum": 0, "maximum": 8 },
+        "overflow": { "enum": ["visible", "hidden", "scroll"] },
+        "background": { "$ref": "#/$defs/color" },
+        "foreground": { "$ref": "#/$defs/color" },
+        "borderColor": { "$ref": "#/$defs/color" },
+        "borderWidth": { "type": "integer", "minimum": 0, "maximum": 8 },
+        "radius": { "type": "integer", "minimum": 0, "maximum": 128 },
+        "opacity": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "textStyle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["size"],
+      "properties": {
+        "size": { "type": "integer", "minimum": 8, "maximum": 96 },
+        "weight": { "enum": [400, 500, 600, 700] },
+        "lineHeight": { "type": "integer", "minimum": 8, "maximum": 128 },
+        "align": { "enum": ["left", "center", "right"] },
+        "maxLines": { "type": "integer", "minimum": 1, "maximum": 16 }
+      }
+    },
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "payload": { "type": "object", "additionalProperties": true },
+        "requiresConfirmation": { "type": "boolean" }
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "revision"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "kind": { "enum": ["image", "sprite", "font"] },
+        "revision": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "url": { "type": "string", "maxLength": 2048 },
+        "width": { "type": "integer", "minimum": 1, "maximum": 4096 },
+        "height": { "type": "integer", "minimum": 1, "maximum": 4096 },
+        "frames": { "type": "integer", "minimum": 1, "maximum": 512 }
+      }
+    },
+    "node": {
+      "oneOf": [
+        { "$ref": "#/$defs/containerNode" },
+        { "$ref": "#/$defs/textNode" },
+        { "$ref": "#/$defs/iconNode" },
+        { "$ref": "#/$defs/buttonNode" },
+        { "$ref": "#/$defs/resourceNode" },
+        { "$ref": "#/$defs/progressNode" },
+        { "$ref": "#/$defs/spacerNode" }
+      ]
+    },
+    "baseNode": {
+      "type": "object",
+      "required": ["key", "type"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "type": { "type": "string" },
+        "style": { "$ref": "#/$defs/style" },
+        "visible": { "type": "boolean" },
+        "accessibilityLabel": { "type": "string", "maxLength": 256 }
+      }
+    },
+    "containerNode": {
+      "allOf": [
+        { "$ref": "#/$defs/baseNode" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "type", "children"],
+          "properties": {
+            "key": true,
+            "type": { "const": "container" },
+            "style": true,
+            "visible": true,
+            "accessibilityLabel": true,
+            "children": { "type": "array", "maxItems": 96, "items": { "$ref": "#/$defs/node" } }
+          }
+        }
+      ]
+    },
+    "textNode": {
+      "allOf": [
+        { "$ref": "#/$defs/baseNode" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "type", "text", "textStyle"],
+          "properties": {
+            "key": true,
+            "type": { "const": "text" },
+            "style": true,
+            "visible": true,
+            "accessibilityLabel": true,
+            "text": { "type": "string", "maxLength": 2048 },
+            "textStyle": { "$ref": "#/$defs/textStyle" }
+          }
+        }
+      ]
+    },
+    "iconNode": {
+      "allOf": [
+        { "$ref": "#/$defs/baseNode" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "type", "name"],
+          "properties": {
+            "key": true,
+            "type": { "const": "icon" },
+            "style": true,
+            "visible": true,
+            "accessibilityLabel": true,
+            "name": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "size": { "type": "integer", "minimum": 8, "maximum": 256 }
+          }
+        }
+      ]
+    },
+    "buttonNode": {
+      "allOf": [
+        { "$ref": "#/$defs/baseNode" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "type", "children", "intent"],
+          "properties": {
+            "key": true,
+            "type": { "const": "button" },
+            "style": true,
+            "visible": true,
+            "accessibilityLabel": true,
+            "disabled": { "type": "boolean" },
+            "intent": { "$ref": "#/$defs/intent" },
+            "children": { "type": "array", "maxItems": 8, "items": { "$ref": "#/$defs/node" } }
+          }
+        }
+      ]
+    },
+    "resourceNode": {
+      "allOf": [
+        { "$ref": "#/$defs/baseNode" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "type", "resourceId"],
+          "properties": {
+            "key": true,
+            "type": { "const": "resource" },
+            "style": true,
+            "visible": true,
+            "accessibilityLabel": true,
+            "resourceId": { "type": "string", "minLength": 1, "maxLength": 96 },
+            "fit": { "enum": ["contain", "cover", "stretch"] },
+            "frame": { "type": "integer", "minimum": 0, "maximum": 511 }
+          }
+        }
+      ]
+    },
+    "progressNode": {
+      "allOf": [
+        { "$ref": "#/$defs/baseNode" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "type", "value"],
+          "properties": {
+            "key": true,
+            "type": { "const": "progress" },
+            "style": true,
+            "visible": true,
+            "accessibilityLabel": true,
+            "value": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      ]
+    },
+    "spacerNode": {
+      "allOf": [
+        { "$ref": "#/$defs/baseNode" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "type"],
+          "properties": {
+            "key": true,
+            "type": { "const": "spacer" },
+            "style": true,
+            "visible": true,
+            "accessibilityLabel": true
+          }
+        }
+      ]
+    }
+  }
+}

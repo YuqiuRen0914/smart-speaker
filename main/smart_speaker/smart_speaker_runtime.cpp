@@ -1,15 +1,9 @@
-#include "product/speaker_desktop.h"
-#include "lunaredu_music_backend.h"
-#include "lunaros_audio_focus.h"
-#include "lunaros_audio_library.h"
-#include "configuration/settings.h"
-#include "lunaredu_music_lyrics.h"
+#include "smart_speaker_lyrics_store.h"
 #include "smart_speaker_runtime.h"
 #include "runtime_internal.h"
 #include "transfer_internal.h"
-#include "lunaros_resource.h"
-#include "lunaros_platform_link.h"
-#include "lunaros_provisioning.h"
+#include "lunaredu_lunaros/delivery/resources.h"
+#include "lunaredu_lunaros/device_link/device_link.h"
 #include <ctime>
 
 #include <algorithm>
@@ -27,25 +21,37 @@
 #include <sys/stat.h>
 #include <vector>
 
-#include "lunaros_audio_file_player.h"
+#include <audio_player.h>
 #include <driver/gpio.h>
 #include <esp_check.h>
+#include <esp_attr.h>
 #include <esp_app_desc.h>
+#include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_system.h>
 #include <esp_random.h>
+#include <nvs.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 
-#include "device_api/device_projection.h"
-#include "model/device_model.h"
+#include "lunaredu_lunaros/device_api/device_projection_json.h"
+#include "lunaredu_lunaros/device_api/device_projection.h"
+#include "lunaredu_lunaros/model/device_model.h"
+#include "lunaredu_device_gpio_button.h"
+#include "lunaredu_lunaros/desktop/local/lvgl_screen_runtime.h"
 #include "lunaredu_device_sdcard_storage.h"
 #include "lunaredu_device_sdcard_tfcard_store.h"
-#include "lunaredu_ota.h"
-#include "lunaros_network.h"
+#include "lunaredu_lunaros/delivery/update.h"
+#include "lunaredu_lunaros/network/network_commands.h"
 #include "sdkconfig.h"
 #include "smart_speaker_audio.h"
+#include "smart_speaker_display.h"
+#include "smart_speaker_character.h"
+#include "smart_speaker_log_buffer.h"
 #include "smart_speaker_sensors.h"
+#include "smart_speaker_touch_routing.h"
+#include "smart_speaker_xiaozhi.h"
+#include "lunaredu_pet_conversation.h"
 
 namespace smart_speaker {
 using namespace lunaredu::lunaros;
@@ -56,6 +62,8 @@ constexpr const char *kTag = "smart_speaker";
 constexpr const char *kMusicDir = "/sdcard/music";
 
 constexpr uint32_t kAudioDebugIntervalMs = 500;
+constexpr uint16_t kButtonShortPressMs = 120;
+constexpr uint32_t kButtonCommandCooldownMs = 500;
 constexpr uint32_t kEncoderCommandCooldownMs = 45;
 constexpr uint32_t kEncoderIdleClearMs = 140;
 constexpr uint32_t kEncoderEdgeDebounceMs = 1;
@@ -66,69 +74,77 @@ const DeviceCapabilityDescriptor kCapability = {
     nullptr,
     0,
 };
-DeviceProjectionBinding g_projection;
 Runtime g_runtime;
-bool g_file_player_created = false;
-std::atomic<bool> g_player_retiring{false};
-std::atomic<bool> g_ota_maintenance{false};
-std::atomic<bool> g_library_refresh_pending{false};
+bool g_audio_player_created = false;
 
 // Never block the UI task on a long SD upload.
 std::mutex g_player_operation_mutex;
 QueueHandle_t g_command_queue = nullptr;
+std::unique_ptr<lunaredu::device::DeviceGpioButton> g_previous_button;
+std::unique_ptr<lunaredu::device::DeviceGpioButton> g_next_button;
 portMUX_TYPE g_encoder_lock = portMUX_INITIALIZER_UNLOCKED;
 volatile int32_t g_encoder_delta = 0;
 volatile uint8_t g_encoder_state = 0;
 volatile TickType_t g_encoder_last_edge_tick = 0;
 uint32_t g_last_encoder_command_ms = 0;
-int16_t g_desktop_encoder_position = 0;
-// Volume input is a high-rate relative signal. Keep it out of the general
-// playback queue and apply the accumulated delta once per runtime tick.
-std::atomic<int32_t> g_pending_volume_delta{0};
-lunaredu::audio::AudioHistory g_audio_history{kAudioDebugIntervalMs};
-// Product supplies storage, board policy and the existing queue/decoder owner.
-// Playback transitions, completion fences and checked stop live in shared Music.
-lunaredu::music::PlaybackCoordinator g_playback_coordinator{g_runtime,g_runtime.mutex,
-    {kMaxVolume,true,kFirstFrameTimeoutMs,100},[]{
-  lunaredu::music::PlaybackPorts p;
-  p.track_count=[](void *){return g_runtime.playlist.size();};
-  p.now_ms=[](void *){return now_ms();};p.entropy=[](void *){return esp_random();};
-  p.enqueue=[](void *,Command command){return enqueue_command(command.type,command.value,command.playlist_revision);};
-  p.play_index=[](void *,int index){return play_index(index);};
-  p.pause=[](void *){return file_player_pause()==ESP_OK;};
-  p.resume=[](void *){return file_player_resume()==ESP_OK;};
-  p.stop=[](void *){return file_player_stop()==ESP_OK;};
-  p.idle=[](void *){return !g_file_player_created||file_player_state()==FilePlayerState::Idle;};
-  p.discard_pending=[](void *){
-    g_pending_volume_delta.store(0, std::memory_order_relaxed);
-    if(g_command_queue){Command ignored;while(xQueueReceive(g_command_queue,&ignored,0)==pdTRUE){}}
-  };
-  p.fade_to_mute=[](void *,uint32_t ms){return dual_i2s_audio_fade_to_mute(ms);};
-  p.fade_up=[](void *){dual_i2s_audio_fade_up();};
-  p.set_volume=[](void *,int volume){dual_i2s_audio_set_volume(volume);ESP_LOGI(kTag,"volume=%d max=%d",volume,kMaxVolume);};
-  p.refresh=[](void *){g_library_refresh_pending=true;};
-  p.persist_mode=[](void *,PlaybackMode mode){
-    std::string error;
-    const bool saved=settings_write_u8("spkr_player","mode",uint8_t(mode),error);
-    if(saved)ESP_LOGI(kTag,"playback mode=%s",playback_mode_name(mode));
-    return saved;
-  };
-  p.error=[](void *,const char *error){ESP_LOGW(kTag,"%s",error);};
-  return p;
-}()};
+// Coalesce rotary volume input without filling the playback command queue.
+std::atomic<int> g_pending_volume_delta{0};
+std::array<AudioDebugFrame, kAudioDebugFrameCount> g_audio_debug_frames = {};
+portMUX_TYPE g_audio_debug_lock = portMUX_INITIALIZER_UNLOCKED;
+uint32_t g_audio_debug_sequence = 0;
+uint32_t g_last_audio_debug_capture_ms = 0;
+bool g_touch_ptt_active = false;
+bool g_touch_ptt_release_pending = false;
+std::atomic<bool> g_provisioning_requested{false};
+std::atomic<bool> g_provisioning_cancel_requested{false};
+bool g_provisioning_observed = false;  // Main input executor owns this flag.
+std::mutex g_menu_mutex;
+LocalMenuState g_menu;
+bool g_pairing_retry = false;
+struct LocalButtonState {
+  bool raw = false;
+  bool down = false;
+  bool consumed = false;
+  uint32_t changed_ms = 0;
+  uint32_t pressed_ms = 0;
+};
+LocalButtonState g_local_left, g_local_right;
+std::atomic<uint32_t> g_visual_activity{0};
+
 bool enqueue_command(CommandType type, int value, uint32_t playlist_revision) {
-  if(g_player_retiring.load(std::memory_order_acquire)||g_ota_maintenance.load(std::memory_order_acquire))return false;
   if (g_command_queue == nullptr) {
     return false;
   }
   if (type == CommandType::kAdjustVolume) {
-    if (value != 0) {
-      g_pending_volume_delta.fetch_add(value, std::memory_order_relaxed);
-    }
-    return true;
+    int pending = g_pending_volume_delta.load(std::memory_order_relaxed);
+    while (!g_pending_volume_delta.compare_exchange_weak(
+        pending, static_cast<int>(std::clamp<int64_t>(
+                     int64_t(pending) + value, -kMaxVolume, kMaxVolume)),
+        std::memory_order_relaxed)) {}
+  } else {
+    const Command command{type, value, playlist_revision};
+    if (xQueueSend(g_command_queue, &command, 0) != pdTRUE) return false;
   }
-  const Command command{type, value, playlist_revision};
-  if (xQueueSend(g_command_queue, &command, 0) != pdTRUE) return false;
+  character::Action action = character::Action::None;
+  switch (type) {
+    case CommandType::kSetVolume:
+    case CommandType::kAdjustVolume: action = character::Action::Volume; break;
+    case CommandType::kPrevious: action = character::Action::Previous; break;
+    case CommandType::kNext: action = character::Action::Next; break;
+    case CommandType::kPlayTrack:
+    case CommandType::kPlay: action = character::Action::Play; break;
+    case CommandType::kPause: action = character::Action::Pause; break;
+    case CommandType::kStop: action = character::Action::Stop; break;
+    default: break;
+  }
+  if (action != character::Action::None) {
+    uint32_t previous = g_visual_activity.load(std::memory_order_relaxed);
+    uint32_t next;
+    do {
+      next = ((previous + 8U) & ~7U) | static_cast<uint32_t>(action);
+    } while (!g_visual_activity.compare_exchange_weak(previous, next,
+                                                       std::memory_order_relaxed));
+  }
   return true;
 }
 
@@ -138,11 +154,60 @@ uint32_t now_ms() {
 
 int clamp_volume(int volume) { return std::clamp(volume, 0, kMaxVolume); }
 
-void capture_dual_audio_debug_if_due(){
-  const auto now=now_ms();if(!g_audio_history.due(now))return;
-  int volume;
-  {std::lock_guard<std::mutex> lock(g_runtime.mutex);volume=g_runtime.volume;}
-  g_audio_history.capture(now,volume);
+void capture_dual_audio_debug_if_due() {
+  const uint32_t current_ms = now_ms();
+  if (current_ms - g_last_audio_debug_capture_ms < kAudioDebugIntervalMs) return;
+  g_last_audio_debug_capture_ms = current_ms;
+  const dsp::Diagnostics dsp_status = dual_i2s_dsp_diagnostics();
+  const DualI2sDiagnostics i2s = dual_i2s_diagnostics();
+  AudioDebugFrame frame;
+  frame.sequence = ++g_audio_debug_sequence;
+  frame.timestamp_ms = current_ms;
+  {
+    std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    frame.volume = g_runtime.volume;
+  }
+  frame.peak_in = static_cast<int>(dsp_status.input_peak * 32767.0f);
+  frame.peak_out = static_cast<int>(dsp_status.output_peak * 32767.0f);
+  frame.avg_abs_out = static_cast<int>(dsp_status.rms * 32767.0f);
+  frame.limiter_gain_percent = static_cast<int>(dsp_status.limiter_gain * 100.0f);
+  frame.limiter_events = static_cast<uint32_t>(dsp_status.limiter_events);
+  frame.soft_clip_events = static_cast<uint32_t>(dsp_status.soft_clip_samples);
+  frame.i2s_write_errors = i2s.timeouts_left + i2s.timeouts_right;
+  frame.i2s_short_writes = i2s.short_writes_left + i2s.short_writes_right;
+  frame.max_write_gap_ms = i2s.maximum_write_gap_ms;
+  frame.max_write_time_ms = i2s.maximum_write_time_ms;
+  constexpr uint32_t kDmaCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA;
+  frame.dma_free_bytes = heap_caps_get_free_size(kDmaCaps);
+  frame.dma_largest_block = heap_caps_get_largest_free_block(kDmaCaps);
+  frame.dma_minimum_free_bytes = heap_caps_get_minimum_free_size(kDmaCaps);
+  portENTER_CRITICAL(&g_audio_debug_lock);
+  g_audio_debug_frames[frame.sequence % kAudioDebugFrameCount] = frame;
+  portEXIT_CRITICAL(&g_audio_debug_lock);
+}
+
+
+
+
+
+bool has_mp3_signature(const char *path) {
+  FILE *file = fopen(path, "rb");
+  if (file == nullptr) return false;
+  alignas(4) uint8_t header[4] = {};
+  const size_t bytes_read = fread(header, 1, sizeof(header), file);
+  fclose(file);
+  if (bytes_read < 3) return false;
+  if (header[0] == 'I' && header[1] == 'D' && header[2] == '3') return true;
+  if (bytes_read < 4 || header[0] != 0xFF ||
+      (header[1] & 0xE0) != 0xE0) {
+    return false;
+  }
+  const uint8_t version = header[1] & 0x18;
+  const uint8_t layer = header[1] & 0x06;
+  const uint8_t bitrate = header[2] & 0xF0;
+  const uint8_t sample_rate = header[2] & 0x0C;
+  return version != 0x08 && layer != 0x00 && bitrate != 0x00 &&
+         bitrate != 0xF0 && sample_rate != 0x0C;
 }
 
 void set_error_locked(const char *error) {
@@ -162,14 +227,40 @@ bool ensure_music_dir() {
   return false;
 }
 
-void append_directory_tracks(const char *directory,std::vector<TrackInfo> &tracks){
-  std::vector<lunaredu::audio::AudioLibraryEntry> files;std::string error;
-  if(!lunaredu::audio::append_audio_directory(directory,lunaredu::audio::AudioFileFormat::Mp3,files,error))return;
-  for(auto &file:files){
-    TrackInfo track;track.name=std::move(file.name);track.path=std::move(file.path);track.size_bytes=file.size_bytes;
-    track.has_lyrics=lyrics::exists(lyrics::readable(lyrics::path_for(track.path)));
-    track.lyrics_delay_ms=lyrics::delay(track.path);tracks.push_back(std::move(track));
+void append_directory_tracks(const char *dir_path,
+                             std::vector<TrackInfo> &tracks) {
+  DIR *dir = opendir(dir_path);
+  if (dir == nullptr) {
+    return;
   }
+
+  while (dirent *entry = readdir(dir)) {
+    if (entry->d_name[0] == '.') {
+      continue;
+    }
+    const std::string name = entry->d_name;
+    if (!ends_with_mp3(name)) {
+      continue;
+    }
+    std::string path = std::string(dir_path) + "/" + name;
+    struct stat info = {};
+    if (stat(path.c_str(), &info) != 0 || S_ISDIR(info.st_mode)) {
+      continue;
+    }
+    if (!has_mp3_signature(path.c_str())) {
+      ESP_LOGW(kTag, "ignoring invalid MP3 entry path=%s size=%llu",
+               path.c_str(), static_cast<unsigned long long>(info.st_size));
+      continue;
+    }
+    TrackInfo track;
+    track.name = name;
+    track.path = std::move(path);
+    track.has_lyrics = lyrics::exists(lyrics::readable(lyrics::path_for(track.path)));
+    track.lyrics_delay_ms = lyrics::delay(track.path);
+    track.size_bytes = static_cast<size_t>(std::max<off_t>(0, info.st_size));
+    tracks.push_back(std::move(track));
+  }
+  closedir(dir);
 }
 
 std::vector<TrackInfo> scan_tracks() {
@@ -189,29 +280,9 @@ std::vector<TrackInfo> scan_tracks() {
   return tracks;
 }
 
-void publish_imported_track(const std::string &path,size_t size) {
-  TrackInfo track;track.path=path;track.name=path.substr(path.find_last_of('/')+1);track.size_bytes=size;
-  track.has_lyrics=lyrics::exists(lyrics::readable(lyrics::path_for(path)));
-  track.lyrics_delay_ms=lyrics::delay(path);
-  const auto name=lower_copy(track.name);
-  std::lock_guard<std::mutex> lock(g_runtime.mutex);
-  auto &tracks=g_runtime.playlist;
-  const auto at=std::lower_bound(tracks.begin(),tracks.end(),name,
-      [](const TrackInfo &a,const std::string &b){return lower_copy(a.name)<b;});
-  const auto index=static_cast<int>(at-tracks.begin());
-  tracks.insert(at,std::move(track));
-  if(g_runtime.current_index<0)g_runtime.current_index=0;
-  else if(index<=g_runtime.current_index)++g_runtime.current_index;
-  g_runtime.sd_ready=true;++g_runtime.playlist_revision;
-}
-
-void rescan_library() {
-  const bool ready=lunaredu::device::tfcard_store_ready();
-  std::vector<TrackInfo> tracks;
-  if(ready){(void)ensure_music_dir();tracks=scan_tracks();}
-  std::lock_guard<std::mutex> lock(g_runtime.mutex);
+void rescan_locked() {
   ++g_runtime.playlist_revision;
-  if (!ready) {
+  if (!lunaredu::device::tfcard_store_ready()) {
     g_runtime.sd_ready = false;
     g_runtime.playlist.clear();
     g_runtime.current_index = -1;
@@ -220,13 +291,14 @@ void rescan_library() {
   }
 
   g_runtime.sd_ready = true;
+  (void)ensure_music_dir();
   const std::string current_path =
       g_runtime.current_index >= 0 &&
               g_runtime.current_index <
                   static_cast<int>(g_runtime.playlist.size())
           ? g_runtime.playlist[static_cast<size_t>(g_runtime.current_index)].path
           : std::string();
-  g_runtime.playlist = std::move(tracks);
+  g_runtime.playlist = scan_tracks();
   g_runtime.current_index = -1;
   if (!current_path.empty()) {
     for (size_t i = 0; i < g_runtime.playlist.size(); ++i) {
@@ -246,55 +318,62 @@ void rescan_library() {
            static_cast<unsigned>(g_runtime.playlist.size()));
 }
 
-esp_err_t i2s_write_scaled(const void *audio_buffer, size_t len,
+esp_err_t i2s_write_scaled(void *audio_buffer, size_t len,
                            size_t *bytes_written, uint32_t timeout_ms,
                            void *ctx) {
-  if(g_player_retiring.load(std::memory_order_acquire)||g_ota_maintenance.load(std::memory_order_acquire)){
-    if(bytes_written)*bytes_written=len;
-    return ESP_OK;
-  }
   const esp_err_t err = dual_i2s_audio_write(audio_buffer, len, bytes_written,
                                               timeout_ms, ctx);
   if (err == ESP_OK && bytes_written != nullptr && *bytes_written > 0) {
-    g_playback_coordinator.first_frame();
+    std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    g_runtime.first_frame_seen = true;
+    g_runtime.decode_timeout_skip_sent = false;
   }
   return err;
 }
 
 esp_err_t i2s_reconfig_clock(uint32_t rate, uint32_t bits_cfg,
-                             unsigned channels) {
-  if(g_player_retiring.load(std::memory_order_acquire)||g_ota_maintenance.load(std::memory_order_acquire))return ESP_OK;
+                             i2s_slot_mode_t channels) {
   return dual_i2s_audio_reconfigure(rate, bits_cfg, channels);
 }
 
-esp_err_t audio_mute(AudioMute setting) {
-  if(setting!=AudioMute::Mute&&(g_player_retiring.load(std::memory_order_acquire)||g_ota_maintenance.load(std::memory_order_acquire)))return ESP_OK;
+esp_err_t audio_mute(AUDIO_PLAYER_MUTE_SETTING setting) {
   // UNMUTE is dispatched by the decoder exactly once at each file boundary,
   // including consecutive tracks of the same sample rate. Resume does not reset.
-  if (setting == AudioMute::Unmute) dual_i2s_track_clock_reset();
+  if (setting == AUDIO_PLAYER_UNMUTE) dual_i2s_track_clock_reset();
   ESP_LOGI(kTag, "audio mute=%d", static_cast<int>(setting));
   return dual_i2s_audio_mute(setting);
 }
 
-void handle_audio_event(FilePlayerEventContext *);
-bool setup_audio(lunaredu::lunaros::KernelRuntime &runtime) {
-  if (!setup_speaker_audio_output(runtime)) return false;
-  FilePlayerConfig config;
-  config.context=&g_runtime;config.write=i2s_write_scaled;
-  config.reconfigure=[](uint32_t rate,unsigned channels){return i2s_reconfig_clock(rate,16,channels);};
-  config.mute=audio_mute;config.drain=dual_i2s_audio_drain;
-  config.pause_output=[](bool paused){return dual_i2s_audio_mute(paused?AudioMute::Mute:AudioMute::Unmute);};
-  config.discard=dual_i2s_audio_discard;
-  config.event=handle_audio_event;config.priority=8;config.core=1;config.force_stereo=true;
-  config.task_id="speaker.decode";config.service_id="speaker.audio";
-  config.focus=&lunaredu::audio::local_audio_focus();
-  config.effects={.compressor=true,.gain_db=0,.fade_in_ms=40};
-  std::string error;
-  if(!start_file_player(runtime,config,error)){
-    ESP_LOGE(kTag,"file player init failed: %s",error.c_str());
-    (void)stop_dual_i2s_audio(runtime);return false;
+bool setup_audio() {
+  if (!setup_dual_i2s_audio()) return false;
+
+  audio_player_config_t player_config = {};
+  player_config.mute_fn = audio_mute;
+  player_config.clk_set_fn = i2s_reconfig_clock;
+  player_config.write_fn2 = i2s_write_scaled;
+  player_config.write_ctx = &g_runtime;
+  player_config.priority = 8;
+  // Split decoding and PCM output across cores so background TLS and controls
+  // retain CPU headroom, including during 48 kHz playback.
+  player_config.coreID = 1;
+  player_config.force_stereo = true;
+
+  const esp_err_t err = audio_player_new(player_config);
+  if (err != ESP_OK) {
+    ESP_LOGE(kTag, "audio_player_new failed: %s", esp_err_to_name(err));
+    (void)stop_dual_i2s_audio();
+    return false;
   }
-  g_file_player_created=true;return true;
+  g_audio_player_created = true;
+  return true;
+}
+
+void update_play_state(bool playing, bool paused, bool auto_advance) {
+  std::lock_guard<std::mutex> lock(g_runtime.mutex);
+  g_runtime.playing = playing;
+  g_runtime.paused = paused;
+  if (!paused) g_runtime.paused_by_volume = false;
+  g_runtime.auto_advance = auto_advance;
 }
 
 bool play_index(int index) {
@@ -326,14 +405,24 @@ bool play_index(int index) {
   {
     // Publish the new playback generation before queueing it. The audio task
     // may decode and deliver its first PCM block immediately after
-    // file_player_play(), so resetting first_frame_seen afterwards loses that
+    // audio_player_play(), so resetting first_frame_seen afterwards loses that
     // event and can cause a false first-frame timeout/skip.
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
     g_runtime.lyrics = track_lyrics;
     g_runtime.lyrics_delay_ms = lyric_delay;
-    g_playback_coordinator.begin_track_locked(index,now_ms());
+    g_runtime.current_index = index;
+    g_runtime.paused_by_volume = false;
+    g_runtime.playing = true;
+    g_runtime.paused = false;
+    g_runtime.auto_advance = true;
+    g_runtime.first_frame_seen = false;
+    g_runtime.decode_timeout_skip_sent = false;
+    g_runtime.play_started_ms = now_ms();
+    ++g_runtime.playback_generation;
+    g_runtime.advance_queued = false;
+    clear_error_locked();
   }
-  const esp_err_t err = file_player_play(file);
+  const esp_err_t err = audio_player_play(file);
   if (err != ESP_OK) {
     fclose(file);
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
@@ -347,28 +436,222 @@ bool play_index(int index) {
   return true;
 }
 
-void handle_audio_event(FilePlayerEventContext *ctx){
-  if(!ctx)return;
-  using lunaredu::music::PlaybackEvent;
-  switch(ctx->event){
-    case FilePlayerEvent::Playing:g_playback_coordinator.on_event(PlaybackEvent::Playing);break;
-    case FilePlayerEvent::Paused:g_playback_coordinator.on_event(PlaybackEvent::Paused);break;
-    case FilePlayerEvent::Idle:g_playback_coordinator.on_event(PlaybackEvent::Idle);break;
-    case FilePlayerEvent::Failed:g_playback_coordinator.on_event(PlaybackEvent::Failed);break;
+void queue_track_completion(bool failed) {
+  uint32_t generation = 0;
+  {
+    std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    if (!g_runtime.auto_advance || !g_runtime.playing || g_runtime.uploading ||
+        g_runtime.advance_queued || g_runtime.playlist.empty()) return;
+    failed = failed || !g_runtime.first_frame_seen;
+    g_runtime.playing = false;
+    g_runtime.paused = false;
+    g_runtime.advance_queued = true;
+    g_runtime.paused_by_volume = false;
+    generation = g_runtime.playback_generation;
+  }
+  if (!enqueue_command(failed ? CommandType::kSkipFailed : CommandType::kAutoNext, 0, generation)) {
+    std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    g_runtime.advance_queued = false;
+    set_error_locked("track_advance_queue_full");
   }
 }
-// Dequeue and execution share the product operation lock with file mutations.
-void process_command(const Command &command){g_playback_coordinator.execute(command);}
 
-void process_pending_volume() {
-  const int32_t pending = g_pending_volume_delta.exchange(0, std::memory_order_relaxed);
-  if (pending == 0) return;
-  const int delta = pending > std::numeric_limits<int>::max()
-                       ? std::numeric_limits<int>::max()
-                       : pending < std::numeric_limits<int>::min()
-                             ? std::numeric_limits<int>::min()
-                             : static_cast<int>(pending);
-  process_command({CommandType::kAdjustVolume, delta, 0});
+void cycle_playback_mode() {
+  PlaybackMode mode;
+  {
+    std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    mode = next_playback_mode(g_runtime.playback_mode);
+  }
+  nvs_handle_t handle = 0;
+  esp_err_t result = nvs_open("spkr_player", NVS_READWRITE, &handle);
+  if (result == ESP_OK) {
+    result = nvs_set_u8(handle, "mode", static_cast<uint8_t>(mode));
+    if (result == ESP_OK) result = nvs_commit(handle);
+    nvs_close(handle);
+  }
+  std::lock_guard<std::mutex> lock(g_runtime.mutex);
+  if (result != ESP_OK) { set_error_locked("playback_mode_save_failed"); return; }
+  g_runtime.playback_mode = mode;
+  ++g_runtime.mode_sequence;
+  g_runtime.mode_updated_ms = now_ms();
+  uint32_t previous = g_visual_activity.load(std::memory_order_relaxed);
+  uint32_t next;
+  do { next = ((previous + 8U) & ~7U) | static_cast<uint32_t>(character::Action::Mode); }
+  while (!g_visual_activity.compare_exchange_weak(previous, next, std::memory_order_relaxed));
+  ESP_LOGI(kTag, "playback mode=%s", playback_mode_name(mode));
+}
+
+void handle_audio_event(audio_player_cb_ctx_t *ctx) {
+  if (ctx == nullptr) {
+    return;
+  }
+  switch (ctx->audio_event) {
+  case AUDIO_PLAYER_CALLBACK_EVENT_PLAYING:
+  case AUDIO_PLAYER_CALLBACK_EVENT_COMPLETED_PLAYING_NEXT:
+    update_play_state(true, false, true);
+    break;
+  case AUDIO_PLAYER_CALLBACK_EVENT_PAUSE:
+    update_play_state(false, true, true);
+    break;
+  case AUDIO_PLAYER_CALLBACK_EVENT_IDLE: {
+    queue_track_completion(false);
+    std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    g_runtime.playing = false;
+    g_runtime.paused = false;
+    g_runtime.paused_by_volume = false;
+    break;
+  }
+  case AUDIO_PLAYER_CALLBACK_EVENT_UNKNOWN_FILE_TYPE:
+    queue_track_completion(true);
+    break;
+  default:
+    break;
+  }
+}
+
+void process_command(const Command &command) {
+  if (command.type == CommandType::kCycleMode) { cycle_playback_mode(); return; }
+  std::unique_lock<std::mutex> player_lock(g_player_operation_mutex, std::try_to_lock);
+  if (!player_lock.owns_lock()) return;
+  // Explicit transport commands override a pause caused by muting, including
+  // a second manual pause while already muted. Volume alone may resume only
+  // the playback it paused; it must never start an idle or stopped player.
+  if (command.type == CommandType::kPlay || command.type == CommandType::kPlayTrack ||
+      command.type == CommandType::kPause || command.type == CommandType::kStop ||
+      command.type == CommandType::kNext || command.type == CommandType::kPrevious ||
+      command.type == CommandType::kRescan) {
+    std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    g_runtime.paused_by_volume = false;
+  }
+  switch (command.type) {
+  case CommandType::kPlayTrack: {
+    int index = -1;
+    {
+      std::lock_guard<std::mutex> lock(g_runtime.mutex);
+      // A rescan between admission and execution must never select a different song.
+      g_runtime.failed_tracks = 0;
+      if (command.playlist_revision == g_runtime.playlist_revision &&
+          command.value >= 0 && static_cast<size_t>(command.value) < g_runtime.playlist.size())
+        index = command.value;
+      if (index < 0) set_error_locked("track_not_found");
+    }
+    if (index >= 0) (void)play_index(index);
+    break;
+  }
+  case CommandType::kPlay: {
+    bool paused = false;
+    int current_index = -1;
+    {
+      std::lock_guard<std::mutex> lock(g_runtime.mutex);
+      paused = g_runtime.paused;
+      g_runtime.failed_tracks = 0;
+      current_index = g_runtime.current_index;
+    }
+    if (paused) {
+      if (audio_player_resume() == ESP_OK) {
+        update_play_state(true, false, true);
+        dual_i2s_audio_fade_up();
+      }
+      return;
+    }
+    (void)play_index(current_index);
+    break;
+  }
+  case CommandType::kPause:
+    (void)dual_i2s_audio_fade_to_mute(100);
+    if (audio_player_pause() == ESP_OK) update_play_state(false, true, true);
+    break;
+  case CommandType::kStop:
+    (void)dual_i2s_audio_fade_to_mute(100);
+    {
+      std::lock_guard<std::mutex> lock(g_runtime.mutex);
+      g_runtime.auto_advance = false;
+    }
+    (void)audio_player_stop();
+    update_play_state(false, false, false);
+    break;
+  case CommandType::kNext:
+  case CommandType::kAutoNext:
+  case CommandType::kSkipFailed: {
+    int next_index = -1;
+    {
+      std::lock_guard<std::mutex> lock(g_runtime.mutex);
+      const bool automatic = command.type != CommandType::kNext;
+      if (automatic && (!g_runtime.auto_advance || !g_runtime.advance_queued || g_runtime.uploading || g_runtime.paused ||
+                        command.playlist_revision != g_runtime.playback_generation)) break;
+      g_runtime.advance_queued = false;
+      const bool failed = command.type == CommandType::kSkipFailed;
+      g_runtime.failed_tracks = failed ? g_runtime.failed_tracks + 1 : 0;
+      if (failed && g_runtime.failed_tracks >= g_runtime.playlist.size()) {
+        g_runtime.auto_advance = false;
+        set_error_locked("playlist_unplayable");
+        break;
+      }
+      next_index = advance_track(g_runtime.playback_mode, failed ? TrackAdvance::Failed :
+          automatic ? TrackAdvance::Finished : TrackAdvance::Next, g_runtime.current_index,
+          static_cast<int>(g_runtime.playlist.size()), esp_random());
+      if (automatic && next_index < 0) g_runtime.auto_advance = false;
+    }
+    if (next_index >= 0) (void)play_index(next_index);
+    break;
+  }
+  case CommandType::kPrevious: {
+    int previous_index = -1;
+    {
+      std::lock_guard<std::mutex> lock(g_runtime.mutex);
+      g_runtime.failed_tracks = 0;
+      if (!g_runtime.playlist.empty()) {
+        const int count = static_cast<int>(g_runtime.playlist.size());
+        const int current =
+            g_runtime.current_index < 0 ? 0 : g_runtime.current_index;
+        previous_index = (current - 1 + count) % count;
+      }
+    }
+    if (previous_index >= 0) (void)play_index(previous_index);
+    break;
+  }
+  case CommandType::kSetVolume:
+  case CommandType::kAdjustVolume: {
+    int volume = 0;
+    bool pause_at_zero = false;
+    bool resume_from_zero = false;
+    {
+      std::lock_guard<std::mutex> lock(g_runtime.mutex);
+      const int previous = g_runtime.volume;
+      volume = clamp_volume(command.type == CommandType::kSetVolume ? command.value : previous + command.value);
+      g_runtime.volume = volume;
+      pause_at_zero = volume == 0 && previous > 0 && g_runtime.playing;
+      resume_from_zero = volume > 0 && g_runtime.paused && g_runtime.paused_by_volume;
+    }
+    dual_i2s_audio_set_volume(volume);
+    if (pause_at_zero) {
+      (void)dual_i2s_audio_fade_to_mute(100);
+      if (audio_player_pause() == ESP_OK) {
+        update_play_state(false, true, true);
+        std::lock_guard<std::mutex> lock(g_runtime.mutex);
+        g_runtime.paused_by_volume = true;
+      }
+      else { std::lock_guard<std::mutex> lock(g_runtime.mutex); set_error_locked("playback_pause_failed"); }
+    } else if (resume_from_zero) {
+      if (audio_player_resume() == ESP_OK) {
+        update_play_state(true, false, true);
+        dual_i2s_audio_fade_up();
+      } else {
+        std::lock_guard<std::mutex> lock(g_runtime.mutex);
+        set_error_locked("playback_resume_failed");
+      }
+    }
+    ESP_LOGI(kTag, "volume=%d max=%d", volume, kMaxVolume);
+    break;
+  }
+  case CommandType::kRescan:
+    {
+      std::lock_guard<std::mutex> lock(g_runtime.mutex);
+      rescan_locked();
+    }
+    break;
+  case CommandType::kCycleMode: break; // Handled before the player lock.
+  }
 }
 
 void IRAM_ATTR encoder_isr(void *arg) {
@@ -384,7 +667,9 @@ void IRAM_ATTR encoder_isr(void *arg) {
           ? 1
           : 0;
   const uint8_t state = static_cast<uint8_t>((a << 1) | b);
-  static constexpr int8_t kTransition[16] = {
+  // GPIO interrupts remain enabled during flash/NVS writes. Keep every
+  // lookup used by this IRAM handler in internal RAM while cache is disabled.
+  static const DRAM_ATTR int8_t kTransition[16] = {
       0, -1, 1, 0,
       1, 0, 0, -1,
       -1, 0, 0, 1,
@@ -393,10 +678,7 @@ void IRAM_ATTR encoder_isr(void *arg) {
   const TickType_t now_tick = xTaskGetTickCountFromISR();
   portENTER_CRITICAL_ISR(&g_encoder_lock);
   if (g_encoder_last_edge_tick != 0 &&
-      now_tick - g_encoder_last_edge_tick <
-          pdMS_TO_TICKS(kEncoderEdgeDebounceMs)) {
-    // Keep the state aligned with the pins while suppressing mechanical
-    // bounce. This prevents an interrupt storm from becoming false steps.
+      now_tick - g_encoder_last_edge_tick < pdMS_TO_TICKS(kEncoderEdgeDebounceMs)) {
     g_encoder_state = state;
     portEXIT_CRITICAL_ISR(&g_encoder_lock);
     return;
@@ -442,6 +724,198 @@ void setup_encoder() {
       encoder_isr, nullptr));
 }
 
+// Both menu and runtime mutexes are held. Keep selection tied to a path when
+// uploads/removals change indexes while the user is browsing the library.
+void sync_local_library_locked() {
+  if (g_menu.library_revision != g_runtime.playlist_revision) {
+    auto found = std::find_if(g_runtime.playlist.begin(), g_runtime.playlist.end(),
+        [](const TrackInfo &track) { return track.path == g_menu.library_path; });
+    if (found != g_runtime.playlist.end())
+      g_menu.library_index = static_cast<int>(found - g_runtime.playlist.begin());
+  }
+  g_menu.library_index = g_runtime.playlist.empty() ? 0 :
+      std::clamp(g_menu.library_index, 0, static_cast<int>(g_runtime.playlist.size()) - 1);
+  g_menu.library_revision = g_runtime.playlist_revision;
+  g_menu.library_path = g_runtime.playlist.empty() ? "" : g_runtime.playlist[g_menu.library_index].path;
+}
+
+// The right button and a touch tap both mean "confirm" while a local menu is
+// open. Keep the state transitions in one place so a touch tap never falls
+// through to the home-screen play/pause action.
+bool route_local_menu_button_locked(bool right,
+                                    NetworkProvisioningState provisioning,
+                                    NetworkLinkState link) {
+  if (g_menu.provisioning || (!g_menu.provisioning_dismissed &&
+                              provisioning != NetworkProvisioningState::Idle)) {
+    if (!right) {
+      g_provisioning_requested.store(false);
+      g_provisioning_cancel_requested.store(true);
+      g_menu.provisioning = false;
+      g_menu.provisioning_dismissed = true;
+      g_provisioning_observed = false;
+      g_menu.open = true;
+      g_menu.binding = false;
+      g_menu.information = false;
+      g_menu.network = false;
+      g_menu.library = false;
+      g_menu.selected = 0;
+      g_menu.hold_percent = 0;
+      g_local_right.consumed = true;
+    }
+    return true;
+  }
+  if (g_menu.network) {
+    if (!right) {
+      g_menu.network = false;
+      g_menu.open = true;
+    } else if (g_menu.network_selected == 1) {
+      g_menu.network = false;
+      g_menu.provisioning = true;
+      g_menu.provisioning_dismissed = false;
+      g_provisioning_observed = false;
+      g_provisioning_requested.store(true);
+    }
+    return true;
+  }
+  if (g_menu.library) {
+    if (!right) {
+      g_menu.library = false;
+      g_menu.open = true;
+    } else {
+      std::lock_guard<std::mutex> runtime_lock(g_runtime.mutex);
+      // Never play a replacement that moved into a deleted selection.
+      const std::string selected_path = g_menu.library_path;
+      sync_local_library_locked();
+      if (selected_path != g_menu.library_path) g_menu.library_notice = "歌曲库已更新";
+      else if (g_runtime.uploading) g_menu.library_notice = "正在接收歌曲";
+      else if (!g_runtime.audio_ready) g_menu.library_notice = "播放暂不可用";
+      else if (!g_runtime.playlist.empty() &&
+               enqueue_command(CommandType::kPlayTrack, g_menu.library_index,
+                               g_menu.library_revision))
+        g_menu.library = false;
+    }
+    return true;
+  }
+  if (g_menu.information) {
+    if (!right) {
+      g_menu.information = false;
+      g_menu.open = true;
+    } else {
+      g_menu.information_page = (g_menu.information_page + 1) % 3;
+    }
+    return true;
+  }
+  if (g_menu.binding) {
+    if (!right) {
+      if (g_menu.unbind_confirm) {
+        g_menu.unbind_confirm = false;
+        g_menu.account_selected = 1;
+      } else {
+        g_menu.binding = false;
+        g_menu.open = true;
+      }
+    } else if (g_menu.unbind_pending) {
+      // Single request, even after re-entry.
+    } else if (g_menu.unbind_confirm) {
+      g_menu.unbind_confirm = false;
+      if (g_menu.account_selected == 1) {
+        g_menu.unbind_pending = request_device_link_unbind();
+        g_menu.account_notice = g_menu.unbind_pending ? "" :
+            link != NetworkLinkState::Up ? "请先联网" : "账号状态已变化";
+      }
+      g_menu.account_selected = 1;
+    } else {
+      const auto pairing = device_link_pairing_snapshot();
+      if (pairing.state == DeviceLinkBindingState::Bound) {
+        if (g_menu.account_selected == 1) {
+          g_menu.unbind_confirm = true;
+          g_menu.account_selected = 0;
+          g_menu.account_notice.clear();
+        }
+        return true;
+      }
+      g_menu.account_notice.clear();
+      const bool expired = pairing.state == DeviceLinkBindingState::Pairing &&
+          pairing.expires_at_ms <= static_cast<int64_t>(std::time(nullptr)) * 1000;
+      if (expired) g_pairing_retry = cancel_device_link_pairing();
+      else if (pairing.state != DeviceLinkBindingState::Bound &&
+               pairing.state != DeviceLinkBindingState::Pairing &&
+               pairing.state != DeviceLinkBindingState::Connecting)
+        (void)request_device_link_pairing();
+    }
+    return true;
+  }
+  if (g_menu.open) {
+    if (!right) {
+      g_menu.open = false;
+    } else if (g_menu.selected == 2) {
+      g_menu.open = false;
+      g_menu.information = true;
+      g_menu.information_page = 0;
+    } else if (g_menu.selected == 1) {
+      g_menu.open = false;
+      g_menu.binding = true;
+      g_menu.account_selected = 0;
+      g_menu.unbind_confirm = false;
+      if (!g_menu.unbind_pending && g_menu.account_notice.empty() &&
+          device_link_pairing_snapshot().state != DeviceLinkBindingState::Bound)
+        (void)request_device_link_pairing();
+    } else if (g_menu.selected == 0) {
+      g_menu.network = true;
+      g_menu.network_selected = 0;
+      g_menu.open = false;
+    } else if (g_menu.selected == 3) {
+      g_menu.library = true;
+      g_menu.open = false;
+      g_menu.library_notice.clear();
+      std::lock_guard<std::mutex> runtime_lock(g_runtime.mutex);
+      g_menu.library_index = std::max(0, g_runtime.current_index);
+      g_menu.library_revision = g_runtime.playlist_revision;
+      sync_local_library_locked();
+    }
+    return true;
+  }
+  return false;
+}
+
+bool route_local_encoder(int delta) {
+  std::lock_guard<std::mutex> lock(g_menu_mutex);
+  if (g_menu.binding) {
+    if (!g_menu.unbind_pending && (g_menu.unbind_confirm ||
+        device_link_pairing_snapshot().state == DeviceLinkBindingState::Bound)) {
+      g_menu.account_selected = 1 - g_menu.account_selected;
+      g_menu.account_notice.clear();
+    }
+    return true;
+  }
+  if (g_menu.provisioning ||
+      network_provisioning_state() != NetworkProvisioningState::Idle) return true;
+  if (g_menu.open) {
+    g_menu.selected = (g_menu.selected + (delta < 0 ? 1 : 3)) % 4;
+    return true;
+  }
+  if (g_menu.information) {
+    g_menu.information_page = (g_menu.information_page + (delta < 0 ? 1 : 2)) % 3;
+    return true;
+  }
+  if (g_menu.network) {
+    g_menu.network_selected = 1 - g_menu.network_selected;
+    return true;
+  }
+  if (g_menu.library) {
+    std::lock_guard<std::mutex> runtime_lock(g_runtime.mutex);
+    sync_local_library_locked();
+    const int count = static_cast<int>(g_runtime.playlist.size());
+    if (count) {
+      g_menu.library_index = (g_menu.library_index + (delta < 0 ? 1 : count - 1)) % count;
+      g_menu.library_path = g_runtime.playlist[g_menu.library_index].path;
+    }
+    g_menu.library_notice.clear();
+    return true;
+  }
+  return false;
+}
+
 void poll_encoder() {
   int32_t delta = 0;
   const uint32_t current_ms = now_ms();
@@ -468,18 +942,216 @@ void poll_encoder() {
 #if CONFIG_LUNAREDU_SMART_SPEAKER_ENCODER_REVERSED
     delta = -delta;
 #endif
-    g_desktop_encoder_position = static_cast<int16_t>(uint16_t(g_desktop_encoder_position) + delta);
+    if (route_local_encoder(delta)) return;
+    adjust_volume(static_cast<int>(delta) *
+                  CONFIG_LUNAREDU_SMART_SPEAKER_VOLUME_STEP);
   }
 }
 
-bool setup_buttons() {
-  gpio_config_t config{};
-  config.pin_bit_mask=(1ULL<<CONFIG_LUNAREDU_SMART_SPEAKER_LEFT_BUTTON_GPIO)|(1ULL<<CONFIG_LUNAREDU_SMART_SPEAKER_RIGHT_BUTTON_GPIO);
-  config.mode=GPIO_MODE_INPUT;
-  config.pull_up_en=CONFIG_LUNAREDU_SMART_SPEAKER_BUTTON_ACTIVE_LOW?GPIO_PULLUP_ENABLE:GPIO_PULLUP_DISABLE;
-  config.pull_down_en=CONFIG_LUNAREDU_SMART_SPEAKER_BUTTON_ACTIVE_LOW?GPIO_PULLDOWN_DISABLE:GPIO_PULLDOWN_ENABLE;
-  config.intr_type=GPIO_INTR_DISABLE;
-  return gpio_config(&config)==ESP_OK;
+void setup_buttons() {
+  lunaredu::device::DeviceGpioButtonConfig previous;
+  previous.label = "previous";
+  previous.gpio = CONFIG_LUNAREDU_SMART_SPEAKER_LEFT_BUTTON_GPIO;
+  previous.active_high = !CONFIG_LUNAREDU_SMART_SPEAKER_BUTTON_ACTIVE_LOW;
+  previous.short_press_time_ms = kButtonShortPressMs;
+  previous.long_press_time_ms = 2000;
+  g_previous_button =
+      std::make_unique<lunaredu::device::DeviceGpioButton>(previous);
+  if (g_previous_button->Init() == ESP_OK) {
+    // Main executor owns debounced local input and menu state.
+  }
+
+  lunaredu::device::DeviceGpioButtonConfig next_config;
+  next_config.label = "next";
+  next_config.gpio = CONFIG_LUNAREDU_SMART_SPEAKER_RIGHT_BUTTON_GPIO;
+  next_config.active_high = !CONFIG_LUNAREDU_SMART_SPEAKER_BUTTON_ACTIVE_LOW;
+  next_config.short_press_time_ms = kButtonShortPressMs;
+  next_config.long_press_time_ms = 2000;
+  g_next_button =
+      std::make_unique<lunaredu::device::DeviceGpioButton>(next_config);
+  if (g_next_button->Init() == ESP_OK) {
+    // Release after a long press is consumed by poll_local_buttons().
+  }
+}
+
+void poll_local_buttons() {
+  const uint32_t now = now_ms();
+  const auto provisioning = network_provisioning_state();
+  const auto link = network_link_state();
+  {
+    std::lock_guard<std::mutex> lock(g_menu_mutex);
+    if (g_menu.unbind_pending) {
+      const auto state = device_link_unbind_state();
+      if (state != DeviceLinkUnbindState::Pending) {
+        g_menu.unbind_pending = false;
+        g_menu.unbind_confirm = false;
+        g_menu.account_selected = 0;
+        g_menu.account_notice = state == DeviceLinkUnbindState::Succeeded ? "已退出账号" : "退出未完成";
+      }
+    }
+    if (provisioning != NetworkProvisioningState::Idle && !g_menu.provisioning_dismissed)
+      g_provisioning_observed = true;
+    else if (provisioning == NetworkProvisioningState::Idle) {
+      g_menu.provisioning_dismissed = false;
+      if (g_provisioning_observed && link == NetworkLinkState::Up) {
+        g_menu.provisioning = false;
+        g_provisioning_observed = false;
+      }
+    }
+  }
+  const int active = CONFIG_LUNAREDU_SMART_SPEAKER_BUTTON_ACTIVE_LOW ? 0 : 1;
+  auto poll = [&](LocalButtonState &button, int pin, bool right) {
+    const bool raw = gpio_get_level(static_cast<gpio_num_t>(pin)) == active;
+    if (raw != button.raw) { button.raw = raw; button.changed_ms = now; }
+    std::lock_guard<std::mutex> lock(g_menu_mutex);
+    if (raw != button.down && now - button.changed_ms >= 30) {
+      button.down = raw;
+      if (raw) {
+        button.pressed_ms = now;
+        button.consumed = false;
+      } else {
+        if (right) g_menu.hold_percent = 0;
+        else g_menu.mode_hold_percent = 0;
+        if (!button.consumed) {
+          if (route_local_menu_button_locked(right, provisioning, link)) {
+            // Menu action handled above.
+          } else if (!right && dismiss_transfer()) {
+            // Return home while the transfer continues.
+          } else enqueue_command(right ? CommandType::kNext : CommandType::kPrevious);
+        }
+      }
+    }
+    if (raw && button.down && !button.consumed &&
+        !g_menu.open && !g_menu.binding && !g_menu.information && !g_menu.network && !g_menu.library && !g_menu.provisioning &&
+        (g_menu.provisioning_dismissed || provisioning == NetworkProvisioningState::Idle)) {
+      const uint32_t held = now - button.pressed_ms;
+      const bool other_down = gpio_get_level(static_cast<gpio_num_t>(right ?
+          CONFIG_LUNAREDU_SMART_SPEAKER_LEFT_BUTTON_GPIO : CONFIG_LUNAREDU_SMART_SPEAKER_RIGHT_BUTTON_GPIO)) == active;
+      if (other_down) {
+        g_menu.hold_percent = g_menu.mode_hold_percent = 0;
+        button.consumed = true;
+        (right ? g_local_left : g_local_right).consumed = true;
+        return;
+      }
+      if (!right) {
+        const auto transfer = transfer_snapshot();
+        if (transfer.receiving || transfer.batch_open) return;
+        g_menu.mode_hold_percent = held <= 400 ? 0 :
+            static_cast<int>(std::min<uint32_t>(100, (held - 400) * 100 / 1100));
+        if (held >= 1500) {
+          button.consumed = true;
+          g_menu.mode_hold_percent = 0;
+          (void)enqueue_command(CommandType::kCycleMode);
+        }
+        return;
+      }
+      // Short track presses must never start the settings morph. Ignore the
+      // release debounce interval too, so a near-threshold release cannot flash.
+      g_menu.hold_percent = held <= 400 ? 0 :
+          static_cast<int>(std::min<uint32_t>(100, (held - 400) * 100 / 1100));
+      if (held >= 1500) {
+        button.consumed = true;
+        g_local_left.consumed = true;
+        g_menu.open = true;
+        g_menu.binding = false;
+        g_menu.selected = 0;
+        g_menu.hold_percent = 0;
+        ESP_LOGI(kTag, "local settings opened by right-button hold");
+      }
+    }
+  };
+  poll(g_local_left, CONFIG_LUNAREDU_SMART_SPEAKER_LEFT_BUTTON_GPIO, false);
+  poll(g_local_right, CONFIG_LUNAREDU_SMART_SPEAKER_RIGHT_BUTTON_GPIO, true);
+  if (g_pairing_retry) {
+    const auto pairing = device_link_pairing_snapshot();
+    if (pairing.state == DeviceLinkBindingState::Bound) g_pairing_retry = false;
+    else if (pairing.state != DeviceLinkBindingState::Pairing && pairing.state != DeviceLinkBindingState::Connecting) {
+      g_pairing_retry = false;
+      (void)request_device_link_pairing();
+    }
+  }
+}
+
+void process_touch_gestures() {
+  const TouchGesture gesture = smart_speaker_take_touch_gesture();
+  if (gesture == TouchGesture::None) return;
+  ESP_LOGI(kTag, "touch gesture=%s", touch_gesture_name(gesture));
+  const auto menu = local_menu_snapshot();
+  const bool menu_active = menu.open || menu.binding || menu.information ||
+      menu.network || menu.library || menu.provisioning;
+  switch (route_touch_gesture(gesture, menu_active)) {
+    case TouchRoute::MenuConfirm: {
+      const auto provisioning = network_provisioning_state();
+      const auto link = network_link_state();
+      {
+        std::lock_guard<std::mutex> lock(g_menu_mutex);
+        (void)route_local_menu_button_locked(true, provisioning, link);
+      }
+      break;
+    }
+    case TouchRoute::StartVoice:
+      {
+        const auto assistant = lunaredu::pet::conversation::snapshot();
+        if (assistant.activation_ready) {
+          g_touch_ptt_active = xiaozhi_start_listening();
+          g_touch_ptt_release_pending = false;
+        } else {
+          (void)xiaozhi_start_activation();
+        }
+      }
+      break;
+    case TouchRoute::FinishVoice:
+      if (g_touch_ptt_active) {
+        const auto assistant = lunaredu::pet::conversation::runtime_snapshot();
+        if (assistant.listening) {
+          (void)xiaozhi_finish_listening();
+          g_touch_ptt_active = false;
+          g_touch_ptt_release_pending = false;
+        } else {
+          g_touch_ptt_release_pending = true;
+        }
+      }
+      break;
+    case TouchRoute::MenuBack:
+      {
+        const auto provisioning = network_provisioning_state();
+        const auto link = network_link_state();
+        {
+          std::lock_guard<std::mutex> lock(g_menu_mutex);
+          // Full-screen horizontal gestures are back navigation while a
+          // settings page owns the screen. On the home page they retain the
+          // existing previous/next-track behavior.
+          if (route_local_menu_button_locked(false, provisioning, link)) break;
+        }
+      }
+      break;
+    case TouchRoute::NextTrack:
+      next();
+      break;
+    case TouchRoute::PreviousTrack:
+      previous();
+      break;
+    case TouchRoute::OpenSettings:
+      {
+        std::lock_guard<std::mutex> lock(g_menu_mutex);
+        g_menu.open = true;
+        g_menu.binding = false;
+        g_menu.information = false;
+        g_menu.network = false;
+        g_menu.library = false;
+        g_menu.selected = 0;
+      }
+      break;
+    case TouchRoute::TogglePlayback: {
+      const auto status = status_snapshot();
+      if (status.playing && !status.paused) pause();
+      else play();
+      break;
+    }
+    case TouchRoute::None:
+    default:
+      break;
+  }
 }
 
 void ota_lifecycle(OtaServiceLifecycleEvent event, void *) {
@@ -487,7 +1159,7 @@ void ota_lifecycle(OtaServiceLifecycleEvent event, void *) {
       event == OtaServiceLifecycleEvent::UploadAborted ||
       event == OtaServiceLifecycleEvent::RestartRequested) {
     // Lifecycle callbacks must not block; the output task advances the ramp.
-    (void)dual_i2s_audio_mute(AudioMute::Mute);
+    (void)dual_i2s_audio_mute(AUDIO_PLAYER_MUTE);
   }
 }
 
@@ -497,31 +1169,28 @@ void ota_lifecycle(OtaServiceLifecycleEvent event, void *) {
 } // namespace detail
 using namespace detail;
 
-bool stop_audio_service(lunaredu::lunaros::KernelRuntime &runtime,
-                        std::string &error) {
+bool stop_audio_service(std::string &error) {
   std::lock_guard<std::mutex> operation(g_player_operation_mutex);
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
     g_runtime.audio_ready = false;
     g_runtime.playing = g_runtime.paused = false;
   }
-  if (g_file_player_created) {
-    if (!stop_file_player(error)) return false;
-    g_file_player_created = false;
+  if (g_audio_player_created) {
+    if (audio_player_delete() != ESP_OK) { error = "decoder_stop_failed"; return false; }
+    g_audio_player_created = false;
   }
-  if(!lunaredu::audio::local_audio_focus().stop([](void *p,std::string &e){
-      if(!stop_dual_i2s_audio(*static_cast<lunaredu::lunaros::KernelRuntime *>(p))){e="audio_release_pending";return false;}
-      e.clear();return true;},&runtime,error))return false;
+  if (!stop_dual_i2s_audio()) { error = "audio_release_pending"; return false; }
   error.clear();
   return true;
 }
 
-bool start_audio_service(lunaredu::lunaros::KernelRuntime &runtime,
-                         std::string &error) {
+bool start_audio_service(std::string &error) {
   if (status_snapshot().audio_ready) return true;
-  if (!setup_audio(runtime)) {
+  if (!stop_audio_service(error)) return false;
+  if (!setup_audio() || audio_player_callback_register(handle_audio_event, nullptr) != ESP_OK) {
     std::string cleanup;
-    (void)stop_audio_service(runtime, cleanup);
+    (void)stop_audio_service(cleanup);
     error = cleanup.empty() ? "audio_init_failed" : cleanup;
     return false;
   }
@@ -531,13 +1200,16 @@ bool start_audio_service(lunaredu::lunaros::KernelRuntime &runtime,
   return true;
 }
 
-bool setup_runtime(lunaredu::lunaros::KernelRuntime &runtime) {
+bool setup_runtime() {
   if (!status_snapshot().audio_ready) return false;
   if (g_command_queue) return true;
-  if(!setup_buttons())return false;
-  uint8_t mode=0;std::string settings_error;
-  if(lunaredu::lunaros::settings_read_u8("spkr_player","mode",mode,settings_error)==lunaredu::lunaros::SettingsReadResult::Found && mode<=2)
-    g_runtime.playback_mode=static_cast<PlaybackMode>(mode);
+  nvs_handle_t player_settings = 0;
+  if (nvs_open("spkr_player", NVS_READONLY, &player_settings) == ESP_OK) {
+    uint8_t mode = 0;
+    if (nvs_get_u8(player_settings, "mode", &mode) == ESP_OK && mode <= 2)
+      g_runtime.playback_mode = static_cast<PlaybackMode>(mode);
+    nvs_close(player_settings);
+  }
   g_command_queue = xQueueCreate(12, sizeof(Command));
   if (!g_command_queue) {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
@@ -556,30 +1228,25 @@ bool setup_runtime(lunaredu::lunaros::KernelRuntime &runtime) {
     g_runtime.sd_ready = false;
     set_error_locked("sdcard_mount_failed");
   } else {
-    rescan_library();
+    std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    rescan_locked();
   }
 
   // A reset must never immediately restore an audible/high-load state. This
   // also prevents a marginal amplifier rail from becoming a reboot/play loop.
-  (void)dual_i2s_audio_mute(AudioMute::Mute);
+  (void)dual_i2s_audio_mute(AUDIO_PLAYER_MUTE);
 
+  // Pebble has no spectrum consumer. Do not start the legacy FFT task.
+  (void)setup_smart_speaker_display();
   (void)setup_smart_speaker_sensors();
   ota_service_set_lifecycle_callback(ota_lifecycle, nullptr);
-  ota_service_set_maintenance_callback([](bool entering,std::string &error,void *){
-    g_ota_maintenance.store(entering,std::memory_order_release);
-    if(!entering){error.clear();return true;}
-    const uint32_t started=now_ms();
-    do{
-      if(stop_music_checked(error))return true;
-      vTaskDelay(pdMS_TO_TICKS(10));
-    }while(now_ms()-started<1000);
-    g_ota_maintenance.store(false,std::memory_order_release);
-    return false;
-  });
 
+  setup_buttons();
   setup_encoder();
-  (void)g_projection.activate(kCapability);
-#if !CONFIG_LUNAREDU_SMART_SPEAKER_AUTOPLAY_ON_BOOT
+  (void)activate_device_capability(kCapability);
+#if CONFIG_LUNAREDU_SMART_SPEAKER_AUTOPLAY_ON_BOOT
+  enqueue_command(CommandType::kPlay);
+#else
   ESP_LOGW(kTag,
            "safe startup: playback idle and muted; explicit play required "
            "(startup volume=%d)",
@@ -588,38 +1255,70 @@ bool setup_runtime(lunaredu::lunaros::KernelRuntime &runtime) {
   return true;
 }
 
-// Reuse the existing lower-priority product I/O executor for filesystem walks.
-// Requests coalesce; a busy upload keeps the refresh pending without blocking UI.
-void poll_library_refresh(){
-  if(!g_library_refresh_pending.load())return;
-  std::unique_lock<std::mutex> operation(g_player_operation_mutex,std::try_to_lock);
-  if(!operation.owns_lock())return;
-  if(g_player_retiring.load()||g_ota_maintenance.load()){g_library_refresh_pending=false;return;}
-  if(g_library_refresh_pending.exchange(false))rescan_library();
-}
-
 void tick_runtime() {
-  if(g_player_retiring.load(std::memory_order_acquire)){
-    std::string error;(void)stop_music_checked(error);
+  static uint32_t probe_at = 0;
+  if (now_ms() - probe_at >= 3000) {
+    probe_at = now_ms();
+    const auto audio = dual_i2s_diagnostics();
+    const auto touch = smart_speaker_touch_snapshot();
+    ESP_LOGI(kTag, "[DEBUG-speaker-io] output peak0=%lu peak1=%lu submitted0=%llu submitted1=%llu completed0=%llu completed1=%llu mode=%s fault=%d rx=%d touch=%d/%lu error=%s",
+             static_cast<unsigned long>(audio.probe_peak_i2s0), static_cast<unsigned long>(audio.probe_peak_i2s1),
+             static_cast<unsigned long long>(audio.submitted_frames_left), static_cast<unsigned long long>(audio.submitted_frames_right),
+             static_cast<unsigned long long>(audio.completed_frames_left), static_cast<unsigned long long>(audio.completed_frames_right),
+             dsp::channel_mode_name(dual_i2s_audio_channel_mode()), audio.fault_muted, audio.microphone_input_enabled,
+             touch.initialized, static_cast<unsigned long>(touch.sample_count), touch.last_error.c_str());
   }
   tick_smart_speaker_sensors();
   poll_encoder();
+  poll_local_buttons();
+  process_touch_gestures();
+  if (g_touch_ptt_active && g_touch_ptt_release_pending) {
+    const auto assistant = lunaredu::pet::conversation::runtime_snapshot();
+    if (assistant.listening) {
+      (void)xiaozhi_finish_listening();
+      g_touch_ptt_active = false;
+      g_touch_ptt_release_pending = false;
+    } else if (!assistant.opening) {
+      g_touch_ptt_active = false;
+      g_touch_ptt_release_pending = false;
+    }
+  }
   dual_i2s_audio_tick();
   capture_dual_audio_debug_if_due();
-  g_playback_coordinator.tick();
+  bool should_skip_decode_timeout = false;
+  {
+    std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    const uint32_t current_ms = now_ms();
+    const auto assistant = lunaredu::pet::conversation::runtime_snapshot();
+    const bool assistant_audio_active = assistant.opening || assistant.listening ||
+                                        assistant.speaking;
+    if (g_runtime.playing && !g_runtime.paused && !g_runtime.first_frame_seen &&
+        !g_runtime.decode_timeout_skip_sent && !assistant_audio_active &&
+        g_runtime.playlist.size() > 1 &&
+        current_ms - g_runtime.play_started_ms >= kFirstFrameTimeoutMs) {
+      g_runtime.decode_timeout_skip_sent = true;
+      should_skip_decode_timeout = true;
+      set_error_locked("track_decode_timeout");
+    }
+  }
+  if (should_skip_decode_timeout) {
+    ESP_LOGW(kTag, "first audio frame timeout, skipping track");
+    queue_track_completion(true);
+  }
   if (g_command_queue == nullptr) {
     return;
   }
-  std::unique_lock<std::mutex> operation(g_player_operation_mutex,std::try_to_lock);
-  if(!operation.owns_lock())return;
-  // One potentially fading/SD operation per UI tick; preserve FIFO and buffers.
   Command command;
-  if (xQueueReceive(g_command_queue, &command, 0) == pdTRUE) process_command(command);
-  process_pending_volume();
+  // Bound work per UI tick so input bursts cannot monopolize this executor.
+  if (xQueueReceive(g_command_queue, &command, 0) == pdTRUE) {
+    process_command(command);
+  }
+  const int delta = g_pending_volume_delta.exchange(0, std::memory_order_relaxed);
+  if (delta != 0) process_command({CommandType::kAdjustVolume, delta, 0});
 }
 
-namespace {
-RuntimeStatus status_locked() {
+RuntimeStatus status_snapshot() {
+  std::lock_guard<std::mutex> lock(g_runtime.mutex);
   RuntimeStatus status;
   status.position_ms = dual_i2s_track_position_ms();
   status.has_lyrics = g_runtime.lyrics != nullptr;
@@ -633,11 +1332,10 @@ RuntimeStatus status_locked() {
   status.audio_ready = g_runtime.audio_ready;
   status.playing = g_runtime.playing;
   status.paused = g_runtime.paused;
-  status.uploading = g_runtime.transfer_active;
+  status.uploading = g_runtime.uploading;
   status.volume = g_runtime.volume;
   status.current_index = g_runtime.current_index;
   status.playlist_count = g_runtime.playlist.size();
-  status.playlist_revision = g_runtime.playlist_revision;
   if (g_runtime.current_index >= 0 &&
       g_runtime.current_index < static_cast<int>(g_runtime.playlist.size())) {
     const TrackInfo &track =
@@ -652,8 +1350,6 @@ RuntimeStatus status_locked() {
                              diagnostics.continuous_limiter_ms > 2000;
   return status;
 }
-}
-RuntimeStatus status_snapshot(){std::lock_guard<std::mutex> lock(g_runtime.mutex);return status_locked();}
 
 std::vector<TrackInfo> playlist_snapshot() {
   std::lock_guard<std::mutex> lock(g_runtime.mutex);
@@ -665,114 +1361,35 @@ void pause() { enqueue_command(CommandType::kPause); }
 void stop() { enqueue_command(CommandType::kStop); }
 void next() { enqueue_command(CommandType::kNext); }
 void previous() { enqueue_command(CommandType::kPrevious); }
-bool request_track_play(const std::string &path, std::string &error) {
-  std::lock_guard<std::mutex> lock(g_runtime.mutex);
-  if (g_runtime.transfer_active) {
-    error = "upload_in_progress";
-    return false;
-  }
-  if (!g_runtime.audio_ready) {
-    error = "audio_not_ready";
-    return false;
-  }
-  const auto track = std::find_if(
-      g_runtime.playlist.begin(), g_runtime.playlist.end(),
-      [&path](const TrackInfo &item) { return item.path == path; });
-  if (track == g_runtime.playlist.end()) {
-    error = "track_not_found";
-    return false;
-  }
-  if (!enqueue_command(
-          CommandType::kPlayTrack,
-          static_cast<int>(std::distance(g_runtime.playlist.begin(), track)),
-          g_runtime.playlist_revision)) {
-    error = "command_queue_full";
-    return false;
-  }
-  error.clear();
-  return true;
-}
 void set_volume(int volume) { enqueue_command(CommandType::kSetVolume, volume); }
 void adjust_volume(int delta) {
   enqueue_command(CommandType::kAdjustVolume, delta);
 }
 void rescan() { enqueue_command(CommandType::kRescan); }
 
+LocalLibraryView local_library_snapshot() {
+  std::lock_guard<std::mutex> menu_lock(g_menu_mutex);
+  std::lock_guard<std::mutex> runtime_lock(g_runtime.mutex);
+  sync_local_library_locked();
+  return {g_runtime.playlist, g_menu.library_index, g_runtime.playlist_revision,
+          g_runtime.sd_ready, g_runtime.uploading};
+}
 
-DesktopInput desktop_input() {
-  DesktopInput result;
-  const auto pressed=[](int gpio){return gpio>=0 && (gpio_get_level(static_cast<gpio_num_t>(gpio))==0)==bool(CONFIG_LUNAREDU_SMART_SPEAKER_BUTTON_ACTIVE_LOW);};
-  result.buttons=uint16_t((pressed(CONFIG_LUNAREDU_SMART_SPEAKER_LEFT_BUTTON_GPIO)?1:0)|(pressed(CONFIG_LUNAREDU_SMART_SPEAKER_RIGHT_BUTTON_GPIO)?2:0));
-  result.encoder_position=g_desktop_encoder_position;return result;
+LocalMenuState local_menu_snapshot() {
+  std::lock_guard<std::mutex> lock(g_menu_mutex);
+  return g_menu;
 }
-bool configure_music_backend(std::string &error) {
-  using namespace lunaredu::music;
-  static std::shared_ptr<const Library> library;
-  static uint32_t revision=~uint32_t(0);
-  return configure_player_backend({nullptr,
-    [](void *){
-      MusicSnapshot result;
-      std::lock_guard<std::mutex> lock(g_runtime.mutex);
-      const auto &current=g_runtime;
-      const auto position=dual_i2s_track_position_ms();
-      {
-        if(!library||revision!=g_runtime.playlist_revision){
-          auto value=std::make_shared<Library>();value->reserve(g_runtime.playlist.size());
-          for(const auto &track:g_runtime.playlist)value->push_back({track.path,track.name,true});
-          library=std::move(value);revision=g_runtime.playlist_revision;
-        }
-      }
-      result.library=library;result.selected=current.current_index<0?0:size_t(current.current_index);
-      result.storage_ready=current.sd_ready;result.audio_ready=current.audio_ready;
-      result.playing=current.playing||current.paused;result.paused=current.paused;result.volume=uint8_t(current.volume);
-      result.stopping=current.transfer_active||g_player_retiring.load(std::memory_order_acquire);
-      result.position_seconds=position/1000;
-      if(current.lyrics&&(current.playing||current.paused))result.lyric=current.lyrics->line(position,current.lyrics_delay_ms);
-      result.playback_mode=playback_mode_label(current.playback_mode);
-      result.library_hint="SD 卡 music · MP3 / 同名 LRC";
-      std::snprintf(result.error.data(),result.error.size(),"%s",current.last_error.c_str());return result;
-    },
-    [](void *,std::string &e){
-      if(!enqueue_command(CommandType::kRescan)){e="music_command_unavailable";return false;}
-      e.clear();return true;
-    },
-    [](void *,const lunaredu::music::Track &track,std::string &e){return request_track_play(track.path,e);},
-    [](void *,uint32_t id,std::string &e){
-      std::unique_lock<std::mutex> operation(g_player_operation_mutex,std::try_to_lock);
-      if(!operation.owns_lock()){e="music_transfer_pending";return false;}
-      if(g_player_retiring.load(std::memory_order_acquire)||g_ota_maintenance.load(std::memory_order_acquire)){e="music_stop_pending";return false;}
-      CommandType command;int value=0;
-      switch(id){
-        case 218:{const auto state=music_activity();command=state.playing&&!state.paused?CommandType::kPause:CommandType::kPlay;break;}
-        case 219:command=CommandType::kNext;break;
-        case 223:command=CommandType::kPrevious;break;
-        case 224:command=CommandType::kAdjustVolume;value=-CONFIG_LUNAREDU_SMART_SPEAKER_VOLUME_STEP;break;
-        case 220:command=CommandType::kAdjustVolume;value=CONFIG_LUNAREDU_SMART_SPEAKER_VOLUME_STEP;break;
-        case 227:command=CommandType::kStop;break;
-        case 226:command=CommandType::kRescan;break;
-        case 228:command=CommandType::kCycleMode;break;
-        default:e="music_action_unsupported";return false;
-      }
-      if(!enqueue_command(command,value)){e="music_command_unavailable";return false;}
-      e.clear();return true;
-    },
-    [](void *,std::string &e){return stop_music_checked(e);},true,
-    [](void *){
-      std::lock_guard<std::mutex> lock(g_runtime.mutex);
-      return PlaybackActivity{g_runtime.audio_ready,g_runtime.playing||g_runtime.paused,g_runtime.paused,
-          g_runtime.transfer_active||g_player_retiring.load(std::memory_order_acquire)};
-    }},error);
+
+uint32_t visual_activity_snapshot() {
+  return g_visual_activity.load(std::memory_order_relaxed);
 }
-bool stop_music_checked(std::string &error) {
-  std::unique_lock<std::mutex> lock(g_player_operation_mutex,std::try_to_lock);
-  if(!lock.owns_lock()){error="music_transfer_pending";return false;}
-  return detail::stop_music_locked(error);
+
+bool take_provisioning_request() {
+  return g_provisioning_requested.exchange(false);
 }
-bool detail::stop_music_locked(std::string &error) {
-  g_player_retiring.store(true,std::memory_order_release);
-  g_library_refresh_pending=false;
-  if(!g_playback_coordinator.stop_checked(error))return false;
-  g_player_retiring.store(false,std::memory_order_release);return true;
+
+bool take_provisioning_cancel_request() {
+  return g_provisioning_cancel_requested.exchange(false);
 }
 
 } // namespace smart_speaker

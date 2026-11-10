@@ -1,38 +1,75 @@
-#include "product/speaker_desktop.h"
-#include "device_api/device_operation_builders.h"
-#include "device_api/device_api_context.h"
-#include "lunaros_diagnostics_runtime.h"
+#include "smart_speaker_lyrics_store.h"
+#include "smart_speaker_runtime.h"
+#include "lunaredu_lunaros/delivery/resources.h"
+#include "lunaredu_lunaros/device_link/device_link.h"
+#include <ctime>
+
+#include <algorithm>
+#include <atomic>
+#include <cctype>
+#include <cerrno>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <dirent.h>
+#include <limits>
+#include <array>
+#include <memory>
+#include <mutex>
+#include <sys/stat.h>
+#include <vector>
+
+#include <audio_player.h>
+#include <driver/gpio.h>
+#include <esp_check.h>
+#include <esp_app_desc.h>
+#include <esp_heap_caps.h>
+#include <esp_log.h>
+#include <esp_system.h>
+#include <esp_random.h>
+#include <nvs.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+
+#include "lunaredu_lunaros/device_api/device_projection_json.h"
+#include "lunaredu_lunaros/device_api/device_projection.h"
+#include "lunaredu_lunaros/model/device_model.h"
+#include "lunaredu_device_gpio_button.h"
+#include "lunaredu_lunaros/desktop/local/lvgl_screen_runtime.h"
 #include "lunaredu_device_sdcard_storage.h"
 #include "lunaredu_device_sdcard_tfcard_store.h"
+#include "lunaredu_lunaros/delivery/update.h"
+#include "lunaredu_lunaros/network/network_commands.h"
+#include "sdkconfig.h"
 #include "smart_speaker_audio.h"
+#include "smart_speaker_display.h"
+#include "smart_speaker_character.h"
+#include "smart_speaker_log_buffer.h"
 #include "smart_speaker_sensors.h"
+#include "smart_speaker_xiaozhi.h"
+
 #include "runtime_internal.h"
 #include "lyrics_api.h"
 #include "transfer_internal.h"
-#include "sdkconfig.h"
-#include <algorithm>
-#include <array>
-#include <cstdio>
-#include <iterator>
-#include <mutex>
-#include <string>
-#include <sys/stat.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
-
 namespace smart_speaker {
-using namespace lunaredu::lunaros;
 using namespace detail;
 namespace {
 constexpr const char *kMusicDir="/sdcard/music";
 constexpr const char *kModuleId="smart_speaker";
 constexpr size_t kAudioDebugResponseFrameCount=24;
+constexpr size_t kLogResponseMaxEntries=32;
 
 void fill_status(JsonObject payload, const RuntimeStatus &status);
 void fill_settings(JsonObject payload, const dsp::Settings &settings);
+void fill_smart_ota_status(JsonObject payload);
 void fill_audio_debug_frame(JsonObject item, const AudioDebugFrame &frame);
+DeviceOperationResult start_provision(JsonVariantConst, JsonObject);
+DeviceOperationResult connect_saved(JsonVariantConst, JsonObject);
 
+DeviceOperationResult finish_upload_batch(JsonVariantConst request, JsonObject);
+const char *reset_reason_name(esp_reset_reason_t reason);
 std::string request_arg(const DeviceBulkRequest &request, const char *name);
+int read_ota_upload_chunk(uint8_t *buffer, size_t max_size, void *context);
 void fill_status(JsonObject payload, const RuntimeStatus &status) {
   payload["position_ms"] = status.position_ms;
   payload["has_lyrics"] = status.has_lyrics;
@@ -47,17 +84,20 @@ void fill_status(JsonObject payload, const RuntimeStatus &status) {
   payload["uploading"] = status.uploading;
   const auto transfer = transfer_snapshot();
   JsonObject upload = payload["upload"].to<JsonObject>();
+  upload["generation"] = transfer.generation;
   upload["receiving"] = transfer.receiving;
+  upload["batch_open"] = transfer.batch_open;
   upload["name"] = transfer.name;
   upload["received"] = transfer.received;
   upload["total"] = transfer.total;
+  upload["completed"] = transfer.completed;
+  upload["failed"] = transfer.failed;
   payload["volume"] = status.volume;
   payload["max_volume"] = kMaxVolume;
   payload["current_index"] = status.current_index;
   payload["current_name"] = status.current_name;
   payload["current_path"] = status.current_path;
   payload["playlist_count"] = status.playlist_count;
-  payload["playlist_revision"] = status.playlist_revision;
   payload["last_error"] = status.last_error;
   payload["eq_preset"] = status.eq_preset;
   payload["protection_active"] = status.protection_active;
@@ -77,7 +117,31 @@ void fill_settings(JsonObject payload, const dsp::Settings &settings) {
       std::min(settings.high_frequency_hz,
                dual_i2s_diagnostics().sample_rate * 0.45f);
   payload["high_gain_db"] = settings.high_gain_db;
+  payload["spectrum_mode"] = settings.spectrum_pre_volume
+                                  ? "pre_volume"
+                                  : "actual_output";
   payload["system_max_volume"] = kMaxVolume;
+}
+
+void fill_smart_ota_status(JsonObject payload) {
+  const OtaServiceStatus ota = ota_service_status_snapshot();
+  const esp_app_desc_t *app = esp_app_get_description();
+  payload["has_result"] = ota.has_result;
+  payload["success"] = ota.success;
+  payload["upload_active"] = ota.upload_active;
+  payload["message"] = ota.message.c_str();
+  payload["restart_pending"] = ota.restart_pending;
+  payload["pending_verify"] = ota.pending_verify;
+  payload["boot_confirmed"] = ota.boot_confirmed;
+  payload["rollback_enabled"] = ota.rollback_enabled;
+  payload["boot_confirm_remaining_ms"] = ota.boot_confirm_remaining_ms;
+  payload["running_image_state"] = ota.running_image_state.c_str();
+  if (app != nullptr) {
+    payload["project_name"] = app->project_name;
+    payload["version"] = app->version;
+    payload["build_date"] = app->date;
+    payload["build_time"] = app->time;
+  }
 }
 
 void fill_audio_debug_frame(JsonObject item, const AudioDebugFrame &frame) {
@@ -99,43 +163,99 @@ void fill_audio_debug_frame(JsonObject item, const AudioDebugFrame &frame) {
   item["dma_min_free"] = frame.dma_minimum_free_bytes;
 }
 
+DeviceOperationResult start_provision(JsonVariantConst, JsonObject) {
+  std::string error;
+  return request_network_start_provisioning(NetworkProvisioningMode::SoftAp, true, error)
+      ? device_operation_ack() : device_operation_error(error.c_str(), 503);
+}
+
+DeviceOperationResult connect_saved(JsonVariantConst, JsonObject) {
+  std::string error;
+  return request_network_apply_saved_credential(0, error)
+      ? device_operation_ack() : device_operation_error(error.c_str(), 503);
+}
+
+DeviceOperationResult finish_upload_batch(JsonVariantConst request, JsonObject) {
+  std::lock_guard<std::mutex> lock(g_transfer_mutex);
+  if (g_transfer.receiving) return device_operation_error("upload_in_progress", 409);
+  if (g_transfer.batch_id == (request["batch_id"] | "")) {
+    g_transfer.batch_open = false;
+    g_transfer.updated_ms = now_ms();
+  }
+  return device_operation_ack();
+}
+
+const char *reset_reason_name(esp_reset_reason_t reason) {
+  switch (reason) {
+  case ESP_RST_POWERON: return "power_on";
+  case ESP_RST_EXT: return "external";
+  case ESP_RST_SW: return "software";
+  case ESP_RST_PANIC: return "panic";
+  case ESP_RST_INT_WDT: return "interrupt_watchdog";
+  case ESP_RST_TASK_WDT: return "task_watchdog";
+  case ESP_RST_WDT: return "watchdog";
+  case ESP_RST_DEEPSLEEP: return "deep_sleep";
+  case ESP_RST_BROWNOUT: return "brownout";
+  case ESP_RST_SDIO: return "sdio";
+  case ESP_RST_USB: return "usb";
+  case ESP_RST_JTAG: return "jtag";
+  case ESP_RST_EFUSE: return "efuse";
+  case ESP_RST_PWR_GLITCH: return "power_glitch";
+  case ESP_RST_CPU_LOCKUP: return "cpu_lockup";
+  case ESP_RST_UNKNOWN:
+  default: return "unknown";
+  }
+}
+
 std::string request_arg(const DeviceBulkRequest &request, const char *name) {
   return request.arg != nullptr ? request.arg(name, request.context)
                                 : std::string();
 }
 
+int read_ota_upload_chunk(uint8_t *buffer, size_t max_size, void *context) {
+  DeviceBulkRequest *request = static_cast<DeviceBulkRequest *>(context);
+  if (request == nullptr || request->read_chunk == nullptr) {
+    return -1;
+  }
+  return request->read_chunk(buffer, max_size, request->context);
+}
 constexpr DeviceOperationDefinition kOperations[] = {
+    make_device_json_command("provision.start", start_provision, device_operation_on_executor(kNetworkServiceExecutor)),
+    make_device_json_command("provision.connect", connect_saved, device_operation_on_executor(kNetworkServiceExecutor)),
     make_device_json_query("status.get", fill_status_payload),
     make_device_json_query("playlist.get", fill_playlist_payload),
-    device_operation_diagnostic_access(make_device_json_query("debug.get", fill_debug_payload), DeviceDiagnosticAccess::Session),
-    device_operation_diagnostic_access(make_device_json_query("display.stats.get", fill_display_stats_payload), DeviceDiagnosticAccess::Session),
+    make_device_json_query("debug.get", fill_debug_payload),
+    make_device_json_query("display.stats.get", fill_display_stats_payload),
+    make_device_json_query("ota.status.get", fill_smart_ota_status_payload),
     make_device_json_query("audio.settings.get", fill_audio_settings_payload),
+    make_device_json_command("logs.get", handle_logs_payload),
     make_device_json_command("control", handle_control_payload),
+    make_device_json_command("upload.batch.finish", finish_upload_batch),
     make_device_json_command("track.play", handle_track_play_payload),
     make_device_json_command("track.remove", handle_track_remove_payload),
     make_device_json_command("audio.settings.set", handle_audio_settings_payload),
     make_device_json_command("audio.test.set", handle_audio_test_payload),
-    device_operation_diagnostic_access(make_device_json_command("audio.output.set", handle_audio_output_payload), DeviceDiagnosticAccess::Session),
+    make_device_json_command("audio.output.set", handle_audio_output_payload),
     make_device_upload("lyrics.upload", handle_lyrics_upload, device_operation_on_executor(kNetworkIoServiceExecutor)),
     make_device_json_command("lyrics.remove", handle_lyrics_remove),
     make_device_json_command("lyrics.offset.set", handle_lyrics_offset),
     make_device_upload("file.upload", handle_file_upload, device_operation_on_executor(kNetworkIoServiceExecutor)),
+    make_device_upload("ota.firmware.upload", handle_smart_ota_upload, device_operation_on_executor(kNetworkIoServiceExecutor)),
 };
 const DeviceModuleProjectionMetadata kModule = {kModuleId, "media_player"};
 const DeviceModuleProjection kSurface = {"smart_speaker", &kModule, kOperations, std::size(kOperations)};
 
 }
-bool register_projection(DeviceProjectionRegistry &registry, std::string &error) {
-  return g_projection.declare(
-      registry, {&kCapability, &kSurface, nullptr, false}, error);
+bool register_projection(std::string &error) {
+  return register_device_projection({&kCapability, &kSurface, nullptr, false}, &error);
 }
 
-DeviceOperationResult fill_status_payload(DeviceApiContext &, JsonObject payload) {
+DeviceOperationResult fill_status_payload(JsonObject payload) {
   fill_status(payload, status_snapshot());
   return device_operation_ack();
 }
 
-DeviceOperationResult fill_playlist_payload(DeviceApiContext &, JsonObject payload) {
+DeviceOperationResult fill_playlist_payload(JsonObject payload) {
   fill_status(payload["status"].to<JsonObject>(), status_snapshot());
   JsonArray items = payload["tracks"].to<JsonArray>();
   const auto tracks = playlist_snapshot();
@@ -151,15 +271,48 @@ DeviceOperationResult fill_playlist_payload(DeviceApiContext &, JsonObject paylo
   return device_operation_ack();
 }
 
-DeviceOperationResult fill_debug_payload(DeviceApiContext &device, JsonObject payload) {
-  write_task_runtime_counters(payload["cpu_runtime"].to<JsonObject>());
-  std::array<AudioDebugFrame,kAudioDebugResponseFrameCount> frames;
-  uint32_t latest_sequence=0;
-  const auto frame_count=g_audio_history.read_recent(frames.data(),frames.size(),latest_sequence);
-  payload["latest_seq"]=latest_sequence;
-  JsonObject system_json=payload["system"].to<JsonObject>();
-  write_system_runtime_diagnostics(system_json);
+DeviceOperationResult fill_debug_payload(JsonObject payload) {
+#if CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
+  JsonObject cpu = payload["cpu_runtime"].to<JsonObject>();
+  cpu["clock_mhz"] = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ;
+  constexpr size_t capacity = 96;
+  auto *tasks = static_cast<TaskStatus_t *>(heap_caps_calloc(capacity, sizeof(TaskStatus_t), MALLOC_CAP_SPIRAM));
+  configRUN_TIME_COUNTER_TYPE total = 0;
+  const UBaseType_t count = tasks ? uxTaskGetSystemState(tasks, capacity, &total) : 0;
+  cpu["available"] = count != 0;
+  cpu["counter_us"] = static_cast<uint64_t>(total);
+  JsonArray entries = cpu["tasks"].to<JsonArray>();
+  for (UBaseType_t i = 0; i < count; ++i) {
+    JsonObject task = entries.add<JsonObject>();
+    task["name"] = tasks[i].pcTaskName;
+    task["runtime_us"] = static_cast<uint64_t>(tasks[i].ulRunTimeCounter);
+  }
+  heap_caps_free(tasks);
+#endif
+  std::array<AudioDebugFrame, kAudioDebugFrameCount> frames;
+  uint32_t latest_sequence = 0;
+  portENTER_CRITICAL(&g_audio_debug_lock);
+  frames = g_audio_debug_frames;
+  latest_sequence = g_audio_debug_sequence;
+  portEXIT_CRITICAL(&g_audio_debug_lock);
+
+  payload["latest_seq"] = latest_sequence;
+  JsonObject system_json = payload["system"].to<JsonObject>();
+  const esp_reset_reason_t reset_reason = esp_reset_reason();
+  system_json["uptime_ms"] = now_ms();
+  system_json["reset_reason"] = static_cast<int>(reset_reason);
+  system_json["reset_reason_name"] = reset_reason_name(reset_reason);
   system_json["startup_volume"] = kInitialVolume;
+  constexpr uint32_t kDmaCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA;
+  system_json["dma_free_bytes"] = heap_caps_get_free_size(kDmaCaps);
+  system_json["dma_largest_block"] =
+      heap_caps_get_largest_free_block(kDmaCaps);
+  system_json["dma_minimum_free_bytes"] =
+      heap_caps_get_minimum_free_size(kDmaCaps);
+  system_json["internal_free_bytes"] =
+      heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  system_json["internal_largest_block"] =
+      heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
 #if CONFIG_LUNAREDU_SMART_SPEAKER_AUTOPLAY_ON_BOOT
   system_json["autoplay_on_boot"] = true;
 #else
@@ -211,12 +364,20 @@ DeviceOperationResult fill_debug_payload(DeviceApiContext &device, JsonObject pa
   i2s_json["right_clock_source"] = i2s.right_clock_source;
   i2s_json["clocks_match"] = i2s.clocks_match;
   i2s_json["output_enabled"] = i2s.output_enabled;
-
+  i2s_json["microphone_input_enabled"] = i2s.microphone_input_enabled;
   i2s_json["right_bclk_forced_low"] = i2s.right_bclk_forced_low;
   i2s_json["right_ws_forced_low"] = i2s.right_ws_forced_low;
   i2s_json["right_dout_forced_low"] = i2s.right_dout_forced_low;
+  const auto display = lunaredu::desktop::lvgl_screen_runtime_status();
   JsonObject display_json = payload["display"].to<JsonObject>();
-  fill_desktop_status(device,display_json);
+  display_json["initialized"] = display.initialized;
+  display_json["refresh_count"] = display.refresh_count;
+  display_json["flush_count"] = display.flush_count;
+  display_json["flush_fail_count"] = display.flush_fail_count;
+  display_json["max_flush_us"] = display.max_flush_us;
+  display_json["spectrum_generation"] = 0;
+  display_json["spectrum_enabled"] = false;
+  display_json["spectrum_dropped"] = 0;
   const auto mpu = smart_speaker_mpu_snapshot();
   JsonObject mpu_json = payload["mpu6050"].to<JsonObject>();
   mpu_json["initialized"] = mpu.initialized;
@@ -239,11 +400,13 @@ DeviceOperationResult fill_debug_payload(DeviceApiContext &device, JsonObject pa
   mpu_json["who_am_i"] = mpu.who_am_i;
   mpu_json["who_am_i_error"] = mpu.who_am_i_error;
   mpu_json["last_error"] = mpu.last_error;
-  // Keep the diagnostic object discoverable without publishing fabricated Pet
-  // motion. Raw MPU pose remains available above; no motion consumer is bound.
-  JsonObject motion_json=payload["motion"].to<JsonObject>();
-  motion_json["supported"]=false;motion_json["valid"]=false;
-  for(const char *key:{"tilt_x","tilt_y","twist_z","angular_speed_dps"})motion_json[key]=nullptr;
+  const auto motion = smart_speaker_motion_input();
+  JsonObject motion_json = payload["motion"].to<JsonObject>();
+  motion_json["valid"] = motion.valid;
+  motion_json["tilt_x"] = motion.tilt_x;
+  motion_json["tilt_y"] = motion.tilt_y;
+  motion_json["twist_z"] = motion.twist_z;
+  motion_json["angular_speed_dps"] = motion.angular_speed_dps;
   const auto touch = smart_speaker_touch_snapshot();
   JsonObject touch_json = payload["touch"].to<JsonObject>();
   touch_json["initialized"] = touch.initialized;
@@ -252,76 +415,280 @@ DeviceOperationResult fill_debug_payload(DeviceApiContext &device, JsonObject pa
   touch_json["x"] = touch.x;
   touch_json["y"] = touch.y;
   touch_json["sample_count"] = touch.sample_count;
+  touch_json["gesture_count"] = touch.gesture_count;
   touch_json["last_error"] = touch.last_error;
-  payload["microphone"] = false;
+  payload["xiaozhi_status"] = xiaozhi_status_label();
   JsonArray items = payload["frames"].to<JsonArray>();
-  for(size_t i=0;i<frame_count;++i)fill_audio_debug_frame(items.add<JsonObject>(),frames[i]);
+  const uint32_t response_count =
+      static_cast<uint32_t>(kAudioDebugResponseFrameCount);
+  const uint32_t first_sequence = latest_sequence > response_count
+                                      ? latest_sequence - response_count + 1
+                                      : 1;
+  for (uint32_t sequence = first_sequence; sequence <= latest_sequence;
+       ++sequence) {
+    const AudioDebugFrame &frame =
+        frames[sequence % kAudioDebugFrameCount];
+    if (frame.sequence != sequence) {
+      continue;
+    }
+    fill_audio_debug_frame(items.add<JsonObject>(), frame);
+  }
   return device_operation_ack();
 }
 
-DeviceOperationResult fill_display_stats_payload(DeviceApiContext &device,JsonObject payload) {
-  fill_desktop_status(device,payload);return device_operation_ack();
+DeviceOperationResult fill_display_stats_payload(JsonObject payload) {
+  const auto display = lunaredu::desktop::lvgl_screen_runtime_status();
+  const auto speaker_display = smart_speaker_display_stats();
+  payload["initialized"] = display.initialized;
+  payload["refresh_count"] = display.refresh_count;
+  payload["flush_count"] = display.flush_count;
+  payload["flush_fail_count"] = display.flush_fail_count;
+  payload["last_flush_us"] = display.last_flush_us;
+  payload["max_flush_us"] = display.max_flush_us;
+  payload["last_refresh_us"] = display.last_refresh_us;
+  payload["max_refresh_us"] = display.max_refresh_us;
+  payload["last_refresh_pixels"] = display.last_refresh_pixels;
+  payload["full_refresh_count"] = display.full_refresh_count;
+  payload["last_region_x"] = display.last_refresh_x;
+  payload["last_region_y"] = display.last_refresh_y;
+  payload["last_region_width"] = display.last_refresh_width;
+  payload["last_region_height"] = display.last_refresh_height;
+  payload["spectrum_render_count"] = speaker_display.spectrum_render_count;
+  payload["spectrum_render_fail_count"] =
+      speaker_display.spectrum_render_fail_count;
+  payload["last_spectrum_render_us"] =
+      speaker_display.last_spectrum_render_us;
+  payload["max_spectrum_render_us"] =
+      speaker_display.max_spectrum_render_us;
+  payload["character_render_count"] = speaker_display.character_render_count;
+  payload["character_render_fail_count"] = speaker_display.character_render_fail_count;
+  payload["last_character_render_us"] = speaker_display.last_character_render_us;
+  payload["max_character_render_us"] = speaker_display.max_character_render_us;
+  payload["last_character_raster_us"] = speaker_display.last_character_raster_us;
+  payload["last_character_transfer_us"] = speaker_display.last_character_transfer_us;
+  payload["character_transferred_pixels"] = speaker_display.character_transferred_pixels;
+  payload["last_character_pixels"] = speaker_display.last_character_pixels;
+  payload["last_character_regions"] = speaker_display.last_character_regions;
+  payload["progress_render_count"] = speaker_display.progress_render_count;
+  payload["last_progress_render_us"] = speaker_display.last_progress_render_us;
+  payload["character_over_budget_count"] = speaker_display.character_over_budget_count;
+  payload["character_frame_ms"] = speaker_display.character_frame_ms;
+  payload["character_visible"] = speaker_display.character_visible;
+  payload["lyrics_visible"] = speaker_display.lyrics_visible;
+  payload["lyrics_layout"] = speaker_display.lyrics_layout;
+  payload["transfer_page"] = speaker_display.transfer_page;
+  payload["transfer_percent"] = speaker_display.transfer_percent;
+  payload["volume_bar_visible"] = speaker_display.volume_bar_visible;
+  payload["pause_indicator_visible"] = speaker_display.pause_indicator_visible;
+  payload["pause_indicator_percent"] = speaker_display.pause_indicator_percent;
+  payload["character_edge_contact"] = speaker_display.character_edge_contact;
+  payload["character_edge_impact"] = speaker_display.character_edge_impact;
+  payload["account_avatar_ready"] = speaker_display.account_avatar_ready;
+  payload["account_avatar_generation"] = speaker_display.account_avatar_generation;
+  payload["account_avatar_available"] = speaker_display.account_avatar_available;
+  const auto avatar_resource = resource_snapshot("account-avatar");
+  payload["avatar_resource_state"] = static_cast<int>(avatar_resource.state);
+  payload["avatar_resource_error"] = avatar_resource.error;
+  payload["lvgl_pool_free_bytes"] = speaker_display.lvgl_pool_free_bytes;
+  payload["lvgl_pool_largest_block"] = speaker_display.lvgl_pool_largest_block;
+  const auto menu = local_menu_snapshot();
+  payload["account_selected"] = menu.account_selected;
+  payload["account_unbind_confirm"] = menu.unbind_confirm;
+  payload["account_unbind_pending"] = menu.unbind_pending;
+  payload["account_notice"] = menu.account_notice;
+  payload["local_page"] = menu.library ? "library" : menu.network ? "network" : menu.provisioning ? "provisioning" : menu.information ? "device_info" :
+                          menu.binding ? "account" : menu.open ? "settings" : "home";
+  payload["information_page"] = menu.information_page;
+  payload["library_index"] = menu.library_index;
+  payload["network_selected"] = menu.network_selected;
+  payload["character_mood"] = character::mood_name(
+      static_cast<character::Mood>(speaker_display.character_mood));
+  const auto mpu = smart_speaker_mpu_snapshot();
+  JsonObject mpu_json = payload["mpu6050"].to<JsonObject>();
+  mpu_json["initialized"] = mpu.initialized;
+  mpu_json["sampling"] = mpu.sampling;
+  mpu_json["address"] = mpu.address;
+  mpu_json["temperature_c"] = mpu.temperature_c;
+  mpu_json["pose_valid"] = mpu.pose_valid;
+  mpu_json["angle_x"] = mpu.angle_x;
+  mpu_json["angle_y"] = mpu.angle_y;
+  mpu_json["angle_z"] = mpu.angle_z;
+  mpu_json["scan_complete"] = mpu.scan_complete;
+  mpu_json["scan_count"] = mpu.scan_count;
+  JsonArray mpu_scan = mpu_json["scan_addresses"].to<JsonArray>();
+  const uint8_t mpu_scan_count = std::min<uint8_t>(
+      mpu.scan_count, kSmartSpeakerI2cScanMaxAddresses);
+  for (uint8_t index = 0; index < mpu_scan_count; ++index) {
+    mpu_scan.add(mpu.scan_addresses[index]);
+  }
+  mpu_json["who_am_i_valid"] = mpu.who_am_i_valid;
+  mpu_json["who_am_i"] = mpu.who_am_i;
+  mpu_json["who_am_i_error"] = mpu.who_am_i_error;
+  mpu_json["last_error"] = mpu.last_error;
+  const auto motion = smart_speaker_motion_input();
+  JsonObject motion_json = payload["motion"].to<JsonObject>();
+  motion_json["valid"] = motion.valid;
+  motion_json["tilt_x"] = motion.tilt_x;
+  motion_json["tilt_y"] = motion.tilt_y;
+  motion_json["twist_z"] = motion.twist_z;
+  motion_json["angular_speed_dps"] = motion.angular_speed_dps;
+  const auto touch = smart_speaker_touch_snapshot();
+  JsonObject touch_json = payload["touch"].to<JsonObject>();
+  touch_json["initialized"] = touch.initialized;
+  touch_json["pressed"] = touch.pressed;
+  touch_json["address"] = touch.address;
+  touch_json["x"] = touch.x;
+  touch_json["y"] = touch.y;
+  touch_json["sample_count"] = touch.sample_count;
+  touch_json["gesture_count"] = touch.gesture_count;
+  touch_json["last_error"] = touch.last_error;
+  payload["xiaozhi_status"] = xiaozhi_status_label();
+  payload["spectrum_generation"] = 0;
+  payload["spectrum_enabled"] = false;
+  payload["spectrum_dropped"] = 0;
+  payload["target_frame_ms"] = 20;
+  payload["spi_clock_hz"] =
+      CONFIG_LUNAREDU_DEVICE_DISPLAY_SPI_LCD_PIXEL_CLOCK_HZ;
+  return device_operation_ack();
 }
 
-DeviceOperationResult handle_control_payload(DeviceApiContext &, JsonVariantConst request,
+DeviceOperationResult handle_logs_payload(JsonVariantConst request,
+                                             JsonObject payload) {
+  uint32_t after_sequence = 0;
+  size_t limit = kLogResponseMaxEntries;
+  if (!request.isNull()) {
+    if (!request["after_seq"].isNull()) {
+      if (!request["after_seq"].is<uint32_t>())
+        return device_operation_error("invalid_after_seq", 400,
+                                         "smart_speaker_logs_invalid");
+      after_sequence = request["after_seq"].as<uint32_t>();
+    }
+    if (!request["limit"].isNull()) {
+      if (!request["limit"].is<unsigned int>())
+        return device_operation_error("invalid_limit", 400,
+                                         "smart_speaker_logs_invalid");
+      limit = std::clamp<size_t>(request["limit"].as<unsigned int>(), 1,
+                                 kLogResponseMaxEntries);
+    }
+  }
+
+  const LogBufferStatus status = log_buffer_status();
+  payload["oldest_seq"] = status.oldest_sequence;
+  payload["latest_seq"] = status.latest_sequence;
+  payload["capacity"] = kLogBufferCapacity;
+  payload["max_limit"] = kLogResponseMaxEntries;
+  payload["count"] = status.count;
+  payload["overwritten"] = status.overwritten_entries;
+  payload["truncated"] = status.truncated_entries;
+  payload["application_logs_only"] = true;
+  payload["gap"] = status.count != 0 && after_sequence != 0 &&
+                   after_sequence < UINT32_MAX &&
+                   after_sequence + 1 < status.oldest_sequence;
+
+  uint32_t first = status.oldest_sequence;
+  if (after_sequence != 0 && after_sequence < UINT32_MAX)
+    first = std::max(first, after_sequence + 1);
+  JsonArray entries = payload["entries"].to<JsonArray>();
+  size_t emitted = 0;
+  for (uint32_t sequence = first;
+       sequence != 0 && sequence <= status.latest_sequence && emitted < limit;
+       ++sequence) {
+    BufferedLogEntry entry;
+    if (!log_buffer_read(sequence, &entry)) continue;
+    JsonObject item = entries.add<JsonObject>();
+    item["seq"] = entry.sequence;
+    item["ms"] = entry.timestamp_ms;
+    item["text"] = entry.text;
+    ++emitted;
+  }
+  return device_operation_ack();
+}
+
+DeviceOperationResult fill_smart_ota_status_payload(JsonObject payload) {
+  fill_smart_ota_status(payload);
+  return device_operation_ack();
+}
+
+DeviceOperationResult handle_smart_ota_upload(const DeviceBulkRequest &request,
+                                                 JsonObject response) {
+  DeviceBulkRequest request_copy = request;
+  OtaFirmwareStream stream;
+  stream.content_length = request.content_length;
+  stream.context = &request_copy;
+  stream.read_chunk = read_ota_upload_chunk;
+
+  if (!ota_service_install_stream(stream)) {
+    fill_smart_ota_status(response);
+    const OtaServiceStatus status = ota_service_status_snapshot();
+    return device_operation_error(
+        status.message.empty() ? "ota_install_failed" : status.message.c_str(),
+        status.message == "empty_ota_stream" ? 400 : 500,
+        "smart_speaker_ota_failed");
+  }
+
+  fill_smart_ota_status(response);
+  return device_operation_ack();
+}
+
+DeviceOperationResult handle_control_payload(JsonVariantConst request,
                                                 JsonObject response) {
   if (status_snapshot().uploading) return device_operation_error("upload_in_progress", 409);
   const std::string action = request["action"] | "";
-  if(action=="play"||action=="next"||action=="prev"||action=="previous"){
-    std::string error;
-    if(!enter_music(error))return device_operation_error(error.empty()?"music_foreground_unavailable":error.c_str(),409);
-  }
-  bool accepted=false;
   if (action == "play") {
-    accepted=enqueue_command(CommandType::kPlay);
+    play();
   } else if (action == "pause") {
-    accepted=enqueue_command(CommandType::kPause);
+    pause();
   } else if (action == "stop") {
-    accepted=enqueue_command(CommandType::kStop);
+    stop();
   } else if (action == "next") {
-    accepted=enqueue_command(CommandType::kNext);
+    next();
   } else if (action == "prev" || action == "previous") {
-    accepted=enqueue_command(CommandType::kPrevious);
+    previous();
   } else if (action == "rescan") {
-    accepted=enqueue_command(CommandType::kRescan);
+    rescan();
   } else if (action == "cycle_mode") {
-    accepted=enqueue_command(CommandType::kCycleMode);
+    if (!enqueue_command(CommandType::kCycleMode))
+      return device_operation_error("command_queue_full", 503);
   } else if (action == "volume") {
-    accepted=enqueue_command(CommandType::kSetVolume,request["volume"] | kInitialVolume);
+    set_volume(request["volume"] | kInitialVolume);
   } else {
     return device_operation_error("unknown_action", 400,
                                      "smart_speaker_control_failed");
   }
-  if(!accepted)return device_operation_error("speaker_busy_or_queue_full",503);
   fill_status(response["status"].to<JsonObject>(), status_snapshot());
   return device_operation_ack();
 }
 
-DeviceOperationResult handle_track_play_payload(DeviceApiContext &, JsonVariantConst request,
+DeviceOperationResult handle_track_play_payload(JsonVariantConst request,
                                                 JsonObject response) {
   if (!request["path"].is<const char *>())
     return device_operation_error("invalid_track_path", 400);
   const std::string path = request["path"].as<std::string>();
-  std::string error;
-  if (!request_track_play(path, error)) {
-    const uint16_t status = error == "track_not_found" ? 404
-                            : error == "upload_in_progress" ? 409
-                                                             : 503;
-    return device_operation_error(error.c_str(), status);
+  {
+    std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    if (g_runtime.uploading) return device_operation_error("upload_in_progress", 409);
+    if (!g_runtime.audio_ready) return device_operation_error("audio_not_ready", 503);
+    const auto track = std::find_if(g_runtime.playlist.begin(), g_runtime.playlist.end(),
+        [&path](const TrackInfo &item) { return item.path == path; });
+    if (track == g_runtime.playlist.end()) return device_operation_error("track_not_found", 404);
+    if (!enqueue_command(CommandType::kPlayTrack,
+                         static_cast<int>(std::distance(g_runtime.playlist.begin(), track)),
+                         g_runtime.playlist_revision))
+      return device_operation_error("command_queue_full", 503);
   }
   response["accepted"] = true;
   response["path"] = path;
   return device_operation_ack();
 }
 
-DeviceOperationResult fill_audio_settings_payload(DeviceApiContext &, JsonObject payload) {
+DeviceOperationResult fill_audio_settings_payload(JsonObject payload) {
   fill_settings(payload, dual_i2s_audio_settings());
   payload["test_mode"] =
       dsp::channel_mode_name(dual_i2s_audio_channel_mode());
   return device_operation_ack();
 }
 
-DeviceOperationResult handle_audio_settings_payload(DeviceApiContext &, JsonVariantConst request,
+DeviceOperationResult handle_audio_settings_payload(JsonVariantConst request,
                                                        JsonObject response) {
   dsp::Settings settings = dual_i2s_audio_settings();
   bool custom = false;
@@ -362,6 +729,17 @@ DeviceOperationResult handle_audio_settings_payload(DeviceApiContext &, JsonVari
   APPLY_FLOAT("high_frequency_hz", high_frequency_hz);
   APPLY_FLOAT("high_gain_db", high_gain_db);
 #undef APPLY_FLOAT
+  if (!request["spectrum_mode"].isNull()) {
+    if (!request["spectrum_mode"].is<const char *>())
+      return device_operation_error("invalid_spectrum_mode", 400,
+                                       "smart_speaker_audio_settings_failed");
+    const std::string mode = request["spectrum_mode"] | "";
+    if (mode != "actual_output" && mode != "pre_volume")
+      return device_operation_error("invalid_spectrum_mode", 400,
+                                       "smart_speaker_audio_settings_failed");
+    settings.spectrum_pre_volume = mode == "pre_volume";
+    custom = true;
+  }
   if (!dsp::validate_settings(settings))
     return device_operation_error("settings_out_of_range", 400,
                                      "smart_speaker_audio_settings_failed");
@@ -371,7 +749,7 @@ DeviceOperationResult handle_audio_settings_payload(DeviceApiContext &, JsonVari
   return device_operation_ack();
 }
 
-DeviceOperationResult handle_audio_test_payload(DeviceApiContext &, JsonVariantConst request,
+DeviceOperationResult handle_audio_test_payload(JsonVariantConst request,
                                                    JsonObject response) {
   dsp::ChannelMode mode;
   if (!request["mode"].is<const char *>() ||
@@ -383,7 +761,7 @@ DeviceOperationResult handle_audio_test_payload(DeviceApiContext &, JsonVariantC
   return device_operation_ack();
 }
 
-DeviceOperationResult handle_audio_output_payload(DeviceApiContext &, JsonVariantConst request,
+DeviceOperationResult handle_audio_output_payload(JsonVariantConst request,
                                                      JsonObject response) {
   if (request["enabled"].isNull() || !request["enabled"].is<bool>())
     return device_operation_error("invalid_enabled", 400,
@@ -436,7 +814,7 @@ DeviceOperationResult handle_audio_output_payload(DeviceApiContext &, JsonVarian
   return device_operation_ack();
 }
 
-DeviceOperationResult handle_file_upload(DeviceApiContext &, const DeviceBulkRequest &request,
+DeviceOperationResult handle_file_upload(const DeviceBulkRequest &request,
                                             JsonObject response) {
   std::unique_lock<std::mutex> player_lock(g_player_operation_mutex, std::try_to_lock);
   if (!player_lock.owns_lock()) return device_operation_error("speaker_busy", 409);
@@ -464,55 +842,61 @@ DeviceOperationResult handle_file_upload(DeviceApiContext &, const DeviceBulkReq
 
   {
     std::lock_guard<std::mutex> lock(g_transfer_mutex);
-    g_transfer = {};
+    std::string batch = request_arg(request, "batch_id");
+    if (batch.size() > 64) batch.clear();
+    if (batch.empty() || batch != g_transfer.batch_id || !g_transfer.batch_open) {
+      const uint32_t generation = g_transfer.generation + 1;
+      g_transfer = {};
+      g_transfer.generation = generation;
+    }
+    g_transfer.batch_id = batch;
+    g_transfer.batch_open = !batch.empty();
     g_transfer.receiving = true;
     g_transfer.name = name;
     g_transfer.error.clear();
     g_transfer.received = 0;
     g_transfer.total = static_cast<uint32_t>(std::max(request.content_length, request.body_size));
+    g_transfer.updated_ms = now_ms();
   }
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
     g_runtime.auto_advance = false;
     g_runtime.playing = false;
     g_runtime.paused = false;
-    g_runtime.transfer_active = true;
+    g_runtime.uploading = true;
     g_runtime.paused_by_volume = false;
     clear_error_locked();
   }
-  std::string error;
-  const uint32_t stop_started=now_ms();
-  while(!stop_music_locked(error)&&now_ms()-stop_started<1500)vTaskDelay(pdMS_TO_TICKS(5));
-  if(!error.empty()) {
-    {std::lock_guard<std::mutex> lock(g_runtime.mutex);g_runtime.transfer_active=false;set_error_locked(error.c_str());}
-    {std::lock_guard<std::mutex> lock(g_transfer_mutex);g_transfer.receiving=false;g_transfer.error=error;}
-    return device_operation_error(error.c_str(),503);
-  }
+  (void)dual_i2s_audio_fade_to_mute(100);
+  (void)audio_player_stop();
+  vTaskDelay(pdMS_TO_TICKS(50));
 
   size_t written = 0;
-  bool ok = stream_upload_to_file(request, temporary_path, written,error);
+  bool ok = stream_upload_to_file(request, temporary_path, written);
   if (ok) ok = stat(path.c_str(), &existing) != 0 &&
                rename(temporary_path.c_str(), path.c_str()) == 0;
 
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
-    g_runtime.transfer_active = false;
+    g_runtime.uploading = false;
     if (!ok) {
       set_error_locked("upload_write_failed");
+    } else {
+      rescan_locked();
     }
   }
-  if(ok)publish_imported_track(path,written);
 
   {
     std::lock_guard<std::mutex> lock(g_transfer_mutex);
     g_transfer.receiving = false;
-    if(!ok)g_transfer.error=error.empty()?"upload_write_failed":error;
+    g_transfer.updated_ms = now_ms();
+    if (ok) ++g_transfer.completed;
+    else { ++g_transfer.failed; g_transfer.error = "upload_write_failed"; }
   }
   if (!ok) {
     (void)remove(temporary_path.c_str());
-    const bool invalid=error=="audio_mp3_invalid"||error=="audio_file_truncated"||error=="audio_import_read_failed";
-    return device_operation_error(error.empty()?"upload_write_failed":error.c_str(),invalid?400:500,
-                                  "smart_speaker_upload_failed");
+    return device_operation_error("upload_write_failed", 500,
+                                     "smart_speaker_upload_failed");
   }
 
   response["ok"] = true;

@@ -49,22 +49,6 @@ config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_3WIRE_9BIT
         ninth bit before every command, parameter and pixel byte. A separate
         D/C GPIO is not used in this mode.
 
-choice LUNAREDU_DEVICE_DISPLAY_SPI_LCD_3WIRE_DMA_CHUNK
-    prompt "Three-wire pixel source bytes per DMA chunk"
-    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD_3WIRE_9BIT
-    default LUNAREDU_DEVICE_DISPLAY_SPI_LCD_3WIRE_DMA_CHUNK_8K
-    help
-        Two internal DMA packing buffers are reserved in queued mode.
-        Smaller chunks save internal SRAM but increase SPI transactions.
-
-    config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_3WIRE_DMA_CHUNK_2K
-        bool "2048 source bytes (2304 packed bytes per buffer)"
-    config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_3WIRE_DMA_CHUNK_4K
-        bool "4096 source bytes (4608 packed bytes per buffer)"
-    config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_3WIRE_DMA_CHUNK_8K
-        bool "8192 source bytes (9216 packed bytes per buffer)"
-endchoice
-
 config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_MOSI
     int "SPI LCD MOSI GPIO"
     depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD

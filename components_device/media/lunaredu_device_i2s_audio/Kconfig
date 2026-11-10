@@ -1,0 +1,123 @@
+menu "LunarEdu i2s_audio"
+
+config LUNAREDU_DEVICE_I2S_AUDIO
+    bool "Enable I2S audio hardware helper"
+    default n
+    help
+        Build the generic I2S microphone/speaker topology and pin helper.
+        This only owns board wiring validation and BSP resource reservation;
+        codec/runtime ownership belongs to the app or assistant adapter.
+
+choice LUNAREDU_DEVICE_I2S_AUDIO_TOPOLOGY
+    prompt "I2S audio topology"
+    depends on LUNAREDU_DEVICE_I2S_AUDIO
+    default LUNAREDU_DEVICE_I2S_AUDIO_DUPLEX
+
+    config LUNAREDU_DEVICE_I2S_AUDIO_DUPLEX
+        bool "Duplex shared BCLK/WS"
+    config LUNAREDU_DEVICE_I2S_AUDIO_SIMPLEX
+        bool "Simplex separated speaker/microphone clocks"
+endchoice
+
+config LUNAREDU_DEVICE_I2S_AUDIO_INPUT_SAMPLE_RATE
+    int "Input sample rate"
+    depends on LUNAREDU_DEVICE_I2S_AUDIO
+    range 8000 48000
+    default 24000
+
+config LUNAREDU_DEVICE_I2S_AUDIO_OUTPUT_SAMPLE_RATE
+    int "Output sample rate"
+    depends on LUNAREDU_DEVICE_I2S_AUDIO
+    range 8000 48000
+    default 24000
+
+config LUNAREDU_DEVICE_I2S_AUDIO_BCLK
+    int "Duplex BCLK GPIO"
+    depends on LUNAREDU_DEVICE_I2S_AUDIO
+    range -1 48
+    default -1
+
+config LUNAREDU_DEVICE_I2S_AUDIO_WS
+    int "Duplex WS GPIO"
+    depends on LUNAREDU_DEVICE_I2S_AUDIO
+    range -1 48
+    default -1
+
+config LUNAREDU_DEVICE_I2S_AUDIO_DOUT
+    int "Duplex speaker DOUT GPIO"
+    depends on LUNAREDU_DEVICE_I2S_AUDIO
+    range -1 48
+    default -1
+
+config LUNAREDU_DEVICE_I2S_AUDIO_DIN
+    int "Duplex microphone DIN GPIO"
+    depends on LUNAREDU_DEVICE_I2S_AUDIO
+    range -1 48
+    default -1
+
+config LUNAREDU_DEVICE_I2S_AUDIO_SPK_BCLK
+    int "Speaker BCLK GPIO"
+    depends on LUNAREDU_DEVICE_I2S_AUDIO
+    range -1 48
+    default -1
+
+config LUNAREDU_DEVICE_I2S_AUDIO_SPK_WS
+    int "Speaker WS GPIO"
+    depends on LUNAREDU_DEVICE_I2S_AUDIO
+    range -1 48
+    default -1
+
+config LUNAREDU_DEVICE_I2S_AUDIO_SPK_DOUT
+    int "Speaker DOUT GPIO"
+    depends on LUNAREDU_DEVICE_I2S_AUDIO
+    range -1 48
+    default -1
+
+config LUNAREDU_DEVICE_I2S_AUDIO_MIC_SCK
+    int "Microphone SCK GPIO"
+    depends on LUNAREDU_DEVICE_I2S_AUDIO
+    range -1 48
+    default -1
+
+config LUNAREDU_DEVICE_I2S_AUDIO_MIC_WS
+    int "Microphone WS GPIO"
+    depends on LUNAREDU_DEVICE_I2S_AUDIO
+    range -1 48
+    default -1
+
+config LUNAREDU_DEVICE_I2S_AUDIO_MIC_DIN
+    int "Microphone DIN GPIO"
+    depends on LUNAREDU_DEVICE_I2S_AUDIO
+    range -1 48
+    default -1
+
+choice LUNAREDU_DEVICE_I2S_AUDIO_MIC_SLOT
+    prompt "Microphone I2S slot"
+    depends on LUNAREDU_DEVICE_I2S_AUDIO
+    default LUNAREDU_DEVICE_I2S_AUDIO_MIC_SLOT_LEFT
+    help
+        Select which I2S time slot carries the microphone sample. INMP441
+        boards expose an L/R pin; if that pin selects Right while firmware
+        reads Left, captured audio will look like silence.
+
+    config LUNAREDU_DEVICE_I2S_AUDIO_MIC_SLOT_LEFT
+        bool "Left"
+    config LUNAREDU_DEVICE_I2S_AUDIO_MIC_SLOT_RIGHT
+        bool "Right"
+    config LUNAREDU_DEVICE_I2S_AUDIO_MIC_SLOT_BOTH
+        bool "Both"
+endchoice
+
+config LUNAREDU_DEVICE_ENABLE_AUDIO
+    bool "Enable I2S PCM audio device"
+    default n
+    select LUNAREDU_DEVICE_I2S_AUDIO
+    help
+        Build the optional I2S PCM audio adapter. Apps that do not use audio
+        should leave this disabled to avoid allocating I2S channels.
+        Speech processing and wake-word models are owned by Pet.
+        This selects the I2S audio hardware helper so the PCM device can be
+        configured from the same microphone/speaker Kconfig values used by
+        assistant adapters.
+
+endmenu
