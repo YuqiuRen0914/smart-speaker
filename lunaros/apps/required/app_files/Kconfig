@@ -1,0 +1,7 @@
+config LUNAROS_DESKTOP_FILE_JPEG
+    bool "Enable system Files JPEG preview and silent MJPEG playback"
+    depends on LUNAROS_IMAGE_CODEC_ENABLE_JPEG_DECODER
+    default n
+    help
+        Bounded JPEG decoding for the OS file application. Raw contiguous JPEG
+        sequences play at 10 fps; this does not enable MP4, WebM or AVI decoding.

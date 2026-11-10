@@ -1,0 +1,22 @@
+{
+  "format": "lunaredu.pet.expression.v1",
+  "id": "humming",
+  "slot": 27,
+  "group": "InteractionDemo",
+  "eyePlaylist": [
+    0,
+    8
+  ],
+  "holdMs": [
+    5000,
+    9000
+  ],
+  "blinkMs": [
+    4000,
+    8000
+  ],
+  "motion": {
+    "kind": "builtin",
+    "preset": "humming"
+  }
+}

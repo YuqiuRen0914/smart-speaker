@@ -1,0 +1,21 @@
+{
+  "repository": "https://github.com/micropython/micropython.git",
+  "revision": "0fd6c573ea815774668bbb16b8e197c8822368b2",
+  "manifest_sha256": "dc470cc0bb9c6924422f226d0df890d32969334634e3a1764a7f0c17ff0a7f87",
+  "file_count": 227,
+  "license": "MIT",
+  "version_label": "v1.29.0+lunaredu",
+  "imported_paths": [
+    "py",
+    "ports/embed",
+    "shared/runtime/gchelper.h",
+    "shared/runtime/gchelper_generic.c",
+    "extmod/modplatform.h",
+    "LICENSE",
+    "README.md"
+  ],
+  "local_patches": [
+    "patches/embed-includes.patch"
+  ],
+  "generated_manifest_sha256": "bf5fb77e82d610768e8230f0608c36ce24175ed2824a18159d8b2b38b017a35b"
+}

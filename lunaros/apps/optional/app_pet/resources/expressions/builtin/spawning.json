@@ -1,0 +1,22 @@
+{
+  "format": "lunaredu.pet.expression.v1",
+  "id": "spawning",
+  "slot": 26,
+  "group": "System",
+  "eyePlaylist": [
+    3,
+    0
+  ],
+  "holdMs": [
+    1200,
+    1200
+  ],
+  "blinkMs": [
+    0,
+    0
+  ],
+  "motion": {
+    "kind": "builtin",
+    "preset": "spawning"
+  }
+}

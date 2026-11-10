@@ -1,0 +1,4 @@
+#pragma once
+/* Generated from product.cmake and the application's resolved sdkconfig. */
+#define LUNAROS_STARTUP_SAFE_OUTPUTS(X) \
+@LUNAROS_STARTUP_OUTPUT_TABLE@

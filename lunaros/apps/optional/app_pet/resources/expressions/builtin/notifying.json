@@ -1,0 +1,23 @@
+{
+  "format": "lunaredu.pet.expression.v1",
+  "id": "notifying",
+  "slot": 34,
+  "group": "Notice",
+  "eyePlaylist": [
+    3,
+    21,
+    0
+  ],
+  "holdMs": [
+    1500,
+    2600
+  ],
+  "blinkMs": [
+    2000,
+    4000
+  ],
+  "motion": {
+    "kind": "builtin",
+    "preset": "notifying"
+  }
+}

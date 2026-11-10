@@ -1,0 +1,23 @@
+{
+  "format": "lunaredu.pet.expression.v1",
+  "id": "celebrate",
+  "slot": 22,
+  "group": "Reaction",
+  "eyePlaylist": [
+    2,
+    8,
+    17
+  ],
+  "holdMs": [
+    1400,
+    2600
+  ],
+  "blinkMs": [
+    2200,
+    4500
+  ],
+  "motion": {
+    "kind": "builtin",
+    "preset": "celebrate"
+  }
+}

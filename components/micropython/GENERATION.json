@@ -1,0 +1,11 @@
+{
+  "upstream_revision": "0fd6c573ea815774668bbb16b8e197c8822368b2",
+  "generated_manifest_sha256": "bf5fb77e82d610768e8230f0608c36ce24175ed2824a18159d8b2b38b017a35b",
+  "generated_file_count": 211,
+  "source_date_epoch": 1777680000,
+  "inputs": {
+    "tools/mpconfigport.h": "c1eccb65edb65ba83682b2a9efbd71a1d5d76d27b9f0ba7a41f18836f1fb8dad",
+    "tools/generate-embed.py": "d107d7de60448c10402d95937254dbc88c806861eccc2339836e884dc86d7de6",
+    "patches/embed-includes.patch": "a86d6a17b543fbe7d79c3c523b55f78864a9993858ddeecb9b2b7007a758c634"
+  }
+}

@@ -1,0 +1,5 @@
+idf_component_register(
+    SRCS "@LUNAROS_STARTUP_SOURCE_ROOT@/safe_outputs.c"
+         "@LUNAROS_STARTUP_SOURCE_ROOT@/bootloader_hook.c"
+    PRIV_INCLUDE_DIRS "."
+    REQUIRES esp_hal_gpio esp_rom soc bootloader_support efuse)

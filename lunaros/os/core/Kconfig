@@ -1,0 +1,87 @@
+menu "LunarOS core"
+
+config LUNAROS_PRODUCTION_PREPROVISIONED
+    bool
+    default n
+    help
+        Production bootloader refuses unprovisioned Secure Boot and Flash Encryption.
+        This guard never provisions eFuses; the factory workflow supplies keys first.
+
+config LUNAROS_BOOT_GUARD
+    bool "Monitor management progress and rescue repeated application crashes"
+    depends on ESP_TASK_WDT_EN
+    default n
+    help
+        Retains a checksummed, image-bound crash budget in RTC memory and
+        requests a validated rescue image after three abnormal resets. Adds
+        main/network progress watchdog users, with panic enabled, a 60-second
+        startup budget and a 15-second budget after a healthy minute. Requires
+        the product health owner and OTA rescue callback; does not replace an
+        installed bootloader or survive a complete loss of RTC power.
+
+config LUNAREDU_LUNAROS_DEFAULT_TASK_CORE
+    int "Default fixed core for application and compute workers"
+    range 0 1
+    default 0 if FREERTOS_UNICORE
+    default 1
+    help
+        Managed tasks without a placement override use this existing core.
+        Explicit placement is validated before allocating or creating a task.
+        I/O owners may select core 0 or provide a product-specific fixed core.
+        Fixed placement does not replace locking, priorities or retirement.
+
+config LUNAREDU_LUNAROS_CPU_MONITOR
+    bool "LunarOS runtime CPU monitoring capability"
+    default y
+    select FREERTOS_GENERATE_RUN_TIME_STATS
+    select FREERTOS_VTASKLIST_INCLUDE_COREID if !FREERTOS_SMP
+    help
+        Build the OS CPU runtime-counter capability for every product.
+        Sampling defaults to off and can be switched at runtime, with an
+        independent persistent start-on-boot preference. No worker is created.
+        FreeRTOS counter accounting has context-switch overhead even while
+        sampling is off. Use the ESP TIMER clock for wall-time percentages.
+
+
+config LUNAREDU_LUNAROS_FOREGROUND_CAPACITY
+    int "Maximum registered foreground applications"
+    range 1 32
+    default 16
+    help
+        Core-owned AppController catalog storage, including launcher Apps,
+        system surfaces and hidden modes. Not a product defaults override.
+
+config LUNAREDU_LUNAROS_APPLICATION_CAPABILITY_CAPACITY
+    int "Maximum capabilities per foreground application"
+    range 1 16
+    default 8
+
+config LUNAREDU_LUNAROS_APPLICATION_SERVICE_CAPACITY
+    int "Maximum services per foreground application"
+    range 1 8
+    default 4
+
+config LUNAREDU_LUNAROS_APPLICATION_RESOURCE_CAPACITY
+    int "Maximum resources per foreground application"
+    range 1 8
+    default 4
+
+config LUNAREDU_LUNAROS_CAPABILITY_CONSUMERS
+    int "Maximum app capability dependency declarations"
+    range 1 32
+    default 16
+    help
+        Core-owned references to application dependency manifests, independent
+        of foreground pages. Registration creates no task or service.
+
+config LUNAREDU_LUNAROS_RESOURCE_LEASE_CAPACITY
+    int "Maximum simultaneous foreground resource leases"
+    range 2 64
+    default 32
+    help
+        Fixed logical resource-lease capacity owned by AppController. Allow
+        at least twice the per-application resource capacity so a pending
+        foreground can reserve resources before the previous foreground is
+        released.
+
+endmenu

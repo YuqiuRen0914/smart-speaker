@@ -1,0 +1,23 @@
+{
+  "format": "lunaredu.pet.expression.v1",
+  "id": "laughing",
+  "slot": 19,
+  "group": "Reaction",
+  "eyePlaylist": [
+    2,
+    11,
+    17
+  ],
+  "holdMs": [
+    1200,
+    2400
+  ],
+  "blinkMs": [
+    2500,
+    5000
+  ],
+  "motion": {
+    "kind": "builtin",
+    "preset": "laughing"
+  }
+}

@@ -1,0 +1,30 @@
+menu "LunarEdu sdcard"
+
+config LUNAREDU_DEVICE_SDCARD_NATIVE_SESSION
+    bool "Enable explicit caller-configured SDMMC session"
+    default n
+    help
+        Add a standalone one-bit SDMMC FAT session. The caller supplies pins,
+        mount path and exclusive host/pin/VFS resource callbacks. Does not
+        select or change the legacy BSP mount, start tasks, or format a card.
+
+config LUNAREDU_DEVICE_ENABLE_TFCARD
+    bool "Enable TF card store module"
+    default n
+    help
+        Build the TF card mount/status/control module.
+
+config LUNAREDU_DEVICE_STORAGE_SDCARD
+    bool "Enable SD card storage helper"
+    default n
+    help
+        Build the generic SD card mount/status helper backed by the BSP SD
+        card resource. This is a narrow device helper for runtime adapters and
+        does not register TF card Local API operations by itself.
+
+config LUNAREDU_DEVICE_STORAGE_SDCARD_MOUNT_PATH
+    string "SD card mount path"
+    depends on LUNAREDU_DEVICE_STORAGE_SDCARD
+    default "/sdcard"
+
+endmenu

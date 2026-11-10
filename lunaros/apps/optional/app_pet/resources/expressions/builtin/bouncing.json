@@ -1,0 +1,22 @@
+{
+  "format": "lunaredu.pet.expression.v1",
+  "id": "bouncing",
+  "slot": 36,
+  "group": "InteractionDemo",
+  "eyePlaylist": [
+    2,
+    17
+  ],
+  "holdMs": [
+    3000,
+    6000
+  ],
+  "blinkMs": [
+    0,
+    0
+  ],
+  "motion": {
+    "kind": "builtin",
+    "preset": "bouncing"
+  }
+}

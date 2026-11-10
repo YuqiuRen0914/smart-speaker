@@ -1,0 +1,21 @@
+menu "LunarOS runtime"
+
+config LUNAREDU_LUNAROS_MAINTENANCE_IO_CORE
+    int "Core for LunarOS blocking network maintenance"
+    range 0 1
+    default 0
+    help
+        Runtime owns placement of its resident maintenance I/O task. Keep
+        low-priority TLS work on the system/network core so foreground
+        rendering on core 1 cannot starve connection setup. Audio and radio
+        tasks retain their higher priorities. The core must exist on the target.
+
+config LUNAREDU_LUNAROS_MAINTENANCE_IO_PRIORITY
+    int "Priority for LunarOS blocking network maintenance"
+    range 0 1
+    default 1
+    help
+        Blocking TLS work must progress above idle during concurrent audio
+        and display work. Input, audio and rendering retain higher priority.
+
+endmenu

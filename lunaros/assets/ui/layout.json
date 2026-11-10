@@ -1,0 +1,86 @@
+{
+  "statusBar": {
+    "width": 240,
+    "height": 28,
+    "idleMs": 5000,
+    "padding": 8,
+    "textSize": 16,
+    "titleRight": 108,
+    "slots": {
+      "wifi": [
+        112,
+        7,
+        18,
+        14
+      ],
+      "platform": [
+        160,
+        6,
+        16,
+        16
+      ],
+      "peer": [
+        182,
+        6,
+        16,
+        16
+      ],
+      "battery": [
+        204,
+        8,
+        28,
+        12
+      ],
+      "bluetooth": [
+        136,
+        4,
+        16,
+        20
+      ]
+    },
+    "batteryFill": [
+      206,
+      11,
+      21,
+      6
+    ],
+    "batterySymbol": [
+      214,
+      9,
+      6,
+      10
+    ]
+  },
+  "honeycomb": {
+    "spacing": 68,
+    "coreRadius": 68,
+    "falloffSpan": 88,
+    "minimumScale": 0.28,
+    "spacingCompression": 0.8,
+    "detailFalloffSpan": 44,
+    "sizeWithLabels": 60,
+    "sizeWithoutLabels": 66,
+    "minimumTapSize": 44
+  },
+  "homeGesture": {
+    "screenSize": 240,
+    "edgeHeight": 8,
+    "travel": 48,
+    "directionRatio": 2,
+    "maximumDurationMs": 1200,
+    "revealTravel": 12,
+    "tapWidth": 72,
+    "barWidth": 48,
+    "barHeight": 4,
+    "barBottom": 2,
+    "revealDurationMs": 120,
+    "transitionDurationMs": 260,
+    "reboundDurationMs": 220,
+    "idleDurationMs": 3000,
+    "dragSpan": 144,
+    "dragDeadzone": 6,
+    "dragScaleReduction": 0.5,
+    "dragRadius": 16,
+    "returnFadeStart": 0.55
+  }
+}

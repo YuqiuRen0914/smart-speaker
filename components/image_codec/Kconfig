@@ -1,0 +1,26 @@
+menu "LunarOS Image Codec"
+
+config LUNAROS_IMAGE_CODEC_ENABLE_JPEG_DECODER
+    bool "Enable JPEG decoder"
+    default n
+    help
+        Enable JPEG-to-RGB565 decoding through esp_new_jpeg, without camera drivers.
+        Disable this for apps that feed already-normalized RGB565 frames.
+
+config LUNAROS_IMAGE_CODEC_ENABLE_HARDWARE_JPEG_ENCODER
+    bool "Enable hardware JPEG encoder"
+    depends on SOC_JPEG_ENCODE_SUPPORTED
+    default n
+    help
+        Prefer the ESP hardware JPEG encoder when the target supports it.
+        The software esp_new_jpeg encoder remains the fallback.
+
+config LUNAROS_IMAGE_CODEC_ALLOW_JPEG_INPUT
+    bool "Allow JPEG passthrough input"
+    default n
+    help
+        Allow encode_image_to_jpeg to pass already-JPEG input through instead of
+        re-encoding it.
+
+endmenu
+

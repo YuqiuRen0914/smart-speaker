@@ -1,0 +1,10 @@
+# LunarOS 16 MiB v2: two 6 MiB OTA slots and one shared writable LittleFS pool.
+# Partition table at 0x10000. Requires v2 resource/file loaders; not app-OTA compatible with v1.
+# Name,Type,SubType,Offset,Size,Flags
+nvs,data,nvs,0x11000,0x5000,
+nvs_keys, data, nvs_keys, 0x16000, 0x1000, encrypted
+otadata, data, ota, 0x17000, 0x2000, encrypted
+phy_init,data,phy,0x19000,0x1000,
+ota_0,app,ota_0,0x20000,0x600000,
+ota_1,app,ota_1,0x620000,0x600000,
+filesystem, data, littlefs, 0xC20000, 0x3E0000, encrypted

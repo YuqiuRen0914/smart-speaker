@@ -1,0 +1,18 @@
+{
+  "repository": "https://github.com/espressif/esp-iot-solution",
+  "revision": "4962410c80a51cd5822da1d8d2041eb4285265f1",
+  "version": "0.2.1",
+  "license": "Apache-2.0",
+  "files": {
+    "Kconfig": "bc1fb5b46271d4fadf74598d3cdef27df77f4dcd9b15bb822956ca144c07089b",
+    "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "gprof.cmake": "eca59f61e59f9406cab9f3b872e298736d668a217beb69fb769f2456a8d4dd8f",
+    "include/gprof.h": "9a1414697288eef44c9ba51dbf8160b149cf6bdd1ef935797f4c9760be6d457d",
+    "private_include/gprof_types.h": "7a621b1d0a94359d16ea2b3ece52ba27f99329bf8e607c9ebe0b9e5f03f31136",
+    "scripts/gprof.py": "84f5988152b08dfd81dc0e29cd4af498f42e0e4145d7f7320bb61036a2d4d0ff",
+    "src/esp_gprof.c": "59ed3fb96a8bdb9f6f0f5d56d446c5fe6dab8bdc2ca4f91613b336059bdbd4dc"
+  },
+  "public_headers": [
+    "upstream/include/gprof.h"
+  ]
+}

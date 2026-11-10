@@ -1,0 +1,9 @@
+{
+  "formats": [
+    { "id": "wav_pcm16", "kind": "audio", "mime": "audio/wav", "extensions": ["wav"], "label": "WAV / PCM16" },
+    { "id": "mp3", "kind": "audio", "mime": "audio/mpeg", "extensions": ["mp3"], "label": "MP3" },
+    { "id": "mp4_h264_aac", "kind": "video", "mime": "video/mp4; codecs=\"avc1.42E01E, mp4a.40.2\"", "extensions": ["mp4"], "label": "MP4 / H.264 + AAC" },
+    { "id": "webm_vp8_opus", "kind": "video", "mime": "video/webm; codecs=\"vp8,opus\"", "extensions": ["webm"], "label": "WebM / VP8 + Opus" },
+    { "id": "mjpeg", "kind": "video", "mime": "video/x-motion-jpeg", "extensions": ["mjpeg", "mjpg"], "label": "MJPEG" }
+  ]
+}

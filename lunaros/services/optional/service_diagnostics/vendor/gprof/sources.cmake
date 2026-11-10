@@ -1,0 +1,12 @@
+file(READ "${CMAKE_CURRENT_LIST_DIR}/UPSTREAM.json" identity)
+string(JSON count LENGTH "${identity}" files)
+math(EXPR last "${count}-1")
+foreach(index RANGE ${last})
+  string(JSON file MEMBER "${identity}" files ${index})
+  string(JSON expected GET "${identity}" files "${file}")
+  file(SHA256 "${CMAKE_CURRENT_LIST_DIR}/upstream/${file}" actual)
+  if(NOT actual STREQUAL expected)
+    message(FATAL_ERROR "Frozen upstream source differs: ${file}")
+  endif()
+endforeach()
+# Frozen inputs only. Diagnostics owns the private archive and its policy.

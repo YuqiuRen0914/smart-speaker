@@ -1,0 +1,22 @@
+{
+  "format": "lunaredu.pet.expression.v1",
+  "id": "scared",
+  "slot": 20,
+  "group": "Reaction",
+  "eyePlaylist": [
+    3,
+    21
+  ],
+  "holdMs": [
+    900,
+    1800
+  ],
+  "blinkMs": [
+    1200,
+    3000
+  ],
+  "motion": {
+    "kind": "builtin",
+    "preset": "scared"
+  }
+}

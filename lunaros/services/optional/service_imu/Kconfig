@@ -1,0 +1,11 @@
+menu "IMU service optional processing"
+config LUNAROS_IMU_FUSION
+    bool "Enable optional six/nine-axis fusion and magnetic proximity processing"
+    default n
+    help
+        Compile the independent portable fusion module and optional IMU service
+        adapter. A product must explicitly configure the adapter before starting
+        the service. No sensor, bus, product, or worker is selected automatically.
+        Magnetic anomalies immediately disable magnetic heading feedback;
+        stable fresh observations are required for gradual recovery.
+endmenu

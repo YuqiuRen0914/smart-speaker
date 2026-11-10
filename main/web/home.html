@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>LunarEdu Smart Speaker</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172026;
+      --muted: #5f6f7a;
+      --line: #cfd9df;
+      --blue: #1769aa;
+      --green: #1d8f62;
+      --red: #b73535;
+      --bg: #f4f7f8;
+      --panel: #fff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--bg);
+      font: 15px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
+    }
+    main {
+      width: min(980px, calc(100vw - 28px));
+      margin: 0 auto;
+      padding: 24px 0 36px;
+      display: grid;
+      gap: 14px;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: end;
+      padding: 8px 0;
+    }
+    h1 { margin: 0; font-size: 28px; letter-spacing: 0; }
+    h2 { margin: 0 0 12px; font-size: 17px; letter-spacing: 0; }
+    .status { color: var(--muted); font-size: 13px; text-align: right; }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .stat {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      min-height: 70px;
+      background: #fbfcfd;
+    }
+    .stat label {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+    .stat strong {
+      display: block;
+      overflow-wrap: anywhere;
+      font-size: 16px;
+    }
+    .controls, .upload-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    button, select, input[type="file"], input[type="range"], input[type="text"], input[type="password"] {
+      min-height: 40px;
+      font: inherit;
+    }
+    input[type="text"], input[type="password"] {
+      width: min(280px, 100%);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px 10px;
+      background: #fff;
+      color: var(--ink);
+    }
+    button {
+      border: 1px solid var(--blue);
+      border-radius: 6px;
+      background: var(--blue);
+      color: #fff;
+      padding: 8px 14px;
+      cursor: pointer;
+    }
+    button.secondary {
+      color: var(--ink);
+      background: #fff;
+      border-color: var(--line);
+    }
+    button.danger {
+      border-color: var(--red);
+      background: var(--red);
+    }
+    button:disabled { opacity: .55; cursor: wait; }
+    input[type="range"] { width: min(280px, 100%); }
+    .upload-status {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      margin-top: 12px;
+    }
+    progress {
+      width: 100%;
+      height: 14px;
+      accent-color: var(--blue);
+    }
+    .upload-percent {
+      min-width: 52px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+    .hidden { display: none; }
+    .wifi-form {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      margin-top: 12px;
+    }
+    .ap-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .ap-list button {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--ink);
+      background: #fff;
+      border-color: var(--line);
+      text-align: left;
+    }
+    .terminal {
+      min-height: 220px;
+      max-height: 360px;
+      overflow: auto;
+      margin: 12px 0 0;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      background: #101820;
+      color: #d8f3dc;
+      font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: pre-wrap;
+    }
+    .inline-check {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      color: var(--muted);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: middle;
+    }
+    th { color: var(--muted); font-size: 12px; font-weight: 600; }
+    td { overflow-wrap: anywhere; }
+    .message {
+      min-height: 22px;
+      color: var(--muted);
+    }
+    .message.error { color: var(--red); }
+    @media (max-width: 720px) {
+      header { display: grid; }
+      .status { text-align: left; }
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .controls button { flex: 1 1 30%; }
+      .wifi-form { grid-template-columns: 1fr; }
+    }
+  </style>
+<link rel="stylesheet" href="/application.css">
+</head>
+<body>
+  <main>
+    <nav class="application-nav" aria-label="设备管理"><a href="/setup">网络</a><a href="/server">服务器</a><a href="/version">系统与升级</a><a href="/debug">日志与诊断</a><a href="/app" aria-current="page">应用</a></nav>
+    <header>
+      <div>
+        <h1>LunarEdu Smart Speaker</h1>
+        <div class="message" id="message"></div>
+      </div>
+      <a href="/setup">管理网络</a>
+    </header>
+
+    <section>
+      <h2>播放器</h2>
+      <div class="grid">
+        <div class="stat"><label>SD 卡</label><strong id="sd">-</strong></div>
+        <div class="stat"><label>音频</label><strong id="audio">-</strong></div>
+        <div class="stat"><label>状态</label><strong id="playState">-</strong></div>
+        <div class="stat"><label>当前曲目</label><strong id="current">-</strong></div>
+      </div>
+      <div class="controls" style="margin-top:14px">
+        <button id="prev">上一首</button>
+        <button id="play">播放</button>
+        <button id="pause" class="secondary">暂停</button>
+        <button id="next">下一首</button>
+        <button id="stop" class="danger">停止</button>
+        <label>音量 <strong id="volumeText">50</strong></label>
+        <input id="volume" type="range" min="0" max="70" step="1" value="50">
+      </div>
+      <div class="message" id="protection"></div>
+    </section>
+
+    <details id="audioPanel">
+      <summary>高级音频设置</summary><section>
+      <div class="controls">
+        <label>预设 <select id="eqPreset"><option value="flat">Flat</option><option value="voice">Voice</option><option value="music">Music</option><option value="bass_reduce">Bass Reduce</option></select></label>
+        <label class="inline-check"><input id="highPassEnabled" type="checkbox" checked>低频削减</label>
+        <label>截止频率 <span id="highPassText">80</span> Hz<input id="highPass" type="range" min="40" max="200" step="1" value="80"></label>
+      </div>
+      <div class="controls" style="margin-top:12px">
+        <label>低频 <span id="lowGainText">0</span> dB<input id="lowGain" type="range" min="-12" max="6" step="0.5" value="0"></label>
+        <label>中频 <span id="midGainText">0</span> dB<input id="midGain" type="range" min="-12" max="6" step="0.5" value="0"></label>
+        <label>高频 <span id="highGainText">0</span> dB<input id="highGain" type="range" min="-12" max="6" step="0.5" value="0"></label>
+      </div>
+      <div class="controls" style="margin-top:12px">
+        <label>低频中心 <span id="lowFrequencyText">120</span> Hz<input id="lowFrequency" type="range" min="60" max="300" step="5" value="120"></label>
+        <label>中频中心 <span id="midFrequencyText">1000</span> Hz<input id="midFrequency" type="range" min="300" max="4000" step="50" value="1000"></label>
+        <label>中频 Q <span id="midQText">1</span><input id="midQ" type="range" min="0.3" max="4" step="0.1" value="1"></label>
+        <label>高频中心 <span id="highFrequencyText">8000</span> Hz<input id="highFrequency" type="range" min="3000" max="12000" step="250" value="8000"></label>
+      </div>
+      <div class="controls" style="margin-top:12px">
+        <label>声道测试 <select id="testMode"><option value="stereo">立体声</option><option value="left_only">仅左</option><option value="right_only">仅右</option><option value="alternating">左右交替</option><option value="mono">同相单声道</option><option value="mute">静音</option></select></label>
+      </div>
+      <div class="message">EQ 参数停止变化 1.5 秒后合并写入 NVS；系统音量硬上限不可修改。</div>
+    </section></details>
+
+    <section>
+      <h2>添加音乐与歌词</h2>
+      <div class="upload-row">
+        <input id="file" type="file" multiple accept=".mp3,.lrc,audio/mpeg">
+        <button id="upload">上传文件</button>
+        <input id="lyricFile" type="file" accept=".lrc" hidden>
+        <button id="cancelUpload" class="secondary hidden" type="button">取消上传</button>
+        <button id="refresh" class="secondary">刷新列表</button>
+      </div>
+      <div class="upload-status hidden" id="uploadStatus">
+        <progress id="uploadProgress" value="0" max="100"></progress>
+        <span class="upload-percent" id="uploadPercent">0%</span>
+      </div>
+    </section>
+
+    <details id="debugPanel">
+      <summary>维护 · 音频诊断</summary><section>
+      <div class="controls">
+        <button id="refreshDebug" class="secondary" type="button">刷新</button>
+        <button id="clearDebug" class="secondary" type="button">清空显示</button>
+        <label class="inline-check"><input id="debugAuto" type="checkbox" checked>自动刷新</label>
+      </div>
+      <p class="hint">需要 OS 诊断授权；请在<a href="/debug">日志与诊断</a>页面开启会话，或使用管理员授权。</p>
+      <pre class="terminal" id="debugLog"></pre>
+    </section></details>
+
+    <section>
+      <h2>播放列表</h2>
+      <table>
+        <thead><tr><th style="width:54px">#</th><th>文件名</th><th style="width:110px">大小</th></tr></thead>
+        <tbody id="tracks"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="/device-client.js"></script>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const buttons = Array.from(document.querySelectorAll("button"));
+    let refreshTimer = null, refreshPromise = null;
+    let playlistRevision = null, audioLoaded = false, debugBlocked = false;
+    let disposed = false, busy = false, polling = false;
+    let mutationRevision=0;
+    let pollAbort = new AbortController();
+    let debugPromise=null;
+    const uploadState = { active: false, xhr: null, cancelled: false };
+
+    function setBusy(value) {
+      busy = value;
+      if(value)++mutationRevision;
+      buttons.forEach((button) => {
+        if (button.id === "cancelUpload" && uploadState.active) return;
+        if (button.id === "upload" && uploadState.active) return;
+        button.disabled = value;
+      });
+    }
+
+    function setUploadProgress(percent) {
+      const value = Math.max(0, Math.min(100, Math.round(percent)));
+      $("uploadProgress").value = value;
+      $("uploadPercent").textContent = `${value}%`;
+    }
+
+    function setUploadActive(active) {
+      uploadState.active = active;
+      setBusy(active);
+      if (active) uploadState.cancelled = false;
+      $("file").disabled = active;
+      $("upload").disabled = active;
+      $("cancelUpload").disabled = !active;
+      $("cancelUpload").classList.toggle("hidden", !active);
+      $("uploadStatus").classList.toggle("hidden", !active);
+      if (!active) uploadState.xhr = null;
+    }
+
+    function errorMessage(error) {
+      return ({audio_mp3_invalid:'文件不是受支持的 MP3 音频。',audio_file_truncated:'MP3 文件不完整，请检查源文件。',
+        audio_import_read_failed:'上传连接中断，请重新连接后重试。',audio_import_open_failed:'无法保存文件，请检查存储卡。',
+        audio_import_write_failed:'存储卡写入失败，请检查剩余空间。',audio_import_close_failed:'文件保存失败，请检查存储卡。',
+        upload_network_error:'上传连接中断，请重新连接后核对文件。',upload_timeout:'上传超时，请核对文件是否已保存。',
+        upload_cancelled:'上传已取消。',debug_session_required:'请先在 OS 日志与诊断页面开启会话或完成管理员授权。',
+        bound_access_required:'请从已授权的设备管理入口打开此页面。',device_response_invalid:'设备响应无法识别，请重新连接后重试。',
+        device_result_missing:'设备未返回操作结果，请刷新核对。'})[error.code || error.message] || error.message;
+    }
+
+    function setMessage(text, error = false) {
+      $("message").textContent = text || "";
+      $("message").className = error ? "message error" : "message";
+    }
+
+    function bus(operation, payload, options = {}) {
+      return LunarDeviceClient.api('smart_speaker', operation, payload, options);
+    }
+    function bulkUpload(file, options = {}) {
+      if(disposed || uploadState.cancelled) return Promise.reject(Object.assign(new Error('upload_cancelled'),{code:'upload_cancelled'}));
+      return LunarDeviceClient.upload(options.url ||
+        `/api/v1/modules/smart_speaker/file.upload?name=${encodeURIComponent(file.name)}`, file,
+        { ...options, onStart(xhr) { uploadState.xhr = xhr; } });
+    }
+
+    function debugLine(frame) {
+      return [
+        String(frame.ms || 0).padStart(8, " "),
+        `seq=${String(frame.seq || 0).padStart(4, " ")}`,
+        `vol=${String(frame.volume ?? "-").padStart(2, " ")}`,
+        `pin=${String(frame.peak_in ?? "-").padStart(5, " ")}`,
+        `pout=${String(frame.peak_out ?? "-").padStart(5, " ")}`,
+        `avg=${String(frame.avg_abs_out ?? "-").padStart(5, " ")}`,
+        `lim=${String(frame.limiter_gain ?? "-").padStart(3, " ")}%`,
+        `hit=${String(frame.limit ?? 0).padStart(4, " ")}`,
+        `clip=${String(frame.clip ?? 0).padStart(4, " ")}`,
+        `i2s=${String(frame.i2s_err ?? 0).padStart(2, " ")}`,
+        `short=${String(frame.i2s_short ?? 0).padStart(2, " ")}`,
+        `gap=${String(frame.gap_ms ?? 0).padStart(3, " ")}ms`,
+        `wr=${String(frame.write_ms ?? 0).padStart(2, " ")}ms`
+      ].join(" ");
+    }
+
+    function refreshDebug() {
+      if(debugPromise)return debugPromise;
+      debugPromise=(async()=>{
+      const payload = await bus("debug.get",undefined,{signal:pollAbort.signal});
+      if(disposed || document.hidden)return;
+      const frames = payload.frames || [];
+      const live = payload.dsp && payload.dual_i2s
+        ? `DSP ${JSON.stringify(payload.dsp)}\nI2S ${JSON.stringify(payload.dual_i2s)}\n`
+        : "";
+      $("debugLog").textContent = live + (frames.length
+        ? frames.slice(-80).map(debugLine).join("\n")
+        : "waiting for audio frames");
+      $("debugLog").scrollTop = $("debugLog").scrollHeight;
+      })().finally(()=>{debugPromise=null;});
+      return debugPromise;
+    }
+
+    function formatBytes(value) {
+      if (!Number.isFinite(value)) return "-";
+      if (value < 1024) return `${value} B`;
+      if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+      return `${(value / 1024 / 1024).toFixed(1)} MB`;
+    }
+
+    let previousStatusError = '';
+    function runtimeErrorMessage(code) {
+      return ({upload_write_failed:'歌曲未能保存，请检查连接、文件或存储卡。',
+        track_delete_failed:'歌曲未能删除，请稍后重试。', playlist_empty:'还没有歌曲，请先上传。',
+        sdcard_not_ready:'未检测到存储卡。', sdcard_mount_failed:'存储卡未就绪。',
+        track_decode_timeout:'这首歌曲无法播放。', audio_init_failed:'音频初始化失败。',
+        track_not_found:'找不到这首歌曲，请刷新音乐库。', track_open_failed:'无法打开这首歌曲。'
+      })[code] || '操作未完成，请稍后重试。';
+    }
+    function renderStatus(status) {
+      const maxVolume = status.max_volume ?? 70;
+      $("sd").textContent = status.sd_ready ? "已挂载" : "未就绪";
+      $("audio").textContent = status.audio_ready ? "已就绪" : "未就绪";
+      $("playState").textContent = status.uploading ? "上传中" :
+        status.playing ? "播放中" : status.paused ? "已暂停" : "空闲";
+      $("current").textContent = status.current_name || "-";
+      $("volume").max = maxVolume;
+      $("volume").value = Math.min(status.volume ?? 50, maxVolume);
+      $("volumeText").textContent = $("volume").value;
+      if (status.last_error) setMessage(runtimeErrorMessage(status.last_error), true);
+      else if (previousStatusError) setMessage('');
+      previousStatusError = status.last_error || '';
+      $("protection").textContent = status.protection_active ? "扬声器保护正在衰减输出" : "";
+    }
+
+    function escapeHtml(value) {
+      const node = document.createElement("span"); node.textContent = value; return node.innerHTML;
+    }
+
+    let libraryTracks = [], lyricTarget = null;
+    async function lyricBody(file) {
+      if (!file.size || file.size > 65536) throw Error('lyrics_size_invalid');
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let text;
+      if (bytes[0] === 255 && bytes[1] === 254) text = new TextDecoder('utf-16le', { fatal: true }).decode(bytes);
+      else if (bytes[0] === 254 && bytes[1] === 255) text = new TextDecoder('utf-16be', { fatal: true }).decode(bytes);
+      else { try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+        catch { text = new TextDecoder('gb18030', { fatal: true }).decode(bytes); } }
+      if (new TextEncoder().encode(text).length > 32768) throw Error('lyrics_size_invalid');
+      return new Blob([text], { type: 'text/plain;charset=utf-8' });
+    }
+    async function sendLyric(file, track) {
+      return bulkUpload(await lyricBody(file), {
+        url: `/api/v1/modules/smart_speaker/lyrics.upload?path=${encodeURIComponent(track.path)}`,
+        contentType: 'text/plain;charset=utf-8', onProgress: setUploadProgress
+      });
+    }
+    function renderTracks(tracks) {
+      libraryTracks = tracks;
+      $("tracks").innerHTML = (tracks || []).map((track, index) => `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${escapeHtml(track.name || "-")}<br>
+            <button class="secondary" data-lyric="${index}">${track.has_lyrics ? '替换歌词' : '导入歌词'}</button>
+            ${track.has_lyrics ? `<button class="secondary" data-delay="${index}" data-step="-500">提前</button>
+              <span>${track.lyrics_delay_ms > 0 ? '延后' : track.lyrics_delay_ms < 0 ? '提前' : ''}${track.lyrics_delay_ms ? Math.abs(track.lyrics_delay_ms)/1000 + '秒' : '原始时间'}</span>
+              <button class="secondary" data-delay="${index}" data-step="500">延后</button>` : ''}</td>
+          <td>${formatBytes(track.size)}</td>
+        </tr>
+      `).join("") || `<tr><td colspan="3">暂无 MP3 文件</td></tr>`;
+    }
+
+    async function refreshAudio() {
+      const audio = await bus('audio.settings.get',undefined,{signal:pollAbort.signal});
+      if(disposed || document.hidden)return;
+      if (audio.preset !== "custom") $("eqPreset").value = audio.preset || "flat";
+      $("highPassEnabled").checked = !!audio.high_pass_enabled;
+      for (const [id,field,fallback] of [['highPass','high_pass_hz',80],['lowGain','low_gain_db',0],
+        ['midGain','mid_gain_db',0],['highGain','high_gain_db',0],['lowFrequency','low_frequency_hz',120],
+        ['midFrequency','mid_frequency_hz',1000],['midQ','mid_q',1],['highFrequency','high_frequency_hz',8000]]) {
+        $(id).value=audio[field] ?? fallback; $(`${id}Text`).textContent=$(id).value;
+      }
+      $('testMode').value=audio.test_mode || 'stereo'; audioLoaded=true;
+    }
+    function refreshAll() {
+      if (refreshPromise) return refreshPromise;
+      refreshPromise = (async () => {
+        const revision=mutationRevision;
+        const status=await bus('status.get',undefined,{signal:pollAbort.signal});
+        if(disposed || document.hidden || revision!==mutationRevision)return;
+        renderStatus(status);
+        if(playlistRevision!==status.playlist_revision) {
+          const library=await bus('playlist.get',undefined,{signal:pollAbort.signal});
+          if(disposed || document.hidden || revision!==mutationRevision)return;
+          renderTracks(library.tracks || []);
+          playlistRevision=library.status?.playlist_revision;
+        }
+        if($('audioPanel').open && !audioLoaded)await refreshAudio();
+        if($('debugPanel').open && $('debugAuto').checked && !debugBlocked) {
+          try { await refreshDebug(); }
+          catch(error) { debugBlocked=error.status===401||error.status===403; $('debugLog').textContent=errorMessage(error); }
+        }
+      })().finally(()=>{refreshPromise=null;});
+      return refreshPromise;
+    }
+    async function poll() {
+      if(disposed || polling)return;
+      polling=true;clearTimeout(refreshTimer);
+      try { if(!document.hidden && !busy && !uploadState.active)await refreshAll(); }
+      catch(error) { if(!disposed && error.name!=='AbortError')setMessage(errorMessage(error),true); }
+      finally { polling=false;if(!disposed)refreshTimer=setTimeout(poll,2000); }
+    }
+
+    async function control(action, extra = {}) {
+      setBusy(true);
+      try {
+        const result = await bus("control", { action, ...extra });
+        if (result.status) renderStatus(result.status);
+        await refreshAll();
+      } catch (error) {
+        setMessage(errorMessage(error), true);
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    $("prev").onclick = () => control("prev");
+    $("play").onclick = () => control("play");
+    $("pause").onclick = () => control("pause");
+    $("next").onclick = () => control("next");
+    $("stop").onclick = () => control("stop");
+    $("refresh").onclick = () => control("rescan");
+    $("cancelUpload").onclick = () => {
+      uploadState.cancelled = true;
+      if (uploadState.xhr) {
+        uploadState.xhr.abort();
+      }
+    };
+    $("refreshDebug").onclick = () => refreshDebug().catch((error) => {
+      $("debugLog").textContent = errorMessage(error) || String(error);
+    });
+    $("clearDebug").onclick = () => { $("debugLog").textContent = ""; };
+    $("volume").oninput = () => {
+      $("volumeText").textContent = $("volume").value;
+    };
+    $("volume").onchange = () => control("volume", { volume: Number($("volume").value) });
+    async function setAudio(payload) {
+      try { await bus("audio.settings.set", payload); audioLoaded=false; }
+      catch (error) { setMessage(errorMessage(error), true); }
+    }
+    $("eqPreset").onchange = () => setAudio({ preset: $("eqPreset").value });
+    $("highPassEnabled").onchange = () => setAudio({ high_pass_enabled: $("highPassEnabled").checked });
+    for (const [id, field] of [["highPass", "high_pass_hz"], ["lowGain", "low_gain_db"], ["midGain", "mid_gain_db"], ["highGain", "high_gain_db"], ["lowFrequency", "low_frequency_hz"], ["midFrequency", "mid_frequency_hz"], ["midQ", "mid_q"], ["highFrequency", "high_frequency_hz"]]) {
+      $(id).oninput = () => $(`${id}Text`).textContent = $(id).value;
+      $(id).onchange = () => setAudio({ [field]: Number($(id).value) });
+    }
+    $("testMode").onchange = async () => {
+      try { await bus("audio.test.set", { mode: $("testMode").value }); }
+      catch (error) { setMessage(errorMessage(error), true); }
+    };
+    $("tracks").onclick = async event => {
+      const button = event.target.closest('button');
+      if (!button || uploadState.active) return;
+      if (button.dataset.lyric !== undefined) {
+        lyricTarget = libraryTracks[Number(button.dataset.lyric)];
+        $("lyricFile").click();
+      } else if (button.dataset.delay !== undefined) {
+        const track = libraryTracks[Number(button.dataset.delay)];
+        setUploadActive(true);
+        try {
+          await bus('lyrics.offset.set', { path: track.path, delay_ms: Math.max(-10000, Math.min(10000, (track.lyrics_delay_ms || 0) + Number(button.dataset.step))) });
+          await refreshAll();
+        } catch (error) { setMessage(errorMessage(error), true); }
+        finally { setUploadActive(false); }
+      }
+    };
+    $("lyricFile").onchange = async event => {
+      const file = event.target.files?.[0], track = lyricTarget;
+      event.target.value = '';
+      if (!file || !track) return;
+      setUploadActive(true);
+      try { await sendLyric(file, track); setMessage('歌词已保存'); await refreshAll(); }
+      catch (error) { setMessage('歌词未能导入，请检查文件编码、时间轴或连接。', true); }
+      finally { setUploadActive(false); }
+    };
+    $("upload").onclick = async () => {
+      const selected = Array.from($("file").files || []);
+      const files = [...selected.filter(f => /\.mp3$/i.test(f.name)), ...selected.filter(f => /\.lrc$/i.test(f.name))];
+      if (!files.length) { setMessage('请选择 MP3 或 LRC 文件', true); return; }
+      setUploadActive(true); setUploadProgress(0);
+      let completed = 0;
+      try {
+        for (const file of files) {
+          if (uploadState.cancelled) throw Error("upload_cancelled");
+          setMessage(`正在保存 ${file.name}`);
+          if (/\.lrc$/i.test(file.name)) {
+            const playlist = await bus('playlist.get');
+            const matches = (playlist.tracks || []).filter(t => t.name.replace(/\.mp3$/i, '').toLowerCase() === file.name.replace(/\.lrc$/i, '').toLowerCase());
+            if (matches.length !== 1) throw Error('歌词未找到唯一的同名歌曲，请在歌曲列表中单独导入。');
+            await sendLyric(file, matches[0]);
+          } else {
+            try { await bulkUpload(file, { contentType: 'audio/mpeg', onProgress: setUploadProgress }); }
+            catch (error) { if (!error.message.includes('track_already_exists')) throw error; }
+          }
+          completed++;
+        }
+        setMessage(`已处理 ${completed} 个文件`); $("file").value = '';
+        await refreshAll();
+      } catch (error) { setMessage(`已处理 ${completed} 个文件；${error.code === 'upload_cancelled' ? '上传已取消' : errorMessage(error)}`, true); }
+      finally { setUploadActive(false); }
+    };
+
+    $('audioPanel').addEventListener('toggle',()=>{if($('audioPanel').open){audioLoaded=false;void poll();}});
+    $('debugPanel').addEventListener('toggle',()=>{if($('debugPanel').open){debugBlocked=false;void poll();}});
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)void poll();});
+    window.addEventListener('pagehide',()=>{
+      disposed=true;uploadState.cancelled=true;clearTimeout(refreshTimer);pollAbort.abort();uploadState.xhr?.abort();
+    });
+    window.addEventListener('pageshow',()=>{
+      if(!disposed)return;
+      disposed=false;pollAbort=new AbortController();
+      playlistRevision=null;audioLoaded=false;debugBlocked=false;
+      void poll();
+    });
+    void poll();
+  </script>
+</body>
+</html>

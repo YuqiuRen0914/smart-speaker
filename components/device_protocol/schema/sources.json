@@ -1,0 +1,10 @@
+{
+  "device-contract-v1.json": {
+    "imported_from": "protocol/wire/v1/contract.json",
+    "sha256": "7349d84409872ad905f4577f7719e3d01ddb8e3fc2bfdfc4e209147102e9e8ac"
+  },
+  "remote-control-v2.json": {
+    "imported_from": "protocol/remote-control/v2/wire.json",
+    "sha256": "f5ea5159a7788d39ff61b43d1880ccd5ad9841e6f466339caf24a67846ac48c8"
+  }
+}

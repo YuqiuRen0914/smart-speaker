@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "entries": {
+    "default": {
+      "header": "lunaros_app_store_desktop_registration.h",
+      "type": "lunaredu::lunaros::apps::manager::DesktopEntry"
+    },
+    "downloaded": {
+      "header": "lunaros_app_store_desktop_registration.h",
+      "type": "lunaredu::lunaros::apps::manager::DownloadedDesktopEntry"
+    }
+  }
+}

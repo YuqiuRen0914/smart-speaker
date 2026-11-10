@@ -1,0 +1,25 @@
+{
+  "format": "lunaredu.pet.expression.v1",
+  "id": "thinking",
+  "slot": 4,
+  "group": "Conversation",
+  "eyePlaylist": [
+    8,
+    16,
+    14,
+    17,
+    5
+  ],
+  "holdMs": [
+    2000,
+    3600
+  ],
+  "blinkMs": [
+    3500,
+    7000
+  ],
+  "motion": {
+    "kind": "builtin",
+    "preset": "thinking"
+  }
+}

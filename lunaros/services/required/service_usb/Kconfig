@@ -1,0 +1,17 @@
+menu "LunarOS USB"
+config LUNAROS_USB_HOST_CDC
+    bool "Enable native USB CDC Host backend"
+    depends on IDF_TARGET_ESP32S3
+    default n
+    help
+        Opt-in backend selected with app_programmer. Requires usb_host_cdc_acm.
+        USB Serial/JTAG consoles must be disabled before taking the internal PHY.
+config LUNAROS_USB_DEVICE_LOG_OUTPUT
+    bool "Route normal logs through the USB Device service"
+    depends on LUNAROS_USB_HOST_CDC && ESP_CONSOLE_NONE
+    default n
+    help
+        Device-mode logs use bounded, zero-wait Serial/JTAG output. Closing the
+        service disables this writer before Host takes the PHY. Stdout and ROM
+        output stay disabled, so neither can access a retired Device driver.
+endmenu

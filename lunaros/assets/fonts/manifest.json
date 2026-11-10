@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "family": "Lunar Sans SC",
+  "style": "Regular",
+  "sourceFamily": "Noto Sans SC",
+  "sourceLicense": "SIL Open Font License 1.1",
+  "sourceSha256": "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da",
+  "fontSha256": "fdbd3f2aa6140b9362a73d4193463645946933c1969cf721385353d5e82dca67",
+  "fontBytes": 2239316,
+  "requestedCodepoints": 7762,
+  "coveredCodepoints": 7684,
+  "unsupportedOptionalCodepointCount": 78,
+  "coverage": "ASCII, Latin-1, GB2312, common punctuation, repository text"
+}

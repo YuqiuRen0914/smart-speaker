@@ -1,0 +1,16 @@
+{
+  "size": 38,
+  "icons": [
+    "snake",
+    "breakout",
+    "tetris",
+    "tiles",
+    "shooter",
+    "sokoban",
+    "race",
+    "pong",
+    "maze",
+    "platform",
+    "maze3d"
+  ]
+}

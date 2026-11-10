@@ -1,0 +1,9 @@
+menu "LunarEdu mpu6050"
+
+config LUNAREDU_DEVICE_ENABLE_MPU6050
+    bool "Enable MPU6050 IMU module"
+    default n
+    help
+        Build the MPU6050 IMU module and its Local API operations.
+
+endmenu

@@ -1,0 +1,94 @@
+# Project declarations are sourced before ESP-IDF's ordinary FreeRTOS Kconfig.
+# Core owns an OS wake slot separate from the SDK's default slot zero. This is
+# a required contract for Core consumers, not an optional product feature.
+config FREERTOS_TASK_NOTIFICATION_ARRAY_ENTRIES
+    int
+    range 2 32
+    default 2
+
+config SPIRAM_MALLOC_ALWAYSINTERNAL
+    int
+    depends on SPIRAM_USE_MALLOC
+    default 0 if SPIRAM_USE_MALLOC
+
+choice SPIRAM_USE
+    default SPIRAM_USE_MALLOC
+endchoice
+
+config SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
+    bool
+    depends on SPIRAM
+    default y if SPIRAM
+
+config SPIRAM_MALLOC_RESERVE_INTERNAL
+    int
+    depends on SPIRAM_USE_MALLOC
+    default 114688 if SPIRAM_USE_MALLOC && IDF_TARGET_ESP32S31
+    default 102400 if SPIRAM_USE_MALLOC && LUNAREDU_DEVICE_ENABLE_TFCARD
+    default 49152 if SPIRAM_USE_MALLOC
+
+config FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+    bool
+    depends on SPIRAM && FREERTOS_SUPPORT_STATIC_ALLOCATION
+    default y if SPIRAM
+
+config FREERTOS_HZ
+    int
+    default 1000
+
+config ESP_MAIN_TASK_STACK_SIZE
+    int
+    default 24576 if IDF_TARGET_ESP32S31
+    default 16384
+
+choice ESP_MAIN_TASK_AFFINITY
+    default ESP_MAIN_TASK_AFFINITY_CPU1 if !FREERTOS_UNICORE
+endchoice
+
+choice FREERTOS_TIMER_SERVICE_TASK_CORE_AFFINITY
+    default FREERTOS_TIMER_TASK_AFFINITY_CPU0
+endchoice
+
+choice PTHREAD_TASK_CORE_DEFAULT
+    default PTHREAD_DEFAULT_CORE_1 if !FREERTOS_UNICORE
+endchoice
+
+choice ESP32S3_DATA_CACHE_LINE_SIZE
+    default ESP32S3_DATA_CACHE_LINE_64B if SPIRAM
+endchoice
+
+# Speech and SPI display compositions have a larger instruction working set.
+# The official 32 KiB cache consumes 16 KiB of internal heap; keep the smaller
+# SDK default without PSRAM or these workloads. Data cache and DMA stay unchanged.
+choice ESP32S3_INSTRUCTION_CACHE_SIZE
+    default ESP32S3_INSTRUCTION_CACHE_32KB if IDF_TARGET_ESP32S3 && SPIRAM && (LUNAROS_ASSISTANT_OPUS_UPLINK || LUNAREDU_DEVICE_DISPLAY_SPI_LCD)
+endchoice
+
+choice ESP_DEFAULT_CPU_FREQ_MHZ
+    default ESP_DEFAULT_CPU_FREQ_MHZ_240 if IDF_TARGET_ESP32S3
+endchoice
+
+choice COMPILER_OPTIMIZATION
+    default COMPILER_OPTIMIZATION_PERF if LUNAROS_ASSISTANT_OPUS_UPLINK || LUNAROS_AUDIO_DUAL_I2S
+    default COMPILER_OPTIMIZATION_SIZE
+endchoice
+
+config ESP_INT_WDT_TIMEOUT_MS
+    int
+    default 1000 if SPIRAM && LUNAROS_AUDIO_DUAL_I2S
+
+config ESP_SYSTEM_ALLOW_RTC_FAST_MEM_AS_HEAP
+    bool
+    default n if IDF_TARGET_ESP32S31
+
+config FREERTOS_USE_TRACE_FACILITY
+    bool
+    default y
+
+choice FREERTOS_RUN_TIME_STATS_CLK
+    default FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER
+endchoice
+
+choice FREERTOS_RUN_TIME_COUNTER_TYPE
+    default FREERTOS_RUN_TIME_COUNTER_TYPE_U64
+endchoice

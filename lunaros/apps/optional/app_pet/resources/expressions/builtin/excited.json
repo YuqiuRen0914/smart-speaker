@@ -1,0 +1,25 @@
+{
+  "format": "lunaredu.pet.expression.v1",
+  "id": "excited",
+  "slot": 7,
+  "group": "Reaction",
+  "eyePlaylist": [
+    2,
+    17,
+    21,
+    3,
+    11
+  ],
+  "holdMs": [
+    1100,
+    2000
+  ],
+  "blinkMs": [
+    2000,
+    4000
+  ],
+  "motion": {
+    "kind": "builtin",
+    "preset": "excited"
+  }
+}

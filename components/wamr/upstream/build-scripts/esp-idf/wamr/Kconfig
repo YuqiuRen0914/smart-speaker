@@ -1,0 +1,118 @@
+menu "WASM Micro Runtime"
+    choice WAMR_BUILD_TYPE
+        prompt "Build type"
+        default WAMR_BUILD_RELEASE
+
+        config WAMR_BUILD_RELEASE
+            bool "Release"
+
+        config WAMR_BUILD_DEBUG
+            bool "Debug"
+    endchoice
+
+    config WAMR_ENABLE_AOT
+        bool "AOT"
+        default y
+
+    menuconfig WAMR_ENABLE_INTERP
+        bool "Interpreter"
+        default y
+
+    if WAMR_ENABLE_INTERP
+
+       choice WAMR_INTERP_MODE
+            prompt "Interpreter mode"
+            default WAMR_INTERP_FAST
+
+            config WAMR_INTERP_CLASSIC
+                bool "Classic"
+
+            config WAMR_INTERP_FAST
+                bool "Fast"
+        endchoice
+
+        choice WAMR_INTERP_LOADER_MODE
+            prompt "Loader mode"
+            default WAMR_INTERP_LOADER_NORMAL
+
+            config WAMR_INTERP_LOADER_NORMAL
+                bool "Normal"
+
+            config WAMR_INTERP_LOADER_MINI
+                bool "Mini"
+        endchoice
+    endif
+
+    config WAMR_ENABLE_LIB_PTHREAD
+        bool "Lib pthread"
+        default y
+
+    config WAMR_ENABLE_LIBC_BUILTIN
+        bool "Libc builtin"
+        default y
+
+    config WAMR_ENABLE_LIBC_WASI
+        bool "Libc WASI"
+        default y
+
+    config WAMR_ENABLE_MEMORY_PROFILING
+        bool "Memory profiling"
+        default n
+
+    config WAMR_ENABLE_MULTI_MODULE
+        bool "Multi module"
+        default n
+
+    config WAMR_ENABLE_PERF_PROFILING
+        bool "Performance profiling"
+        default n
+
+    config WAMR_ENABLE_DUMP_CALL_STACK
+        bool "Guest call stack diagnostics"
+        default y
+
+    config WAMR_ENABLE_REF_TYPES
+        bool "Reference types"
+        default n
+
+    config WAMR_ENABLE_SHARED_MEMORY
+        bool "Shared memory"
+        default n
+
+    config WAMR_LINEAR_MEMORY_IN_PSRAM
+        bool "Allocate guest linear memory and app heap in PSRAM"
+        depends on SPIRAM && (SPIRAM_USE_CAPS_ALLOC || SPIRAM_USE_MALLOC)
+        default n
+        help
+            Allocate WAMR's non-executable mmap region, which backs guest
+            linear memory and the host-managed app heap, explicitly from
+            PSRAM. Runtime metadata, native task stacks, and relocated AOT
+            code continue to use internal memory.
+
+    config WAMR_LINEAR_MEMORY_RESERVE_MAX
+        bool "Reserve the maximum linear memory size at instantiation"
+        default n
+        help
+            Build support for reserving a module's linear memory at its
+            declared (or host-capped) maximum page count when the instance is
+            created and growing it in place. memory.grow then never relocates
+            the linear memory base, so host pointers into guest memory (for
+            example DMA scan-out buffers) stay valid for the lifetime of the
+            instance. The embedder enables it per instantiation with
+            wasm_runtime_set_linear_memory_reserve_max(); instances created
+            while it is off start at their initial size as usual.
+
+    config WAMR_AOT_CODE_IN_PSRAM
+        bool "Place relocated AOT executable code in PSRAM"
+        depends on WAMR_ENABLE_AOT && SPIRAM
+        depends on SPIRAM_USE_CAPS_ALLOC || SPIRAM_USE_MALLOC
+        depends on IDF_TARGET_ESP32P4 || IDF_TARGET_ESP32S31 || IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3
+        default n
+        help
+            Allocate WAMR's relocated AOT text from executable PSRAM. ESP32-P4
+            and ESP32-S31 use their unified external-memory address ranges;
+            Xtensa targets use the platform's I-bus/D-bus mirror. Keep this
+            disabled when only guest data should use PSRAM. Xtensa literal
+            relocations may also be unable to reach runtime symbols from
+            external memory.
+endmenu

@@ -1,0 +1,10 @@
+dependencies:
+  bblanchon/arduinojson: "7.4.3"
+  espressif/i2c_bus:
+    version: "1.5.2"
+    rules:
+    - if: $CONFIG{LUNAREDU_DEVICE_ENABLE_MPU6050} == True
+  k0i05/esp_mpu6050:
+    version: "1.2.7"
+    rules:
+    - if: $CONFIG{LUNAREDU_DEVICE_ENABLE_MPU6050} == True

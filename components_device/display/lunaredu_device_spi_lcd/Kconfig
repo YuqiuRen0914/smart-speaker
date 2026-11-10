@@ -1,0 +1,187 @@
+menu "LunarEdu spi_lcd"
+
+config LUNAREDU_DEVICE_DISPLAY_SPI_LCD
+    bool "Enable SPI LCD display helper"
+    default n
+    help
+        Build the generic SPI LCD panel helper. It owns display pin/resource
+        setup and returns ESP-IDF LCD panel handles for app/runtime UI code.
+
+choice LUNAREDU_DEVICE_DISPLAY_SPI_LCD_CONTROLLER
+    prompt "SPI LCD controller"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD
+    default LUNAREDU_DEVICE_DISPLAY_SPI_LCD_ST7789
+
+    config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_ST7789
+        bool "ST7789-compatible"
+    config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_ILI9488
+        bool "ILI9488-compatible"
+endchoice
+
+config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_ILI9488_PIPELINE_ROWS
+    int "ILI9488 RGB666 DMA pipeline rows per buffer"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD && LUNAREDU_DEVICE_DISPLAY_SPI_LCD_ILI9488
+    range 2 16
+    default 4
+    help
+        Number of native 480-pixel rows converted into each internal DMA
+        buffer. Two buffers are retained so conversion can overlap SPI DMA.
+        Larger values reduce transaction overhead, but consume internal DMA
+        SRAM permanently; keep this conservative on Wi-Fi/assistant products.
+
+choice LUNAREDU_DEVICE_DISPLAY_SPI_LCD_HOST
+    prompt "SPI LCD host"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD
+    default LUNAREDU_DEVICE_DISPLAY_SPI_LCD_SPI2_HOST
+
+    config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_SPI2_HOST
+        bool "SPI2 host"
+    config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_SPI3_HOST
+        bool "SPI3 host"
+endchoice
+
+config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_3WIRE_9BIT
+    bool "Use three-wire 9-bit command/data framing"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD
+    default n
+    help
+        Select this for panels where the D/C value is transferred as the
+        ninth bit before every command, parameter and pixel byte. A separate
+        D/C GPIO is not used in this mode.
+
+choice LUNAREDU_DEVICE_DISPLAY_SPI_LCD_3WIRE_DMA_CHUNK
+    prompt "Three-wire pixel source bytes per DMA chunk"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD_3WIRE_9BIT
+    default LUNAREDU_DEVICE_DISPLAY_SPI_LCD_3WIRE_DMA_CHUNK_8K
+    help
+        Two internal DMA packing buffers are reserved in queued mode.
+        Smaller chunks save internal SRAM but increase SPI transactions.
+
+    config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_3WIRE_DMA_CHUNK_2K
+        bool "2048 source bytes (2304 packed bytes per buffer)"
+    config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_3WIRE_DMA_CHUNK_4K
+        bool "4096 source bytes (4608 packed bytes per buffer)"
+    config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_3WIRE_DMA_CHUNK_8K
+        bool "8192 source bytes (9216 packed bytes per buffer)"
+endchoice
+
+config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_MOSI
+    int "SPI LCD MOSI GPIO"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD
+    range -1 48
+    default 21
+
+config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_SCLK
+    int "SPI LCD SCLK GPIO"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD
+    range -1 48
+    default 14
+
+config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_MISO
+    int "SPI LCD MISO GPIO"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD
+    range -1 48
+    default -1
+
+config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_CS
+    int "SPI LCD CS GPIO"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD
+    range -1 48
+    default 42
+
+config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_DC
+    int "SPI LCD D/C GPIO"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD && !LUNAREDU_DEVICE_DISPLAY_SPI_LCD_3WIRE_9BIT
+    range -1 48
+    default 41
+
+config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_RESET
+    int "SPI LCD reset GPIO"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD
+    range -1 48
+    default -1
+
+config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_BACKLIGHT
+    int "SPI LCD backlight GPIO"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD
+    range -1 48
+    default -1
+
+config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_BACKLIGHT_INVERT
+    bool "SPI LCD backlight output inverted"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD
+    default n
+
+config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_PIXEL_CLOCK_HZ
+    int "SPI LCD pixel clock in Hz"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD
+    range 1000000 80000000
+    default 20000000
+
+config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_SPI_MODE
+    int "SPI LCD SPI mode"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD
+    range 0 3
+    default 0
+
+config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_WIDTH
+    int "SPI LCD width"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD
+    range 1 4096
+    default 160
+
+config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_HEIGHT
+    int "SPI LCD height"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD
+    range 1 4096
+    default 80
+
+config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_OFFSET_X
+    int "SPI LCD X offset"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD
+    range 0 4096
+    default 1
+
+config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_OFFSET_Y
+    int "SPI LCD Y offset"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD
+    range 0 4096
+    default 26
+
+config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_MIRROR_X
+    bool "SPI LCD mirror X"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD
+    default n
+
+config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_MIRROR_Y
+    bool "SPI LCD mirror Y"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD
+    default n
+
+config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_SWAP_XY
+    bool "SPI LCD swap X/Y"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD
+    default n
+
+config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_INVERT_COLOR
+    bool "SPI LCD invert colors"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD
+    default y
+
+choice LUNAREDU_DEVICE_DISPLAY_SPI_LCD_RGB_ORDER
+    prompt "SPI LCD RGB element order"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD
+    default LUNAREDU_DEVICE_DISPLAY_SPI_LCD_RGB_ORDER_RGB
+
+    config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_RGB_ORDER_RGB
+        bool "RGB"
+    config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_RGB_ORDER_BGR
+        bool "BGR"
+endchoice
+
+config LUNAREDU_DEVICE_DISPLAY_SPI_LCD_CLAIM_BSP_SPI
+    bool "Claim BSP expansion SPI resource"
+    depends on LUNAREDU_DEVICE_DISPLAY_SPI_LCD
+    default y
+
+endmenu

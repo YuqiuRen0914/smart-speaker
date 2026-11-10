@@ -1,0 +1,22 @@
+{
+  "format": "lunaredu.pet.expression.v1",
+  "id": "angry",
+  "slot": 10,
+  "group": "Reaction",
+  "eyePlaylist": [
+    7,
+    16
+  ],
+  "holdMs": [
+    2200,
+    3800
+  ],
+  "blinkMs": [
+    3500,
+    7000
+  ],
+  "motion": {
+    "kind": "builtin",
+    "preset": "angry"
+  }
+}

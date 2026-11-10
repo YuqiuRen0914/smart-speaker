@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "entries": {
+    "default": {
+      "header": "lunaros_files_desktop_registration.h",
+      "type": "lunaredu::files::DesktopEntry"
+    }
+  }
+}

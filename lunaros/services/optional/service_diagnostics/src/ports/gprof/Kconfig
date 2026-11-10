@@ -1,0 +1,7 @@
+config GPROF_ENABLE
+    bool "Official single-owner function profiling"
+    default n
+config GPROF_COMPONENTS
+    string "Components instrumented by the diagnostic GProf policy"
+    default "service_diagnostics"
+    depends on GPROF_ENABLE

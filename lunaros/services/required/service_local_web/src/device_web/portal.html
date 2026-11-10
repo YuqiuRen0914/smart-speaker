@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>设备设置 · LUNAREDU</title>
+    <link rel="stylesheet" href="/portal.css">
+</head>
+
+<body class="device-portal">
+    <!-- Shared offline line icons. Decorative icons; icon-only navigation retains accessible names. -->
+    <svg class="icon-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+        <defs>
+            <symbol id="icon-wifi" viewBox="0 0 24 24"><path d="M3 8a15 15 0 0 1 18 0M6 12a10 10 0 0 1 12 0M9 16a5 5 0 0 1 6 0"/><circle cx="12" cy="20" r=".7" fill="currentColor" stroke="none"/></symbol>
+            <symbol id="icon-bluetooth" viewBox="0 0 24 24"><path d="m6 7 12 10-6 5V2l6 5L6 17"/></symbol>
+            <symbol id="icon-platform" viewBox="0 0 24 24"><path d="M6 18a5 5 0 0 1-1-10 7 7 0 0 1 13-1 5.5 5.5 0 0 1 0 11Z"/></symbol>
+            <symbol id="icon-device" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="3"/><path d="M9 17h6"/></symbol>
+            <symbol id="icon-settings" viewBox="0 0 24 24"><path d="M4 6h3m4 0h9M4 12h9m4 0h3M4 18h3m4 0h9"/><circle cx="9" cy="6" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="9" cy="18" r="2"/></symbol>
+            <symbol id="icon-account" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 6 0 0 1 16 0v2"/></symbol>
+            <symbol id="icon-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v.1"/></symbol>
+            <symbol id="icon-edit" viewBox="0 0 24 24"><path d="m15 4 5 5M4 20l5-1L20 8a3.5 3.5 0 0 0-5-5L4 14Z"/></symbol>
+            <symbol id="icon-tool" viewBox="0 0 24 24"><path d="M14 4a6 6 0 0 0-7 8L3 16a3 3 0 0 0 5 5l5-5a6 6 0 0 0 7-8l-4 4-4-4Z"/></symbol>
+            <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M5 8a8 8 0 0 1 13-3l2 3M4 16l2 3a8 8 0 0 0 13-3"/></symbol>
+            <symbol id="icon-arrow" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+        </defs>
+    </svg>
+    <div class="shell">
+        <header class="heading">
+            <div>
+                <span class="wordmark">LUNAREDU</span><h1 id="deviceName">正在读取设备</h1>
+            </div>
+            <div class="heading-actions"><a id="applicationNav" class="button-link" data-page="application" href="/app" hidden>应用</a><button id="restart" type="button" disabled hidden>重启</button></div>
+            <div class="overview" aria-label="设备状态">
+                <a id="networkOverview" class="overview-item" aria-label="网络" title="网络" data-page="network" href="/setup"><svg class="icon overview-icon" aria-hidden="true" focusable="false"><use href="#icon-wifi"/></svg><strong id="networkOverviewState">正在读取</strong><span id="networkOverviewDetail" class="help">Wi-Fi · 蓝牙</span></a>
+                <a id="platformOverview" class="overview-item" aria-label="平台" title="平台" data-page="server" href="/server"><svg class="icon overview-icon" aria-hidden="true" focusable="false"><use href="#icon-platform"/></svg><strong id="platformOverviewState">正在读取</strong><span id="platformOverviewDetail" class="help">连接与配对</span></a>
+                <a id="versionOverview" class="overview-item" aria-label="设备" title="设备" data-page="version" href="/version"><svg class="icon overview-icon" aria-hidden="true" focusable="false"><use href="#icon-device"/></svg><strong id="versionOverviewState">正在读取</strong><span id="versionOverviewDetail" class="help">版本与更新</span></a>
+            </div>
+        </header>
+        <p id="notice" role="status" aria-live="polite" hidden></p>
+        <main>
+            <section id="application" hidden aria-labelledby="applicationTitle">
+                <h2 id="applicationTitle" class="sr-only">应用</h2>
+                <div id="applicationList" class="application-list"></div>
+                <p id="applicationMessage" class="help" role="status">暂无应用</p>
+                <a id="applicationOpen" class="button-link" href="/app" hidden>打开应用页</a>
+            </section>
+            <section id="factory" hidden aria-labelledby="audioFactoryTitle">
+                <div class="section-title"><h2 id="audioFactoryTitle">本机工厂检查</h2></div>
+                <p class="help">在这里逐项启动设备与应用自带的检查。屏幕只显示测试画面，操作和结果记录在本页；USB 串口也可读取同一份状态。</p>
+                <section id="localFactoryPanel" class="factory-stage" hidden aria-labelledby="localFactoryTitle">
+                    <h3 id="localFactoryTitle">设备与应用检查</h3>
+                    <p id="localFactorySummary" class="help" role="status">正在读取检查项目…</p>
+                    <div class="actions"><button id="localFactoryEnter" type="button">开始工厂检查</button><button id="localFactoryExit" type="button" hidden>结束工厂检查</button></div>
+                    <div id="localFactoryDeviceList" class="factory-check-list"></div>
+                    <details id="localFactoryAppDetails" class="factory-check-group">
+                        <summary id="localFactoryAppSummary">应用检查</summary>
+                        <div id="localFactoryAppList" class="factory-check-list"></div>
+                    </details>
+                    <p id="localFactoryMessage" class="message" role="alert" aria-live="polite"></p>
+                </section>
+                <details class="factory-check-group" id="factoryAdditionalChecks">
+                <summary>扩展诊断与音频详情（不计入上方检查结果）</summary>
+                <p class="help">按顺序逐项检查。麦克风录音和扬声器播放分时进行；声音是否清晰由你确认，设备不会替你判定听感。</p>
+                <p class="help">此页在设备的局域网地址上直接可用；同一私有网络内能访问该地址的人也能触发这些测试。</p>
+                <section class="factory-stage" aria-labelledby="factorySpeakerTitle">
+                    <h3 id="factorySpeakerTitle">1. 扬声器</h3>
+                    <p>播放 2 秒测试音。请确认设备是否发出清晰声音。</p>
+                    <div class="actions"><button id="audioSpeakerStart" type="button">播放测试音</button>
+                        <button id="audioSpeakerPass" type="button" hidden>听到了</button>
+                        <button id="audioSpeakerFail" type="button" hidden>没听到或不清晰</button></div>
+                    <p id="audioSpeakerState" class="help" role="status">尚未测试</p>
+                </section>
+                <section class="factory-stage" aria-labelledby="factoryMicrophoneTitle">
+                    <h3 id="factoryMicrophoneTitle">2. 麦克风</h3>
+                    <p>录音 3 秒后停止采集，再从设备扬声器回放。请对着设备说一句话并核对回放。</p>
+                    <div class="actions"><button id="audioMicrophoneStart" type="button">录音并回放</button>
+                        <button id="audioMicrophonePass" type="button" hidden>人声清晰</button>
+                        <button id="audioMicrophoneFail" type="button" hidden>无声或不清晰</button></div>
+                    <p id="audioMicrophoneState" class="help" role="status">尚未测试</p>
+                    <p id="audioMicrophoneLevel" class="help">录音电平尚无数据</p>
+                </section>
+                <section class="factory-stage" aria-labelledby="factoryVoiceTitle">
+                    <h3 id="factoryVoiceTitle">3. 真人语音链路</h3>
+                    <p id="factoryVoicePrompt">准备后按“开始收音”，读出测试句，再按“结束并提交”。也可用设备 MODE 键开始和结束。</p>
+                    <div class="actions"><button id="voiceManual" type="button">切为手动对话</button>
+                        <button id="voicePrepare" type="button">准备随机测试句</button>
+                        <button id="voiceStart" type="button" disabled>开始收音</button>
+                        <button id="voiceStop" type="button" disabled>结束并提交</button></div>
+                    <ol class="factory-results">
+                        <li>麦克风采样：<span id="voiceCapture">待检查</span></li>
+                        <li>音频上行：<span id="voiceUplink">待检查</span></li>
+                        <li>云端 ASR：<span id="voiceAsr">待检查</span></li>
+                        <li>AI 回复：<span id="voiceLlm">待检查</span></li>
+                        <li>TTS 音频下行：<span id="voiceTts">待检查</span></li>
+                        <li>设备播放：<span id="voicePlayback">待检查</span></li>
+                    </ol>
+                    <div class="actions"><button id="voiceHeard" type="button" disabled>听到清晰语音</button>
+                        <button id="voiceNotHeard" type="button" disabled>未听到或不清晰</button></div>
+                    <p id="factoryVoiceState" class="help" role="status">尚未发起真人语音测试</p>
+                </section>
+                <section class="factory-stage" aria-labelledby="factoryTextTitle">
+                    <h3 id="factoryTextTitle">4. 文字探针</h3>
+                    <p>绕开麦克风和 ASR，直接让 AI 回一句话，以区分收音问题和回复/发声问题。</p>
+                    <button id="textProbeStart" type="button">测试 AI 与 TTS</button>
+                    <div class="actions"><button id="textProbeHeard" type="button" disabled>听到清晰语音</button>
+                        <button id="textProbeNotHeard" type="button" disabled>未听到或不清晰</button></div>
+                    <p id="textProbeState" class="help" role="status">尚未测试</p>
+                </section>
+                <section class="factory-stage" aria-labelledby="factoryCapabilitiesTitle">
+                    <h3 id="factoryCapabilitiesTitle">5. 联网、工具与性能</h3>
+                    <p class="help">这里读取设备真实状态，不会发起拍照、上传音频或调用工具。模型语气、音色、克隆与声纹目前不在设备网页保存。</p>
+                    <button id="factoryCapabilitiesRefresh" type="button">刷新能力快照</button>
+                    <dl class="facts">
+                        <dt>网络</dt><dd id="factoryNetworkState">待检查</dd>
+                        <dt>MCP 工具</dt><dd id="factoryToolsState">待检查</dd>
+                        <dt>摄像头</dt><dd id="factoryCameraState">待检查</dd>
+                        <dt>内部 RAM</dt><dd id="factoryMemoryState">待检查</dd>
+                        <dt>DMA 与任务栈</dt><dd id="factoryStackState">待检查</dd>
+                        <dt>音频错误</dt><dd id="factoryAudioHealth">待检查</dd>
+                    </dl>
+                    <details><summary>查看设备已注册工具</summary><ul id="factoryToolsList" class="partitions"></ul></details>
+                    <details><summary>查看内部任务栈</summary><ul id="factoryInternalTasks" class="partitions"></ul></details>
+                    <p id="factoryCapabilitiesMessage" class="message" role="status"></p>
+                </section>
+                </details>
+                <p id="audioFactoryMessage" class="message" role="alert" aria-live="polite"></p>
+            </section>
+            <section id="network" hidden aria-labelledby="networkTitle">
+                <h2 id="networkTitle" class="sr-only">网络</h2>
+                <div class="wifi-heading"><div><h3>Wi-Fi</h3><p class="help">选择网络以连接 · 仅支持 2.4 GHz</p></div><button id="scan" type="button">搜索网络</button></div>
+                <details id="networkMaintenance"><summary>网络维护</summary>
+                    <p class="help">开启配网热点将暂时断开当前 Wi-Fi，请连接设备热点后继续设置。</p>
+                    <div class="actions"><button id="startProvisioning" type="button">开启配网热点</button>
+                    <button id="connectFirstSaved" type="button">连接首选已保存网络</button></div>
+                    <p id="networkMaintenanceMessage" class="message" role="status"></p>
+                </details>
+                <p id="networkState" class="help" role="status">正在读取网络状态</p>
+                <ol id="savedNetworks" class="saved-networks"></ol>
+                <div class="network-order"><div class="toolbar"><button id="sortNetworks" type="button" hidden>调整连接顺序</button></div>
+                <div id="networkSortActions" class="actions" hidden><button id="cancelNetworkSort" type="button">取消</button><button id="saveNetworkSort" type="button" class="primary">保存排序</button></div>
+                <p id="savedNetworkMessage" class="message" role="status" aria-live="polite"></p>
+                </div>
+                <div class="wifi-section-heading"><h3>附近网络</h3><span id="scanState" class="help" role="status" aria-live="polite">等待搜索</span></div>
+                <div id="networks" class="networks" aria-live="polite"></div>
+                <p id="scanMessage" class="message" role="status" aria-live="polite"></p>
+                <button id="changeNetwork" class="other-network" type="button" aria-haspopup="dialog" aria-controls="networkEditor">添加其他网络…</button>
+                <p id="networkFeedback" class="message" role="status" aria-live="polite"></p>
+                <dialog id="networkEditor" hidden aria-labelledby="wifiDialogTitle">
+                <div class="dialog-title"><h2 id="wifiDialogTitle">连接网络</h2><button id="closeWifi" type="button" aria-label="关闭网络设置">取消</button></div>
+                <p id="wifiDialogDetail" class="help"></p>
+                <form id="wifiForm"><div id="wifiNameField" hidden><label for="wifiName">网络名称</label><input id="wifiName" type="hidden" required
+                        autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="32" placeholder="隐藏网络的名称"></div><div id="wifiPasswordField"><label
+                        for="password">Wi-Fi 密码</label>
+                    <div class="inline"><input id="password" type="password" autocomplete="current-password" maxlength="64" placeholder="输入密码"><button
+                            id="showPassword" type="button" aria-pressed="false">显示</button></div></div>
+                    <p id="wifiMessage" class="message" role="status" aria-live="polite"></p>
+                    <div class="actions wifi-dialog-actions"><button id="forgetNetwork" type="button" class="danger" hidden>忘记此网络</button><button id="saveNetwork" type="button" hidden>保存</button><button id="connect" class="primary" type="submit">连接</button></div>
+                </form>
+                </dialog>
+                <section id="bluetoothPanel" class="settings-group" aria-labelledby="bluetoothTitle">
+                    <div class="wifi-heading"><h3 id="bluetoothTitle">蓝牙</h3><label class="connection-switch" for="bluetoothEnabled"><span class="sr-only">开启蓝牙</span><input id="bluetoothEnabled" type="checkbox" role="switch" disabled></label></div>
+                    <div class="connection-row"><svg class="icon" aria-hidden="true" focusable="false"><use href="#icon-bluetooth"/></svg><div class="connection-copy"><strong id="bluetoothConnection">配网客户端</strong><span id="bluetoothProvisioning" class="help">正在读取</span></div><span id="bluetoothState" class="connection-state" role="status">正在读取</span></div>
+                    <p id="bluetoothHelp" class="help"></p>
+                    <p id="bluetoothMessage" class="message" role="status" aria-live="polite"></p>
+                </section>
+                <div id="handoff" class="next-step" hidden>
+                    <h3 id="handoffTitle" hidden>继续设置</h3>
+                    <p id="handoffText"></p>
+                    <p id="lanRow" hidden><a id="lanLink" class="button-link primary">打开局域网页面</a></p>
+                    <p id="handoffAddress" class="help"></p>
+                </div>
+                <section id="factoryTestPanel" hidden aria-labelledby="factoryTestTitle">
+                    <h3 id="factoryTestTitle">出厂测试</h3>
+                    <p class="help">配网期间可测试舵机动作。测试前请确认手指没有碰到机械限位。</p>
+                    <div class="actions">
+                        <button id="factoryFist" class="primary" type="button">握住</button>
+                        <button id="factoryOpen" type="button">张开</button>
+                        <button id="factoryStop" type="button">停止动作</button>
+                        <button id="factoryOutputOff" type="button">关闭输出</button>
+                    </div>
+                    <h4>单指测试</h4>
+                    <div class="factory-fingers">
+                        <div class="factory-finger-row"><span>拇指</span><button id="factoryThumbClose" type="button">收拢</button><button id="factoryThumbOpen" type="button">张开</button></div>
+                        <div class="factory-finger-row"><span>食指</span><button id="factoryIndexClose" type="button">收拢</button><button id="factoryIndexOpen" type="button">张开</button></div>
+                        <div class="factory-finger-row"><span>中指</span><button id="factoryMiddleClose" type="button">收拢</button><button id="factoryMiddleOpen" type="button">张开</button></div>
+                        <div class="factory-finger-row"><span>无名指</span><button id="factoryRingClose" type="button">收拢</button><button id="factoryRingOpen" type="button">张开</button></div>
+                        <div class="factory-finger-row"><span>小指</span><button id="factoryPinkyClose" type="button">收拢</button><button id="factoryPinkyOpen" type="button">张开</button></div>
+                    </div>
+                    <p id="factoryTestState" class="help" role="status">正在读取动作状态</p>
+                    <p id="factoryTestMessage" class="message" role="status" aria-live="polite"></p>
+                </section>
+            </section>
+            <section id="server" hidden aria-labelledby="serverTitle">
+                <h2 id="serverTitle" class="sr-only">平台</h2>
+                <div class="wifi-heading"><h3>服务器</h3></div>
+                <div class="connection-row server-current"><svg class="icon" aria-hidden="true" focusable="false"><use href="#icon-platform"/></svg><div class="connection-copy"><strong id="serverAddress">正在读取</strong><span id="serverTlsStatus" class="help" role="status"></span><span id="serverConnectionState" class="connection-state help" role="status">正在读取连接状态</span></div><button id="changeServer" type="button" aria-haspopup="dialog" aria-controls="developerSettings" disabled>更换</button></div>
+                <div id="serverCustomLinks" class="actions"><a id="customBindingLink" href="/binding" hidden>账号配对</a><a id="customMaintenanceLink" href="/maintenance" hidden>设备维护</a></div>
+                <div class="actions"><button id="serverPassport" type="button">Passport 管理员认证</button></div>
+                <p id="serverAuthenticationState" class="help" role="status"></p>
+            <section id="binding" hidden aria-labelledby="bindingTitle">
+                <div class="section-title">
+                    <h3 id="bindingTitle">账号配对</h3>
+                </div>
+                <p id="bindingState" class="state-panel" role="status">正在读取绑定状态</p>
+                <p id="bindingSite" class="help"></p>
+                <div id="bindingPreparation" class="next-step" hidden>
+                    <p id="bindingPreparationText"></p>
+                </div>
+                <div id="codeBlock" class="code-block" hidden><strong id="code" aria-label="绑定码"></strong>
+                    <p id="expiry"></p>
+                    <div class="actions"><button id="copyCode" type="button">复制</button><a id="bindLink" class="button-link primary" hidden target="_blank" rel="noopener noreferrer">绑定</a><button id="cancelPair" type="button" hidden>取消</button></div>
+                </div>
+                <p id="bindingAccount"></p>
+                <div class="actions"><button id="pair" class="primary" type="button">获取绑定码</button></div>
+                <p id="bindingMessage" class="message" role="status"></p>
+                <p id="copyMessage" class="message" role="status" aria-live="polite"></p>
+                <div id="unbindPanel" class="divider" hidden>
+                    <h3>解除账号绑定</h3>
+                    <p id="unbindHelp" class="help"></p>
+                    <p id="unbindMaintenance" hidden><a data-page="maintenance" href="/maintenance">前往设备维护</a><span class="help"> · 停止输出后返回本页继续</span></p>
+                    <button id="showUnbind" class="danger" type="button">解除绑定…</button>
+                    <div id="unbindConfirmation" class="confirmation" hidden role="group" aria-labelledby="unbindTitle">
+                        <h3 id="unbindTitle">确认解除当前账号绑定？</h3>
+                        <p>原账号将无法继续使用这台设备。Wi-Fi 和名称保留。</p>
+                        <div class="actions"><button id="cancelUnbind" type="button">保留绑定</button><button id="confirmUnbind" class="danger" type="button">确认解除绑定</button></div>
+                    </div>
+                    <p id="unbindMessage" class="message" role="status" aria-live="polite"></p>
+                </div>
+            </section>
+                <div id="managementRow" class="management-row"><span>此设备的设置需要访问授权，请使用顶部认证入口。</span></div>
+                <p id="managementHelp" class="message" role="status"></p>
+                <p id="configurationRecoveryHelp" class="message" role="status" hidden></p>
+                <button id="restoreConfiguration" type="button" hidden>从恢复副本修复配置</button>
+                <section id="localSettings" class="local-settings" hidden aria-label="遥控器">
+                    <section id="remoteSettings" class="settings-group" hidden aria-labelledby="remoteSettingsTitle">
+                        <h3 id="remoteSettingsTitle">遥控器</h3>
+                        <p class="help">接收端在后台运行，配对无需平台账号。遥控器与设备需使用同一 Wi-Fi 信道。</p>
+                        <label class="preference-row" for="receiverEnabled"><span>后台接收</span><input id="receiverEnabled" type="checkbox" role="switch"></label>
+                        <dl class="facts"><dt>连接状态</dt><dd id="receiverState">正在读取</dd><dt>已配对遥控器</dt><dd id="receiverPeer">—</dd></dl>
+                        <p id="receiverPairingHelp" class="help">开始配对后，在遥控器中搜索并选择这台设备。摇杆回中后才能控制运动。</p>
+                        <div class="actions"><button id="receiverPair" type="button" class="primary">开始配对</button><button id="receiverForget" type="button">解除配对…</button></div>
+                        <div id="receiverForgetConfirmation" class="confirmation" hidden><p>解除后，这个遥控器将无法控制设备。需要重新配对才能连接。</p><div class="actions"><button id="receiverForgetConfirm" type="button" class="danger">解除配对</button><button id="receiverForgetCancel" type="button">取消</button></div></div>
+                        <p id="receiverMessage" class="message" role="status" aria-live="polite"></p>
+                    </section>
+                </section>
+                <section id="serverAdvanced" aria-label="服务器设置">
+                <dialog id="developerSettings" aria-labelledby="serverEditorTitle">
+                    <div class="dialog-title"><h2 id="serverEditorTitle">更换服务器</h2><button id="closeServer" type="button">取消</button></div>
+                    <section id="platformEndpointPanel">
+                    <form id="environmentForm">
+                        <label for="environmentTarget">站点类型</label>
+                        <select id="environmentTarget"><option value="production">默认站点 · board.lunaredu.cn</option><option value="development">自定义站点</option></select>
+                        <div id="environmentUrlRow" hidden><label for="environmentUrl">网站地址</label><input id="environmentUrl" type="url" maxlength="256" placeholder="粘贴设备管理页面地址" autocomplete="off" spellcheck="false"></div>
+                        <p id="environmentHelp" class="help" role="status"></p>
+                        <p id="environmentMaintenance" hidden><a data-page="maintenance" href="/maintenance">进入维护模式</a></p>
+                        <p id="environmentBinding" hidden><a data-page="binding" href="/binding">管理账号绑定</a></p>
+                        <button id="saveEnvironment" type="submit">切换站点…</button>
+                        <div id="environmentConfirmation" class="confirmation" hidden role="group" aria-labelledby="environmentConfirmTitle">
+                            <h3 id="environmentConfirmTitle">确认切换连接站点？</h3>
+                            <p id="environmentConfirmTarget"></p>
+                            <p>切换后需重启并重新绑定。Wi-Fi 和设备名称保留。</p>
+                            <div class="actions"><button id="cancelEnvironment" type="button">取消</button><button id="confirmEnvironment" class="primary" type="button">确认切换</button></div>
+                        </div>
+                    </form>
+                    <button id="restartEnvironment" type="button" hidden>重启并应用</button>
+                    <p id="environmentMessage" class="message" role="status" aria-live="polite"></p>
+                    </section>
+                <section id="assistantEndpointPanel" class="settings-group" hidden aria-labelledby="assistantEndpointTitle">
+                    <h3 id="assistantEndpointTitle" class="sr-only">服务器</h3>
+                    <form id="assistantEndpointForm">
+                        <label for="assistantEndpointTarget" class="sr-only">服务器</label>
+                        <select id="assistantEndpointTarget">
+                            <option value="production">正式服务 · gateway.lunaredu.cn</option>
+                            <option value="custom">自定义地址</option>
+                        </select>
+                        <div id="assistantEndpointCustomRow" hidden>
+                            <label for="assistantEndpointCustom">自定义服务地址</label>
+                            <input id="assistantEndpointCustom" type="text" maxlength="256" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://gateway.wy.local.lunaredu.cn">
+                        </div>
+                          <p class="help">更换后将重启设备。</p>
+                        <button id="saveAssistantEndpoint" type="submit" disabled>保存并重启</button>
+                    </form>
+                    <p id="assistantEndpointMessage" class="message" role="status" aria-live="polite"></p>
+                </section>
+                    <section id="tlsSettings" class="settings-group" hidden aria-labelledby="tlsTitle">
+                        <h3 id="tlsTitle">证书校验</h3>
+                        <form id="tlsForm" hidden>
+                            <label for="tlsMode">校验方式</label>
+                            <select id="tlsMode"><option value="standard">标准校验</option><option value="custom_ca">自定义 CA</option><option value="skip_verify">跳过证书校验</option></select>
+                            <p id="tlsOrigin" class="help"></p>
+                            <div id="tlsCaRow" hidden><label for="tlsCaFile">CA 证书（PEM，最多 4 KiB）</label><input id="tlsCaFile" type="file" accept=".pem,.crt,.cer"><p id="tlsCaState" class="help"></p></div>
+                            <p id="tlsWarning" class="message error" hidden>连接仍加密，但无法确认服务器身份。仅用于当前自定义服务器的开发调试。</p>
+                            <p class="help">仅作用于此地址的 HTTPS / WSS，以及同域名的语音 MQTT。其他服务器保持标准校验。保存后重启设备生效。</p>
+                            <p id="tlsDraftHint" class="help" hidden>请先保存证书设置，再保存服务器地址。</p>
+                            <button id="saveTls" type="submit" disabled>保存证书设置</button>
+                        </form>
+                        <p id="tlsMessage" class="message" role="status" aria-live="polite"></p>
+                    </section>
+                </dialog>
+                </section>
+            </section>
+            <section id="version" hidden aria-labelledby="versionTitle">
+                <h2 id="versionTitle">设备</h2>
+                <p><a id="applicationSettingsLink" href="/app" hidden>应用设置</a></p>
+                <section id="deviceSettings" aria-label="设备设置">
+            <section id="desktopSettings" hidden aria-label="桌面设置">
+              <h3>桌面</h3><form id="desktopSettingsForm">
+              <div class="preference-row"><label for="startupApplication">开机应用</label><select id="startupApplication"><option value="">桌面</option></select></div>
+              <div class="preference-row"><label for="desktopAnimations">动画</label><input id="desktopAnimations" type="checkbox"></div>
+              <div class="preference-row"><label for="desktopLabels">应用名称</label><input id="desktopLabels" type="checkbox"></div>
+              <div class="preference-row"><label for="desktopTextSize">文字大小</label><select id="desktopTextSize"><option value="0">小</option><option value="1">标准</option><option value="2">大</option></select></div>
+              <button class="primary" type="submit">保存桌面设置</button><p id="desktopSettingsMessage" class="message" role="status"></p>
+              </form></section>
+            <section id="deviceSettingsFields" aria-labelledby="settingsTitle">
+                <h2 id="settingsTitle" class="sr-only">设备设置</h2>
+                <form id="nameForm" class="settings-group"><label for="name" class="icon-label"><svg class="icon" aria-hidden="true" focusable="false"><use href="#icon-edit"/></svg>设备名称</label>
+                    <div class="inline"><input id="name" required autocomplete="off" aria-describedby="nameMessage" placeholder="设备名称"><div class="name-actions"><button
+                            id="cancelName" type="button" hidden>取消</button><button id="saveName" type="submit" disabled>保存</button></div></div>
+                    <p id="nameMessage" class="message" role="status" aria-live="polite"></p>
+                </form>
+                <section id="controlsPanel" class="settings-group" hidden aria-labelledby="controlsTitle">
+                    <h3 id="controlsTitle">设备控制</h3>
+                    <div id="controlsList"></div>
+                    <p id="controlsMessage" class="message" role="status" aria-live="polite"></p>
+                </section>
+                <div class="settings-group">
+                <h3 class="icon-label"><svg class="icon" aria-hidden="true" focusable="false"><use href="#icon-info"/></svg>关于设备</h3>
+                <dl class="facts">
+                    <dt>产品</dt><dd id="aboutProduct">—</dd>
+
+                </dl>
+                <div class="settings-links">
+                    <a id="settingsDebug" data-page="debug" href="/debug" hidden>售后诊断</a>
+                </div>
+                </div>
+
+            </section>
+                </section>
+                    <section id="assistantSettings" class="settings-group" hidden aria-labelledby="assistantSettingsTitle">
+                        <h3 id="assistantSettingsTitle">语音助手</h3>
+                        <p class="help">设置直接保存到设备，重启后保留。</p>
+                        <form id="assistantSettingsForm">
+                            <label class="preference-row" for="assistantMode"><span>对话方式</span><select id="assistantMode"><option value="wake_word">唤醒词</option><option value="continuous_conversation">连续对话</option></select></label>
+                            <label class="preference-row" for="assistantVolume"><span>音量 <output id="assistantVolumeValue" for="assistantVolume">—</output></span><input id="assistantVolume" type="range" min="0" max="100" step="1"></label>
+                            <div class="actions"><button id="saveAssistantSettings" type="submit" class="primary">保存设置</button></div>
+                        </form>
+                        <p id="assistantSettingsMessage" class="message" role="status" aria-live="polite"></p>
+                    </section>
+
+            <section id="maintenance" hidden aria-labelledby="updateTitle">
+                <div class="section-title">
+                    <h2 id="updateTitle">软件更新</h2>
+                </div>
+                <div id="firmwareMaintenance">
+                <p id="updateState"></p>
+                <p id="updatePolicy" class="help"></p>
+                <p id="apRestriction" class="message" hidden>配网期间仍可调整网络、服务器及安装固件；账号绑定请连接到设备所在 Wi-Fi 后继续。</p>
+                <div class="update-actions">
+                    <button id="checkUpdate" type="button">检查更新</button>
+                    <button id="localUpdate" type="button" hidden>本地更新</button>
+                    <button id="bootUpdate" type="button" hidden>更新恢复固件</button>
+                </div>
+                <div id="cloudUpdate" hidden>
+                    <p id="updateCheckMessage" class="message" role="status"></p>
+                    <p id="availableUpdate"></p><button id="updateOnline" class="primary"
+                        type="button" hidden>安装更新</button>
+                </div>
+                <p id="otaMessage" class="message" role="status" aria-live="polite"></p>
+
+                </div>
+            </section>
+
+                <section id="versionAdmin" class="settings-group" hidden aria-labelledby="versionAdminTitle">
+                    <h3 id="versionAdminTitle">维护详情</h3>
+                    <dl class="facts"><dt>固件项目</dt><dd id="versionProject">—</dd><dt>构建时间</dt><dd id="versionBuild">—</dd><dt>运行分区</dt><dd id="versionPartition">—</dd><dt>启动状态</dt><dd id="versionBoot">—</dd></dl>
+                    <a id="versionDebug" data-page="debug" href="/debug" hidden>售后诊断</a>
+                    <button id="repairRecoveryState" type="button" hidden>修复恢复安装记录</button>
+                    <p id="recoveryRepairMessage" class="message" role="status"></p>
+                </section>
+                <a id="versionCustomMaintenance" href="/maintenance" hidden>进入产品维护页面</a>
+            </section>
+            <section id="debug" hidden aria-labelledby="debugTitle">
+                <a class="back-link" data-page="version" href="/version"><svg class="icon icon-back" aria-hidden="true" focusable="false"><use href="#icon-arrow"/></svg>返回设备版本</a>
+                <div class="section-title">
+                    <div>
+                        <h2 id="debugTitle">售后诊断</h2>
+                        <p class="help">在老师或售后人员指导下使用。诊断需要设备授权，不影响日常使用。</p>
+                    </div><span id="debugBoot">正在读取启动会话</span>
+                </div>
+                <form id="debugAuth" class="debug-auth">
+                    <h3>授权本次调试</h3>
+                    <p class="help">在设备串口日志中查找六位本地调试码。授权仅保存在当前浏览器标签页，15 分钟后自动失效。</p><label for="debugCode">本地调试码</label>
+                    <div class="inline"><input id="debugCode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6"
+                            autocomplete="one-time-code" placeholder="000000"><button id="openDebug" class="primary"
+                            type="submit">开始调试</button></div>
+                    <p id="debugAuthMessage" class="message" role="status" aria-live="polite"></p>
+                </form>
+                <div id="debugContent" hidden>
+                    <div class="toolbar session-toolbar">
+                        <p id="debugSessionState" class="help">调试会话已授权</p><button id="closeDebug"
+                            type="button">结束会话</button>
+                    </div>
+                    <div class="debug-summary" aria-live="polite">
+                        <div><span>不可用服务</span><strong id="debugServices">—</strong></div>
+                        <div><span>活动任务</span><strong id="debugTasks">—</strong></div>
+                        <div><span>内部内存</span><strong id="debugHeap">—</strong></div>
+                        <div><span>日志游标</span><strong id="debugCursor">—</strong></div>
+                    </div>
+                    <div class="debug-grid">
+                        <div>
+                            <div class="toolbar">
+                                <h3>运行状态</h3><span id="debugFirmware" class="help">—</span>
+                            </div>
+                            <dl id="debugFacts" class="facts compact"></dl>
+                            <details open>
+                                <summary>服务</summary>
+                                <div id="debugServiceList" class="inspect-list">
+                                    <p class="help">正在读取服务状态。</p>
+                                </div>
+                            </details>
+                            <details>
+                                <summary>执行器</summary>
+                                <div id="debugExecutorList" class="inspect-list">
+                                    <p class="help">正在读取执行器状态。</p>
+                                </div>
+                            </details>
+                        </div>
+                        <div>
+                            <div class="toolbar">
+                                <h3>真实画面与输入</h3><button id="captureScreen" type="button">刷新画面</button>
+                            </div>
+                            <div id="screenUnavailable" class="unsupported" hidden><strong>当前设备没有可读取的真实画面</strong>
+                                <p>只有显示驱动成功维护像素镜像后才会显示截图。</p>
+                            </div>
+                            <div id="screenFrame" class="screen-frame"><img id="debugScreen" alt="当前设备屏幕的真实像素截图">
+                                <p id="screenPlaceholder" class="help">授权后读取真实设备画面。</p>
+                            </div>
+                            <p id="screenMessage" class="message" role="status" aria-live="polite"></p>
+                        </div>
+                    </div>
+                    <div class="divider">
+                        <div class="toolbar">
+                            <div>
+                                <h3>设备日志</h3>
+                                <p class="help">固定容量环形缓存；刷新不会消费设备端记录。</p>
+                            </div><button id="refreshLogs" type="button">刷新日志</button>
+                        </div>
+                        <pre id="debugLogs" class="log-console" tabindex="0">暂无日志</pre>
+                        <p id="debugMessage" class="message" role="status" aria-live="polite"></p>
+                    </div>
+                    <div class="divider">
+                        <h3>导出反馈包</h3><label for="feedbackDescription">问题描述（可选）</label><textarea
+                            id="feedbackDescription" rows="3" maxlength="1000"
+                            placeholder="描述期望结果、实际现象和复现步骤"></textarea>
+                        <p class="help">反馈包只保存在当前浏览器下载目录，包含诊断、近期日志和固件标识，不会自动上传。</p><button id="exportFeedback"
+                            class="primary" type="button">下载诊断 JSON</button>
+                        <p id="feedbackMessage" class="message" role="status" aria-live="polite"></p>
+                    </div>
+                </div>
+            </section>
+        </main>
+        <footer class="page-footer"><span>LUNAREDU</span><a href="/recovery">连接帮助</a></footer>
+    </div>
+    <dialog id="localUpdateDialog" aria-labelledby="localUpdateTitle"><div class="dialog-title"><h2 id="localUpdateTitle">本地更新</h2><button id="closeLocalUpdate" type="button" aria-label="关闭本地更新">×</button></div>
+                <form id="otaForm"><label for="firmwareFile">本地固件文件</label><input id="firmwareFile" type="file"
+                        accept=".bin">
+                    <p class="help">.bin · 更新时请勿断电</p><button id="upload" type="submit">上传并安装</button>
+                </form><progress id="progress" max="100" value="0" hidden aria-label="固件传输进度"></progress><p id="localUpdateMessage" class="message" role="status"></p></dialog>
+    <dialog id="managementDialog" aria-labelledby="managementTitle"><div class="dialog-content"><div class="dialog-title"><h2 id="managementTitle">管理员认证</h2><button id="closeManagement" type="button" aria-label="关闭">×</button></div><p>前往 Passport 登录并核验管理员权限，完成后自动返回这台设备。</p><p id="managementMessage" class="message" role="status"></p><div class="actions"><button id="clearManagement" type="button">退出授权</button><button id="passportLink" type="button" class="primary">前往 Passport</button></div></div></dialog>
+    <script src="/device-client.js"></script>
+    <script src="/portal.js" defer></script>
+</body>
+
+</html>

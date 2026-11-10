@@ -1,0 +1,94 @@
+menu "LunarOS Board Support"
+
+config LUNAROS_BOARD_ID
+    string "Board identity (provided by product)"
+    default "unknown"
+
+config LUNAROS_BOARD_NAME
+    string "Board display name"
+    default "unknown"
+
+config LUNAROS_BOARD_TYPE
+    string "Board type"
+    default "unknown"
+
+config LUNAROS_BOARD_MODEL
+    string "Board model"
+    default "unknown"
+
+config LUNAROS_BOARD_REVISION
+    string "Hardware revision (unknown until identified)"
+    default "unknown"
+
+config LUNAROS_BSP_ENABLE_LEGACY_BASEBOARD
+    bool "Enable frozen historical expansion-baseboard wiring"
+    default n
+    help
+        仅用于显式保留现有产品的历史接线。旧底板引脚和资源分组已封存，
+        不作为新板型模板，也不表示接线已经通过真机验证。
+        新硬件应在产品中维护版本明确的描述，不应选择此项来猜测接线。
+
+choice LUNAREDU_BSP_BOARD_PROFILE
+    prompt "板载资源配置"
+    default LUNAREDU_BSP_PROFILE_NONE
+    help
+        只选择资源描述，不决定产品身份。默认不声明任何板级资源。
+        历史底板描述必须显式开启；不同芯片和硬件版本不能共用接线假设。
+
+config LUNAREDU_BSP_PROFILE_NONE
+    bool "未指定板级资源（新项目默认）"
+    help
+        不声明历史底板引脚、板载外设或产品身份。资源申请明确返回不支持。
+
+config LUNAREDU_BSP_PROFILE_MINIMAL
+    bool "[封存] 旧底板最小装配（无板载外设）"
+    depends on LUNAROS_BSP_ENABLE_LEGACY_BASEBOARD
+    help
+        保留现有产品使用的旧底板资源分组，关闭板载 WS2812、状态灯、camera
+        和 TF 卡。它仍有历史底板接线假设，不代表任意新硬件。
+
+config LUNAREDU_BSP_PROFILE_XIAOXING
+    bool "小星现有资源描述（GPIO2 电池、固定 I2S）"
+    help
+        保留小星现有 GPIO2 电池 ADC 和 47/14/1/21 I2S 资源描述。
+        不声明旧扩展底板资源。产品身份由产品配置独立提供。
+
+config LUNAREDU_BSP_PROFILE_REMOTE_CONTROLLER
+    bool "遥控器资源描述（GPIO2 电池、GPIO43/44 触摸）"
+    help
+        独立描述现行遥控器的电池 ADC 和触摸 I2C 资源，不声明扩展底板资源。
+        产品身份由产品配置提供。
+
+config LUNAREDU_BSP_PROFILE_BASE
+    bool "[封存] 旧底板基础装配"
+    depends on LUNAROS_BSP_ENABLE_LEGACY_BASEBOARD
+    help
+        基础装配只带板载 WS2812。只有在底板 GPIO47/GPIO48 I2C 资源
+        未使用时，GPIO48 才能用于板载 WS2812。
+
+config LUNAREDU_BSP_PROFILE_CAM_BUNDLE
+    bool "[封存] 旧底板摄像头扩展装配"
+    depends on LUNAROS_BSP_ENABLE_LEGACY_BASEBOARD
+    help
+        摄像头扩展装配带 GPIO2 小灯、camera、TF 卡；这些都仍然是可选
+        资源，与同一套扩展底板引脚复用。
+
+config LUNAREDU_BSP_PROFILE_REULEAUX_TRIANGLE_V3
+    bool "莱洛三角形 V3（ESP32-WROOM-32）"
+    help
+        coll45 V3 自平衡莱洛三角形硬件，不声明 ESP32-S3 扩展底板资源。
+        产品身份由产品配置独立提供。
+
+endchoice
+
+config LUNAREDU_BSP_HAS_ONBOARD_CAMERA
+    bool
+    default y if LUNAREDU_BSP_PROFILE_CAM_BUNDLE
+
+config LUNAREDU_BSP_HAS_ONBOARD_TFCARD
+    bool
+    default y if LUNAREDU_BSP_PROFILE_CAM_BUNDLE
+
+endmenu
+
+rsource "boards/general/v2/Kconfig"

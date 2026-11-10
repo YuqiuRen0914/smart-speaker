@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "inputs": {
+    "lunaros/services/required/service_network/src/ports/espnow/materialize-port.mjs": "0888ac2f7c78fc41d0c3bedec5f171a242bf40da1cc213be80ee83a6ad017443",
+    "lunaros/services/required/service_network/src/ports/espnow/owner-poll.inc": "272ce9959ba17d36f31f6c7fd53a6d716982f79c1d42458b99940ca01e631e15",
+    "lunaros/services/required/service_network/src/ports/espnow/owner-lifecycle.inc": "9ba8824ad4749412ed203d30413a4c86750841e5453463bf53a96f7257510fa8",
+    "components/espnow/UPSTREAM.json": "1387921fd21c1fa584cc564aa6dae49120e87db914447b6f0f155ef3b05d4a01"
+  },
+  "outputs": {
+    "client_security1.c": "f0bdc66722c5929ccf6f59febc2d3f4943a2a2e55087c46a19f8138f73f80d1c",
+    "espnow.c": "35273267c1edf4737afa0b7b54295a39c550fad19e013f94406f5c363ec2b19e",
+    "espnow_group.c": "ea0364ad3246e0dd420850fd153c621b1bae9e503efda48d276544de8193af21",
+    "espnow_security.c": "0925d3b54c2c1cfec6649b12dda639c86baeed681416963621fe595ad0ce0b09"
+  }
+}

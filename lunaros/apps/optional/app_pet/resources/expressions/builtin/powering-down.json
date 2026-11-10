@@ -1,0 +1,22 @@
+{
+  "format": "lunaredu.pet.expression.v1",
+  "id": "powering-down",
+  "slot": 38,
+  "group": "System",
+  "eyePlaylist": [
+    13,
+    22
+  ],
+  "holdMs": [
+    6000,
+    9000
+  ],
+  "blinkMs": [
+    0,
+    0
+  ],
+  "motion": {
+    "kind": "builtin",
+    "preset": "powering-down"
+  }
+}

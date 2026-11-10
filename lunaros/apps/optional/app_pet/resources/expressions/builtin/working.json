@@ -1,0 +1,24 @@
+{
+  "format": "lunaredu.pet.expression.v1",
+  "id": "working",
+  "slot": 6,
+  "group": "Task",
+  "eyePlaylist": [
+    7,
+    16,
+    11,
+    10
+  ],
+  "holdMs": [
+    1800,
+    3200
+  ],
+  "blinkMs": [
+    2800,
+    5500
+  ],
+  "motion": {
+    "kind": "builtin",
+    "preset": "working"
+  }
+}

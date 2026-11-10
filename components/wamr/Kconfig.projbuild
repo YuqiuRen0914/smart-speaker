@@ -1,0 +1,23 @@
+menu "LunarOS Wasm runtime"
+config LUNAROS_WAMR_AOT
+    bool "Enable signed ESP32-S3 AOT applications"
+    depends on IDF_TARGET_ESP32S3 && SPIRAM
+    default n
+    help
+        Opt-in pending board acceptance. Uses the pinned WAMR loader, PSRAM
+        executable mapping, software bounds checks and OS checkpoint budgets.
+config WAMR_AOT_CODE_IN_PSRAM
+    bool
+    default y if LUNAROS_WAMR_AOT
+config LUNAROS_AOT_SIGNER_ID
+    string "Trusted AOT publisher key id"
+    depends on LUNAROS_WAMR_AOT
+    default ""
+config LUNAROS_AOT_PUBLIC_KEY
+    string "Trusted P-256 public key (130 lowercase hex characters, uncompressed)"
+    depends on LUNAROS_WAMR_AOT
+    default ""
+    help
+        Public verification key only. Never put a signing private key in firmware.
+        An empty or invalid key disables AOT catalog selection and installation.
+endmenu

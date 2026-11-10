@@ -1,0 +1,22 @@
+{
+  "format": "lunaredu.pet.expression.v1",
+  "id": "surprised",
+  "slot": 8,
+  "group": "Reaction",
+  "eyePlaylist": [
+    3,
+    21
+  ],
+  "holdMs": [
+    2500,
+    4000
+  ],
+  "blinkMs": [
+    1800,
+    3500
+  ],
+  "motion": {
+    "kind": "builtin",
+    "preset": "surprised"
+  }
+}
