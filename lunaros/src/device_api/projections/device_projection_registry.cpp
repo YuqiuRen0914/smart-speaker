@@ -13,7 +13,7 @@ bool register_device_module_index(const DeviceModuleProjection &, std::string *)
 bool seal_device_module_index(std::string *);
 bool device_module_index_sealed();
 
-constexpr size_t kMaximumOperationsPerModule = 32;
+constexpr size_t kMaximumOperationsPerModule = 48;
 const DeviceModuleProjection
     *g_modules[lunaredu::lunaros::kDeviceModuleCapacity] = {};
 size_t g_module_count = 0;

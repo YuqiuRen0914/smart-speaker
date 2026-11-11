@@ -1,7 +1,12 @@
+#include "interaction/transport/assistant_provider.h"
 #include "interaction/conversation/assistant_core.h"
 #include "interaction/conversation/assistant_loop.h"
 #include "interaction/conversation/assistant_session.h"
 #include "interaction/conversation/host_events.h"
+#if ASSISTANT_USE_LUNARLINK
+#include "interaction/conversation/assistant_endpoint_policy.h"
+#include "interaction/conversation/assistant_runtime_constants.h"
+#endif
 
 #include <nvs.h>
 
@@ -75,6 +80,9 @@ void persist_state_locked() {
     err = nvs_set_str(handle, key, value.c_str());
   };
 
+#if ASSISTANT_USE_LUNARLINK
+  set_value("ll_blocked", g_runtime.activation.user_blocked ? "1" : "0");
+#else
   set_value(kPersistMqttEndpointKey, g_runtime.transport.mqtt_endpoint);
   set_value(kPersistMqttClientIdKey, g_runtime.transport.mqtt_client_id);
   set_value(kPersistMqttUserKey, g_runtime.transport.mqtt_username);
@@ -101,8 +109,12 @@ void persist_state_locked() {
                 : std::string());
   set_value(kPersistTimezoneOffsetKey,
             std::to_string(g_runtime.activation.timezone_offset_minutes));
+#endif
   set_value(kPersistStandbyModeKey,
             standby_listen_mode_name(g_runtime.conversation.standby_mode));
+#if ASSISTANT_USE_LUNARLINK
+  set_value(kPersistActivationOtaUrlKey, g_runtime.activation.ota_url);
+#endif
 
   if (err == ESP_OK) {
     err = nvs_commit(handle);
@@ -114,6 +126,17 @@ void persist_state_locked() {
 }
 
 void load_state_locked() {
+#if ASSISTANT_USE_LUNARLINK
+  g_runtime.activation.ota_url = restore_string(kPersistActivationOtaUrlKey);
+  if (!valid_activation_endpoint(g_runtime.activation.ota_url)) {
+    g_runtime.activation.ota_url.clear();
+    g_runtime.diagnostics.last_error = "activation_endpoint_record_invalid";
+  }
+  g_runtime.activation.user_blocked = restore_string("ll_blocked") == "1";
+  g_runtime.activation.configured = false;
+  g_runtime.activation.ready = false;
+  g_runtime.activation.pending = false;
+#else
   g_runtime.transport.mqtt_endpoint = restore_string(kPersistMqttEndpointKey);
   g_runtime.transport.mqtt_client_id = restore_string(kPersistMqttClientIdKey);
   g_runtime.transport.mqtt_username = restore_string(kPersistMqttUserKey);
@@ -133,8 +156,15 @@ void load_state_locked() {
   const std::string timeout = restore_string(kPersistTimeoutKey);
   const std::string server_time = restore_string(kPersistServerTimeKey);
   const std::string timezone_offset = restore_string(kPersistTimezoneOffsetKey);
+#endif
   const std::string standby_mode = restore_string(kPersistStandbyModeKey);
+#if ASSISTANT_USE_LUNARLINK
+  g_runtime.conversation.standby_mode = (standby_mode == "continuous" ||
+      standby_mode == "continuous_conversation") ? StandbyListenMode::ContinuousConversation
+                                                : StandbyListenMode::WakeWord;
+#endif
 
+#if !ASSISTANT_USE_LUNARLINK
   if (!timeout.empty()) {
     g_runtime.activation.timeout_ms =
         static_cast<uint32_t>(std::max(0, std::atoi(timeout.c_str())));
@@ -181,6 +211,7 @@ void load_state_locked() {
   g_runtime.activation.configured = (!g_runtime.transport.mqtt_endpoint.empty());
   g_runtime.activation.ready = activation_ready_from_state(
       g_runtime.activation.configured, g_runtime.activation.pending);
+#endif
 }
 
 void apply_standby_listen_mode_locked(StandbyListenMode mode, bool persist_mode) {

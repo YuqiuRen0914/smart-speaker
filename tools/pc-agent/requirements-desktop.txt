@@ -1,0 +1,4 @@
+psutil==7.2.1
+rumps==0.4.0; sys_platform == 'darwin'
+pystray==0.19.5; sys_platform == 'win32'
+Pillow==11.3.0; sys_platform == 'win32'

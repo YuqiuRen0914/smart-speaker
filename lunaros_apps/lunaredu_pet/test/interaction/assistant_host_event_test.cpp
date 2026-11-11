@@ -22,6 +22,7 @@ struct Capture {
   std::string error;
   std::string focus_reason;
   uint32_t focus_timeout_ms = 0;
+  std::string released_focus_reason;
 };
 
 std::string copy(const char *value) {
@@ -49,6 +50,10 @@ bool capture_audio_focus(void *context, const char *reason,
   return true;
 }
 
+void capture_audio_focus_release(void *context, const char *reason) {
+  static_cast<Capture *>(context)->released_focus_reason = copy(reason);
+}
+
 } // namespace
 
 int main() {
@@ -58,6 +63,7 @@ int main() {
   callbacks.on_event = capture_event;
   callbacks.last_error = capture_last_error;
   callbacks.request_audio_focus = capture_audio_focus;
+  callbacks.release_audio_focus = capture_audio_focus_release;
   conversation_set_host_callbacks(callbacks);
 
   conversation_emit_status("listening", "detail", "result", "error");
@@ -89,12 +95,14 @@ int main() {
       capture.focus_timeout_ms != 500) {
     return 4;
   }
+  conversation_release_audio_focus("one_shot_response_finished");
+  if (capture.released_focus_reason != "one_shot_response_finished") return 5;
 
   assert(core_event_count == 2); // Transcript is not a behavior event.
   conversation_set_host_callbacks({});
   conversation_emit_emotion("sad");
   assert(core_event_count == 3); // Works without product callbacks.
   assert(capture.event_count == 3);
-  std::cout << "12 assistant host event checks passed" << std::endl;
+  std::cout << "13 assistant host event checks passed" << std::endl;
   return 0;
 }

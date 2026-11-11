@@ -21,3 +21,5 @@
 后续功能先从产品页面和真实能力所有者扩展。游戏、AI 伴侣和番茄钟的 App 边界在实现时确定；不因规划提前换掉当前交互基线。涉及资源生命周期、公共接口、实时性或物理行为，分别补主机回归和指定硬件验收。
 
 独立构建时禁止读取原仓库；构建路径审计核对实际组件与编译源文件均来自本工程或指定 ESP-IDF。设备操作和实体验收记录见 [基线修正](baseline-correction.md)，历史错误基线的隔离构建仍保留于 [旧记录](standalone-validation.md)。
+
+2026-11-12 助手平台适配继续使用原 DeviceLink 和 Pet conversation 所有者：Board 绑定身份 → LunarLink bootstrap → 原 MQTT/UDP/Opus/音频焦点。协议适配在本工程内实现，没有新增外部 SDK 或后来 OS 组件依赖；兼容服务/API 名称与未迁移的新版持久远控见 [平台接入](development/07-lunarlink-platform.md)。

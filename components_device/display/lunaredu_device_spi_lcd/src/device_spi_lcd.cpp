@@ -1,10 +1,12 @@
 #include "lunaredu_device_spi_lcd.h"
 
+#include <algorithm>
 #include <mutex>
 
 #include <driver/gpio.h>
 #include <driver/spi_master.h>
 #include <esp_check.h>
+#include <esp_heap_caps.h>
 #include <esp_lcd_panel_io.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_vendor.h>
@@ -46,9 +48,18 @@ gpio_num_t to_gpio(int gpio) {
   return is_valid_gpio(gpio) ? static_cast<gpio_num_t>(gpio) : GPIO_NUM_NC;
 }
 
-esp_err_t set_backlight(const DeviceSpiLcdConfig &config, bool enabled) {
+esp_err_t set_backlight(const DeviceSpiLcdConfig &config, bool enabled,
+                        bool release_pin = true) {
   if (!is_valid_gpio(config.backlight_gpio)) {
     return ESP_OK;
+  }
+
+  const bool level_on = enabled != config.backlight_invert;
+  // Set the output latch before enabling the output driver, including when
+  // the board uses an active-low backlight.
+  esp_err_t result = gpio_set_level(to_gpio(config.backlight_gpio), level_on);
+  if (result != ESP_OK) {
+    return result;
   }
 
   gpio_config_t io_config = {};
@@ -57,17 +68,37 @@ esp_err_t set_backlight(const DeviceSpiLcdConfig &config, bool enabled) {
   io_config.pull_up_en = GPIO_PULLUP_DISABLE;
   io_config.pull_down_en = GPIO_PULLDOWN_DISABLE;
   io_config.intr_type = GPIO_INTR_DISABLE;
-  esp_err_t result = gpio_config(&io_config);
+  result = gpio_config(&io_config);
   if (result != ESP_OK) {
     return result;
   }
 
-  const bool level_on = enabled != config.backlight_invert;
-  result = gpio_set_level(to_gpio(config.backlight_gpio), level_on ? 1 : 0);
-  if (result == ESP_OK && !enabled) {
+  if (!enabled && release_pin) {
     gpio_reset_pin(to_gpio(config.backlight_gpio));
   }
   return result;
+}
+
+// The ST7789 display-off command gates scanout, not GRAM writes. Clear in
+// small strips so setup doesn't need a second framebuffer. The caller keeps
+// the buffer until SPI has drained or the failed panel has been torn down.
+constexpr int kStartupClearRows = 8;
+esp_err_t clear_st7789_gram(esp_lcd_panel_handle_t panel,
+                           esp_lcd_panel_io_handle_t io,
+                           const DeviceSpiLcdConfig &config,
+                           const uint16_t *black) {
+  for (int y = 0; y < config.height; y += kStartupClearRows) {
+    const int end = std::min<int>(y + kStartupClearRows, config.height);
+    const esp_err_t result = esp_lcd_panel_draw_bitmap(
+        panel, config.offset_x, y + config.offset_y,
+        config.offset_x + config.width, end + config.offset_y, black);
+    if (result != ESP_OK) {
+      return result;
+    }
+  }
+  // The three-wire driver writes synchronously. On the four-wire path, a
+  // commandless polling transaction waits for the final queued color DMA.
+  return io == nullptr ? ESP_OK : esp_lcd_panel_io_tx_param(io, -1, nullptr, 0);
 }
 
 spi_host_device_t to_spi_host(DeviceSpiLcdHost host) {
@@ -281,6 +312,7 @@ esp_err_t device_spi_lcd_create_panel(const DeviceSpiLcdConfig &config,
 
   ESP_RETURN_ON_ERROR(validate_config(config), kLogTag,
                       "SPI LCD config is invalid");
+  const bool st7789 = config.controller == DeviceSpiLcdController::kSt7789;
 
   const spi_host_device_t spi_host = to_spi_host(config.spi_host);
 
@@ -371,7 +403,12 @@ esp_err_t device_spi_lcd_create_panel(const DeviceSpiLcdConfig &config,
     return result;
   }
 
-  result = esp_lcd_panel_reset(panel);
+  if (st7789) {
+    result = set_backlight(config, false, false);
+  }
+  if (result == ESP_OK) {
+    result = esp_lcd_panel_reset(panel);
+  }
   if (result == ESP_OK) {
     result = esp_lcd_panel_init(panel);
   }
@@ -383,6 +420,21 @@ esp_err_t device_spi_lcd_create_panel(const DeviceSpiLcdConfig &config,
   }
   if (result == ESP_OK) {
     result = esp_lcd_panel_mirror(panel, config.mirror_x, config.mirror_y);
+  }
+  uint16_t *black = nullptr;
+  if (result == ESP_OK && st7789) {
+    result = esp_lcd_panel_disp_on_off(panel, false);
+    if (result == ESP_OK) {
+      black = static_cast<uint16_t *>(heap_caps_calloc(
+          static_cast<size_t>(config.width) *
+              std::min<int>(kStartupClearRows, config.height),
+          sizeof(uint16_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
+      result = black == nullptr ? ESP_ERR_NO_MEM :
+          clear_st7789_gram(panel, panel_io, config, black);
+    }
+    if (result == ESP_OK) {
+      ESP_LOGI(kLogTag, "ST7789 startup black frame transferred before display-on");
+    }
   }
   if (result == ESP_OK) {
     result = esp_lcd_panel_disp_on_off(panel, true);
@@ -401,7 +453,13 @@ esp_err_t device_spi_lcd_create_panel(const DeviceSpiLcdConfig &config,
   if (result != ESP_OK) {
     set_last_error(esp_err_to_name(result));
     release_setup_resources(panel_io, panel, true);
+    if (black != nullptr) {
+      heap_caps_free(black);
+    }
     return result;
+  }
+  if (black != nullptr) {
+    heap_caps_free(black);
   }
 
   panel_out->panel_io = panel_io;

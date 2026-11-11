@@ -4,20 +4,10 @@
 
 namespace smart_speaker {
 
-// Side-effect-free touch routing keeps gesture precedence testable. Menu
-// actions themselves remain owned by the runtime/menu state machine.
-enum class TouchRoute : uint8_t {
-  None,
-  TogglePlayback,
-  StartVoice,
-  FinishVoice,
-  NextTrack,
-  PreviousTrack,
-  OpenSettings,
-  MenuConfirm,
-  MenuBack,
-};
+enum class TouchContext : uint8_t { Home, Launcher, Menu, Feature, Blocked };
+enum class TouchRoute : uint8_t { None, OpenProductShell, MenuConfirm, Previous, Next };
 
-TouchRoute route_touch_gesture(TouchGesture gesture, bool menu_active);
+// Gesture meaning follows the owning page; horizontal motion never goes back.
+TouchRoute route_touch_gesture(TouchGesture gesture, TouchContext context);
 
 } // namespace smart_speaker

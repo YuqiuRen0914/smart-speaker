@@ -1,4 +1,5 @@
 #include "smart_speaker_display.h"
+#include "lunaredu_pet_conversation.h"
 #include "lunaredu_account_resources.h"
 #include "lunaredu_lunaros/kernel/managed_task.h"
 
@@ -12,11 +13,13 @@
 #include <string>
 
 #include <esp_heap_caps.h>
+#include <esp_app_desc.h>
 #include <esp_log.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <lvgl.h>
+#include "misc/cache/instance/lv_image_cache.h"
 
 #include "lunaredu_lunaros/desktop/local/lvgl_screen_runtime.h"
 #include "lunaredu_lunaros/desktop/local/font_runtime.h"
@@ -33,7 +36,18 @@
 #include "smart_speaker_avatar.h"
 #include "smart_speaker_ui_status.h"
 #include "smart_speaker_sensors.h"
+#include "smart_speaker_touch_input.h"
+#include "smart_speaker_pet_animation.h"
 #include "smart_speaker_xiaozhi.h"
+#include "smart_speaker_amoled_list.h"
+#include "smart_speaker_home.h"
+#include "smart_speaker_home_pet.h"
+#include "smart_speaker_launcher.h"
+#include "assets/home_clock_font.h"
+#include "smart_speaker_boot.h"
+#include "product/product_state_runtime.h"
+#include "product/desktop_resources.h"
+#include "product/weather.h"
 #include "lunaredu_lunaros/persistence/identity.h"
 #include "lunaredu_device_sdcard_tfcard_store.h"
 #include "lunaredu_lunaros/device_link/device_link.h"
@@ -45,16 +59,20 @@ constexpr const char *kTag = "speaker_display";
 const lv_font_t *g_body_font = nullptr;
 const lv_font_t *g_heading_font = nullptr;
 constexpr uint32_t kDisplayFrameMs = 20;
-lv_obj_t *g_clock = nullptr;
+HomePetView g_home_pet;
+AppLauncher g_launcher;
+extern const uint8_t kHomePetIdle[] asm("_binary_home_pet_idle_bin_start");
+SpeakerHome g_home;
+SpeakerBootScreen g_boot;
+lv_obj_t *g_wallpaper_view = nullptr;
+lv_image_dsc_t g_wallpaper_image{};
+std::shared_ptr<const product::WallpaperPixels> g_wallpaper_pixels;
 lv_obj_t *g_play_status = nullptr;
 lv_obj_t *g_track_panel = nullptr;
 TrackCaption g_track_caption;
-lv_obj_t *g_lyrics_panel = nullptr;
-lv_obj_t *g_lyric_label = nullptr;
-bool g_lyrics_layout = false;
 lv_obj_t *g_volume = nullptr;
-float g_indicator_morph = 0, g_indicator_level = 0, g_indicator_opacity = 0;
-PauseIndicator g_pause_indicator;
+float g_indicator_level = 0, g_indicator_opacity = 0;
+VolumeIndicator g_volume_indicator;
 lv_obj_t *g_setup_panel = nullptr;
 lv_obj_t *g_setup_title = nullptr;
 lv_obj_t *g_setup_ssid = nullptr;
@@ -71,6 +89,9 @@ character::Feedback g_network_feedback = character::Feedback::None;
 lv_obj_t *g_character_hint = nullptr;
 bool g_force_character_redraw = false;
 std::atomic<bool> g_character_damaged{false};
+std::atomic<uint8_t> g_assistant_emotion{
+    static_cast<uint8_t>(AssistantVisualState::Inactive)};
+std::atomic<uint32_t> g_assistant_emotion_until_ms{0};
 std::atomic<int> g_character_damage_top{50};
 std::atomic<int> g_character_damage_height{character::kSize};
 void notify_character_flush(uint16_t x, uint16_t y, uint16_t width, uint16_t height) {
@@ -88,6 +109,10 @@ SmartSpeakerDisplayStats g_display_stats{};
 character::Controller g_character;
 character::Renderer g_character_renderer;
 constexpr int kCharacterTop = 50;
+// Opening the application menu can nest LVGL layout and font drawing on
+// top of the display loop. Keep that working stack in internal RAM.
+constexpr size_t kDisplayStackBytes = 12 * 1024;
+std::atomic<int> g_pending_pet_action{-1};
 bool g_character_layout = false;
 
 void style_plain_object(lv_obj_t *object) {
@@ -101,30 +126,23 @@ void draw_playback_indicator(lv_event_t *event) {
   auto *layer = lv_event_get_layer(event);
   lv_area_t bounds;
   lv_obj_get_coords(object, &bounds);
-  const auto strokes = indicator_strokes(g_indicator_morph, g_indicator_level);
-  for (int pass=0; pass<2; ++pass) {
-    for (const auto &stroke : strokes) {
-      if (pass == 1 && stroke.fill <= 0) continue;
-      lv_draw_line_dsc_t line;
-      lv_draw_line_dsc_init(&line);
-      line.width = 4;
-      line.round_start = line.round_end = 1;
-      line.opa = static_cast<lv_opa_t>(g_indicator_opacity*255);
-      const int cx = bounds.x1+58, cy = bounds.y1+12;
-      line.p1 = {cx+static_cast<int32_t>(std::lround(stroke.x1)), cy+static_cast<int32_t>(std::lround(stroke.y1))};
-      line.p2 = {cx+static_cast<int32_t>(std::lround(stroke.x2)), cy+static_cast<int32_t>(std::lround(stroke.y2))};
-      line.color = lv_color_hex(0x242424);
-      if (pass == 1) {
-        line.p2 = {cx+static_cast<int32_t>(std::lround(stroke.x1+(stroke.x2-stroke.x1)*stroke.fill)),
-                   cy+static_cast<int32_t>(std::lround(stroke.y1+(stroke.y2-stroke.y1)*stroke.fill))};
-        line.color = lv_color_hex(0xF4C95D);
-      }
-      lv_draw_line(layer, &line);
-    }
+  lv_draw_line_dsc_t line;
+  lv_draw_line_dsc_init(&line);
+  line.width = 4;
+  line.round_start = line.round_end = 1;
+  line.opa = static_cast<lv_opa_t>(g_indicator_opacity * 255);
+  line.p1 = {bounds.x1 + 4, bounds.y1 + 4};
+  line.p2 = {bounds.x1 + 112, bounds.y1 + 4};
+  line.color = lv_color_hex(0x242424);
+  lv_draw_line(layer, &line);
+  if (g_indicator_level > 0) {
+    line.p2.x = bounds.x1 + 4 + static_cast<int32_t>(g_indicator_level * 108);
+    line.color = lv_color_hex(0xF4C95D);
+    lv_draw_line(layer, &line);
   }
 }
 
-void make_ui() {
+void make_ui(uint8_t *pet_buffer) {
   lv_obj_t *screen = lv_screen_active();
   style_plain_object(screen);
   lv_obj_set_style_text_font(screen, g_body_font, 0);
@@ -133,11 +151,14 @@ void make_ui() {
   lv_obj_set_style_bg_grad_dir(screen, LV_GRAD_DIR_VER, 0);
   lv_obj_set_style_text_color(screen, lv_color_hex(0xE8E6DF), 0);
 
-  g_clock = lv_label_create(screen);
-  lv_label_set_text(g_clock, "--:--");
-  lv_obj_set_style_text_font(g_clock, g_heading_font, 0);
-  lv_obj_set_style_text_color(g_clock, lv_color_hex(0xE8E6DF), 0);
-  lv_obj_set_pos(g_clock, 12, 16);
+  g_wallpaper_view = lv_image_create(screen);
+  lv_obj_set_pos(g_wallpaper_view, 0, 0);
+  lv_obj_add_flag(g_wallpaper_view, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_move_background(g_wallpaper_view);
+  g_home.create(screen, &speaker_home_digits, &speaker_home_seconds, g_body_font,
+      lunaros_font_runtime_12(), g_heading_font);
+
+  g_home_pet.create(screen, pet_buffer);
 
   g_track_panel = lv_obj_create(screen);
   style_plain_object(g_track_panel);
@@ -155,32 +176,19 @@ void make_ui() {
   lv_obj_set_style_anim_duration(g_play_status, lv_anim_speed_clamped(24, 1000, 18000), 0);
   lv_obj_set_style_text_align(g_play_status, LV_TEXT_ALIGN_RIGHT, 0);
   lv_obj_set_style_text_color(g_play_status, lv_color_hex(0x8A8984), 0);
-  g_lyrics_panel = lv_obj_create(screen);
-  style_plain_object(g_lyrics_panel);
-  lv_obj_set_style_radius(g_lyrics_panel, 0, 0);
-  lv_obj_set_style_bg_color(g_lyrics_panel, lv_color_hex(0x000000), 0);
-  lv_obj_set_pos(g_lyrics_panel, 12, 184);
-  lv_obj_set_size(g_lyrics_panel, 216, 42);
-  lv_obj_add_flag(g_lyrics_panel, LV_OBJ_FLAG_HIDDEN);
-  g_lyric_label = lv_label_create(g_lyrics_panel);
-  lv_obj_set_size(g_lyric_label, 216, 42);
-  lv_label_set_long_mode(g_lyric_label, LV_LABEL_LONG_DOT);
-  lv_obj_set_style_text_align(g_lyric_label, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_style_text_line_space(g_lyric_label, 2, 0);
-  lv_obj_set_style_text_color(g_lyric_label, lv_color_hex(0xF1EFE7), 0);
-  lv_label_set_text(g_lyric_label, "");
   g_volume = lv_obj_create(screen);
   lv_obj_remove_style_all(g_volume);
   style_plain_object(g_volume);
   lv_obj_remove_flag(g_volume, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_pos(g_volume, 62, 212);
-  lv_obj_set_size(g_volume, 116, 24);
+  lv_obj_set_pos(g_volume, 62, 220);
+  lv_obj_set_size(g_volume, 116, 8);
   lv_obj_add_event_cb(g_volume, draw_playback_indicator, LV_EVENT_DRAW_MAIN, nullptr);
   lv_obj_add_flag(g_volume, LV_OBJ_FLAG_HIDDEN);
 
   g_character_hint = lv_label_create(screen);
-  lv_obj_set_width(g_character_hint, 216);
-  lv_obj_set_pos(g_character_hint, 12, 214);
+  lv_obj_set_size(g_character_hint, 216, 24);
+  lv_label_set_long_mode(g_character_hint, LV_LABEL_LONG_DOT);
+  lv_obj_set_pos(g_character_hint, 12, 16);
   lv_obj_set_style_text_align(g_character_hint, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_color(g_character_hint, lv_color_hex(0x8A8984), 0);
   lv_label_set_text(g_character_hint, "正在连接…");
@@ -288,20 +296,6 @@ void update_setup_screen() {
   g_setup_visible = true;
 }
 
-void update_clock(char (&previous)[6]) {
-  char text[6] = "--:--";
-  if (lunaredu::lunaros::network_snapshot().clock == lunaredu::lunaros::NetworkClockState::Valid) {
-    const std::time_t now = std::time(nullptr);
-    std::tm local = {};
-    localtime_r(&now, &local);
-    std::strftime(text, sizeof(text), "%H:%M", &local);
-  }
-  if (std::strncmp(previous, text, sizeof(previous)) != 0) {
-    lv_label_set_text(g_clock, text);
-    std::memcpy(previous, text, sizeof(previous));
-  }
-}
-
 void slide_track_caption(void *object, int32_t x) {
   lv_obj_set_x(static_cast<lv_obj_t *>(object), x);
 }
@@ -337,9 +331,14 @@ void update_status(const RuntimeStatus &status) {
 lv_obj_t *g_menu_panel = nullptr;
 lv_obj_t *g_menu_text = nullptr;
 lv_obj_t *g_menu_rows[4] = {};
+AmoledList g_product_list;
 lv_obj_t *g_hold_hint = nullptr;
 bool g_local_overlay = false;
 lv_obj_t *g_menu_hint = nullptr;
+lv_obj_t *g_game2048_panel = nullptr;
+lv_obj_t *g_game2048_score = nullptr;
+lv_obj_t *g_game2048_tiles[16] = {};
+lv_obj_t *g_game2048_values[16] = {};
 lv_obj_t *g_binding_code = nullptr;
 lv_obj_t *g_binding_info = nullptr;
 lv_obj_t *g_avatar_frame = nullptr;
@@ -347,8 +346,47 @@ lv_obj_t *g_avatar_view = nullptr;
 lv_obj_t *g_avatar_placeholder = nullptr;
 lv_obj_t *g_info_labels[3] = {};
 lv_obj_t *g_info_values[3] = {};
+lv_obj_t *g_calendar_panel = nullptr;
+lv_obj_t *g_calendar_days[42] = {};
+lv_obj_t *g_cover_view = nullptr;
+lv_image_dsc_t g_cover_descriptor{};
+std::shared_ptr<const cover::Image> g_display_cover;
+void update_cover_view(bool visible) {
+  const auto current = visible ? current_cover_snapshot().image : nullptr;
+  if (current != g_display_cover) {
+    lv_image_set_src(g_cover_view, nullptr);
+    lv_image_cache_drop(&g_cover_descriptor);
+    g_display_cover = current;
+    if (current) {
+      g_cover_descriptor.header.magic = LV_IMAGE_HEADER_MAGIC;
+      g_cover_descriptor.header.cf = LV_COLOR_FORMAT_RGB565;
+      g_cover_descriptor.header.w = g_cover_descriptor.header.h = cover::kSide;
+      g_cover_descriptor.header.stride = cover::kSide * 2;
+      g_cover_descriptor.data_size = cover::kSide * cover::kSide * 2;
+      g_cover_descriptor.data = reinterpret_cast<const uint8_t *>(current->pixels.get());
+      lv_image_set_src(g_cover_view, &g_cover_descriptor);
+    }
+  }
+  if (current) lv_obj_remove_flag(g_cover_view, LV_OBJ_FLAG_HIDDEN);
+  else lv_obj_add_flag(g_cover_view, LV_OBJ_FLAG_HIDDEN);
+}
 void set_label_text(lv_obj_t *label, const std::string &text) {
   if (text != lv_label_get_text(label)) lv_label_set_text(label, text.c_str());
+}
+uint32_t game2048_tile_color(uint16_t value) {
+  switch (value) {
+    case 0: return 0x262626;
+    case 2: return 0xEEE4DA;
+    case 4: return 0xEDE0C8;
+    case 8: return 0xF2B179;
+    case 16: return 0xF59563;
+    case 32: return 0xF67C5F;
+    case 64: return 0xF65E3B;
+    case 128: return 0xEDCF72;
+    case 256: return 0xEDCC61;
+    case 512: return 0xEDC850;
+    default: return value >= 1024 ? 0xEDC22E : 0xEDC53F;
+  }
 }
 void style_menu_selection(lv_obj_t *row, bool selected) {
       lv_obj_set_style_bg_color(row, lv_color_hex(selected ? 0x292313 : 0x0D0D0D), 0);
@@ -382,6 +420,13 @@ void update_local_menu() {
       lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
       lv_obj_align(label, LV_ALIGN_LEFT_MID, 12, 0);
     }
+    g_product_list.create(g_menu_panel, g_body_font);
+    g_launcher.create(g_menu_panel, g_heading_font, lunaros_font_runtime_12());
+    g_cover_view = lv_image_create(g_menu_panel);
+    lv_obj_set_pos(g_cover_view, 152, 60);
+    lv_image_set_pivot(g_cover_view, 0, 0);
+    lv_image_set_scale(g_cover_view, 77); // 240px source -> 72px preview
+    lv_obj_add_flag(g_cover_view, LV_OBJ_FLAG_HIDDEN);
     auto hint = lv_label_create(g_menu_panel);
     g_menu_hint = hint;
     lv_label_set_text(hint, "");
@@ -389,6 +434,33 @@ void update_local_menu() {
     lv_obj_set_pos(hint, 16, 212);
     lv_obj_set_style_text_color(hint, lv_color_hex(0x8A8984), 0);
     lv_obj_set_style_text_color(g_menu_text, lv_color_hex(0xE8E6DF), 0);
+    g_game2048_score = lv_label_create(g_menu_panel);
+    lv_obj_set_pos(g_game2048_score, 16, 42);
+    lv_obj_set_width(g_game2048_score, 208);
+    lv_obj_set_style_text_color(g_game2048_score, lv_color_hex(0xF4C95D), 0);
+    lv_obj_add_flag(g_game2048_score, LV_OBJ_FLAG_HIDDEN);
+    g_game2048_panel = lv_obj_create(g_menu_panel);
+    style_plain_object(g_game2048_panel);
+    lv_obj_set_pos(g_game2048_panel, 16, 64);
+    lv_obj_set_size(g_game2048_panel, 208, 140);
+    lv_obj_set_style_bg_opa(g_game2048_panel, LV_OPA_TRANSP, 0);
+    lv_obj_add_flag(g_game2048_panel, LV_OBJ_FLAG_HIDDEN);
+    for (int cell = 0; cell < 16; ++cell) {
+      const int column = cell % 4;
+      const int row = cell / 4;
+      auto *tile = lv_obj_create(g_game2048_panel);
+      style_plain_object(tile);
+      lv_obj_set_pos(tile, 2 + column * 50, 2 + row * 34);
+      lv_obj_set_size(tile, 48, 32);
+      lv_obj_set_style_radius(tile, 4, 0);
+      lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
+      g_game2048_tiles[cell] = tile;
+      auto *value = lv_label_create(tile);
+      lv_obj_center(value);
+      lv_obj_set_style_text_font(value, &lv_font_montserrat_16, 0);
+      lv_obj_set_style_text_color(value, lv_color_hex(0x262626), 0);
+      g_game2048_values[cell] = value;
+    }
     g_binding_code = lv_label_create(g_menu_panel);
     lv_obj_set_pos(g_binding_code, 16, 52);
     lv_obj_set_style_text_font(g_binding_code, &lv_font_montserrat_36, 0);
@@ -415,6 +487,26 @@ void update_local_menu() {
       lv_obj_set_width(g_info_values[i], 208);
       lv_label_set_long_mode(g_info_values[i], LV_LABEL_LONG_SCROLL_CIRCULAR);
     }
+    g_calendar_panel = lv_obj_create(g_menu_panel);
+    style_plain_object(g_calendar_panel);
+    lv_obj_set_pos(g_calendar_panel, 16, 64);
+    lv_obj_set_size(g_calendar_panel, 208, 148);
+    lv_obj_set_style_bg_opa(g_calendar_panel, LV_OPA_TRANSP, 0);
+    lv_obj_add_flag(g_calendar_panel, LV_OBJ_FLAG_HIDDEN);
+    for (int column = 0; column < 7; ++column) {
+      auto *label = lv_label_create(g_calendar_panel);
+      lv_obj_set_pos(label, column * 30, 0);
+      lv_obj_set_style_text_font(label, &lv_font_montserrat_16, 0);
+      constexpr const char *names[] = {"Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"};
+      lv_label_set_text(label, names[column]);
+    }
+    for (int cell = 0; cell < 42; ++cell) {
+      g_calendar_days[cell] = lv_label_create(g_calendar_panel);
+      lv_obj_set_pos(g_calendar_days[cell], (cell % 7) * 30, 20 + (cell / 7) * 21);
+      lv_obj_set_size(g_calendar_days[cell], 28, 20);
+      lv_obj_set_style_text_font(g_calendar_days[cell], &lv_font_montserrat_16, 0);
+      lv_obj_set_style_text_align(g_calendar_days[cell], LV_TEXT_ALIGN_CENTER, 0);
+    }
     g_hold_hint = lv_label_create(lv_screen_active());
     lv_obj_set_style_bg_color(g_hold_hint, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(g_hold_hint, LV_OPA_COVER, 0);
@@ -422,6 +514,227 @@ void update_local_menu() {
     lv_obj_align(g_hold_hint, LV_ALIGN_BOTTOM_MID, 0, -4);
   }
   const auto menu = local_menu_snapshot();
+  const auto current_navigation = product::product_navigation_snapshot();
+  update_cover_view(menu.product_shell && current_navigation.page == product::Page::Feature &&
+      current_navigation.module == product::Module::Music);
+  if (!menu.product_shell || current_navigation.page != product::Page::Feature ||
+      current_navigation.module != product::Module::Information)
+    lv_obj_add_flag(g_calendar_panel, LV_OBJ_FLAG_HIDDEN);
+  if (!menu.product_shell || current_navigation.page != product::Page::Feature ||
+      current_navigation.module != product::Module::Games || current_navigation.item != 1) {
+    lv_obj_add_flag(g_game2048_panel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(g_game2048_score, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (menu.product_shell) {
+    const auto product_state = product::product_state_snapshot(
+        static_cast<uint32_t>(esp_timer_get_time() / 1000000),
+        static_cast<uint32_t>(esp_timer_get_time() / 1000));
+    const auto nav = product_state.navigation;
+    if (nav.page == product::Page::ModuleList) {
+      g_product_list.hide();
+      g_launcher.show(nav.item);
+      lv_obj_remove_flag(g_menu_panel, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_move_foreground(g_menu_panel);
+      g_local_overlay = true;
+      return;
+    }
+    g_launcher.hide();
+    const char *module_titles[] = {"音乐", "助手", "时间管理", "信息看板", "游戏娱乐", "电脑协同", "设置"};
+    const char *title = nav.page == product::Page::ModuleMenu ? module_titles[static_cast<int>(nav.module)] :
+        nav.page == product::Page::PetActions ? "宠物动作" :
+        nav.page == product::Page::Settings ? "设置" : "功能";
+    set_label_text(g_menu_text, title);
+    lv_obj_add_flag(g_binding_code, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(g_binding_info, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(g_avatar_frame, LV_OBJ_FLAG_HIDDEN);
+    for (int i = 0; i < 3; ++i) {
+      lv_obj_add_flag(g_info_labels[i], LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(g_info_values[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    for (auto row : g_menu_rows) lv_obj_add_flag(row, LV_OBJ_FLAG_HIDDEN);
+    std::array<std::string, AmoledList::kMaxItems> labels{};
+    std::array<const char *, AmoledList::kMaxItems> icons{};
+    int count = 0;
+    int selected = nav.item;
+    const bool catalog_ready = nav.page == product::Page::PetActions &&
+        product::pet_animation_catalog_ready();
+    if (nav.page == product::Page::ModuleMenu) {
+      if (nav.module == product::Module::Music) labels = {"本地音乐", "白噪声", "", ""};
+      else if (nav.module == product::Module::Assistant) labels = {"语音对话", "宠物动作", "", ""};
+      else if (nav.module == product::Module::Games) labels = {"电子木鱼", "2048", "", ""};
+      else if (nav.module == product::Module::Time) labels = {"时钟", "番茄钟与提醒", "", ""};
+      else if (nav.module == product::Module::Information) labels = {"日历", "天气", "", ""};
+      else labels = {"打开", "", "", ""};
+      count = labels[1].empty() ? 1 : 2;
+    } else if (nav.page == product::Page::Settings) {
+      labels = {"无线网络", "设备信息", "绑定账号", ""};
+      icons = {LV_SYMBOL_WIFI, LV_SYMBOL_LIST, LV_SYMBOL_SETTINGS};
+      count = 3;
+    } else if (nav.page == product::Page::PetActions && catalog_ready) {
+      const int first = std::clamp(int(nav.item) - 3, 0,
+          int(product::kPetActionRows - AmoledList::kMaxItems));
+      count = AmoledList::kMaxItems;
+      selected = nav.item - first;
+      for (int row = 0; row < count; ++row) {
+        const int item = first + row;
+        labels[row] = item == 0 ? "睡觉 / 叫醒" : product::kPetActionNames[item - 1];
+        icons[row] = item == 0 ? LV_SYMBOL_SETTINGS : LV_SYMBOL_PLAY;
+      }
+    }
+    if (nav.page == product::Page::Feature) {
+      g_product_list.hide();
+      std::string detail;
+      if (nav.module == product::Module::Music) {
+        const auto speaker = status_snapshot();
+        set_label_text(g_menu_text, nav.item == 1 ? "白噪声" : "音乐");
+        detail = !speaker.audio_ready ? "音频未就绪" : speaker.white_noise ? "白噪声 · 循环" : !speaker.sd_ready ? "存储卡未就绪" :
+            speaker.current_name.empty() ? "还没有歌曲" : speaker.current_name;
+        detail += speaker.playing ? "\n正在播放" : speaker.paused ? "\n已暂停" : "\n已停止";
+        detail += " · 音量 " + std::to_string(speaker.volume);
+        if (!speaker.lyric_line.empty()) detail += "\n" + speaker.lyric_line;
+        if (!speaker.last_error.empty()) detail += "\n" + std::string(speaker_error_hint(speaker.last_error));
+        const auto artwork = current_cover_snapshot();
+        if (!speaker.white_noise) {
+          if (!artwork.error.empty()) detail += "\n封面读取失败";
+          else if (!artwork.image) detail += "\n暂无封面";
+        }
+        detail += "\n确认播放/暂停";
+      } else if (nav.module == product::Module::Assistant) {
+        set_label_text(g_menu_text, "助手");
+        detail = xiaozhi_status_label() + "\n确认开始对话";
+      } else if (nav.module == product::Module::Games && nav.item == 0) {
+        detail = "电子木鱼\n功德 " + std::to_string(product_state.wood_fish.count);
+      } else if (nav.module == product::Module::Games) {
+        set_label_text(g_menu_text, "2048");
+        set_label_text(g_game2048_score, "分数 " + std::to_string(product_state.game_score) +
+            "    四向滑动移动");
+        lv_obj_remove_flag(g_game2048_score, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(g_game2048_panel, LV_OBJ_FLAG_HIDDEN);
+        for (size_t i = 0; i < product_state.game_board.size(); ++i) {
+          const auto value = product_state.game_board[i];
+          set_label_text(g_game2048_values[i], value == 0 ? "" : std::to_string(value));
+          const auto background = lv_color_hex(game2048_tile_color(value));
+          if (!lv_color_eq(lv_obj_get_style_bg_color(g_game2048_tiles[i], LV_PART_MAIN), background))
+            lv_obj_set_style_bg_color(g_game2048_tiles[i], background, 0);
+          const auto foreground = lv_color_hex(value > 4 ? 0xFFFFFF : 0x4A4037);
+          if (!lv_color_eq(lv_obj_get_style_text_color(g_game2048_values[i], LV_PART_MAIN), foreground))
+            lv_obj_set_style_text_color(g_game2048_values[i], foreground, 0);
+        }
+        detail.clear();
+      } else if (nav.module == product::Module::Time) {
+        if (nav.item == 0) {
+          const auto clock = lunaredu::lunaros::network_snapshot().clock;
+          const std::time_t epoch = std::time(nullptr);
+          std::tm local = {};
+          if (clock == lunaredu::lunaros::NetworkClockState::Valid && localtime_r(&epoch, &local)) {
+            char value[40] = {};
+            std::strftime(value, sizeof(value), "%Y-%m-%d\n%H:%M:%S", &local);
+            detail = value;
+          } else detail = "系统时间未校准";
+        } else {
+          detail = product_state.pomodoro.active ?
+              (product_state.pomodoro.paused ? "番茄钟已暂停\n" : "番茄钟运行中\n") +
+                  std::to_string(product_state.pomodoro.remaining_seconds) + " 秒" : "番茄钟未开始";
+          if (product_state.time_operation_pending) detail += "\n正在保存…";
+          if (!product_state.time_storage_ready) detail += "\n时间存储不可用";
+          for (const auto pending : product_state.pending_reminders) {
+            const auto reminder = std::find_if(product_state.reminders.begin(), product_state.reminders.end(),
+                [pending](const product::Reminder &item) { return item.id == pending.id; });
+            if (reminder != product_state.reminders.end()) detail += "\n待查看：" + reminder->title;
+            if (pending.missed) detail += "（已错过）";
+          }
+        }
+      } else if (nav.module == product::Module::Computer) {
+        set_label_text(g_menu_text, "电脑协同");
+        if (product_state.paired_computer.empty()) detail = "未配对电脑\n请通过网页配对采集端";
+        else {
+          auto metric = [](product::TelemetryStatus status, float value, const char *unit) {
+            if (status != product::TelemetryStatus::Fresh) return std::string(product::telemetry_status_name(status));
+            char number[32] = {};
+            std::snprintf(number, sizeof(number), "%.1f%s", static_cast<double>(value), unit);
+            return std::string(number);
+          };
+          const auto &sample = product_state.computer;
+          detail = "CPU " + metric(sample.cpu, sample.cpu_percent, "%") +
+              "\nGPU " + metric(sample.gpu, sample.gpu_percent, "%") +
+              "\n温度 " + metric(sample.temperature, sample.temperature_c, "°C") +
+              "\n风扇 " + metric(sample.fan, sample.fan_rpm, " rpm") +
+              "\n" + std::to_string(sample.sample_age_ms / 1000) + " 秒前";
+        }
+      } else if (nav.module == product::Module::Information) {
+        const std::time_t epoch = std::time(nullptr);
+        const auto network = lunaredu::lunaros::network_snapshot();
+        const auto weather = product::weather_snapshot(static_cast<uint32_t>(esp_timer_get_time() / 1000),
+            epoch, network.clock == lunaredu::lunaros::NetworkClockState::Valid,
+            network.link == lunaredu::lunaros::NetworkLinkState::Up);
+        product::MonthlyCalendar calendar;
+        if (nav.item == 1) {
+          lv_obj_add_flag(g_calendar_panel, LV_OBJ_FLAG_HIDDEN);
+          detail = weather.has_reading ?
+              weather.config.place + "\n" + product::weather_code_label(weather.reading.code) + " " +
+                  std::to_string(static_cast<int>(std::lround(weather.reading.temperature_c))) + "°C\n湿度 " +
+                  std::to_string(weather.reading.humidity_percent) + "% · " +
+                  std::to_string(weather.age_seconds / 60) + " 分钟前" :
+              weather.status == "not_configured" ? "请在网页设置天气地点" :
+                  "天气不可用\n" + weather.status;
+          if (weather.status != "fresh" && weather.has_reading) detail += "\n" + weather.status;
+          if (weather.refreshing) detail += "\n正在更新…";
+          if (weather.retry_required) detail += "\n连续失败，请从网页重试";
+          detail += "\nOpen-Meteo · CC BY 4.0";
+        } else if (!product::make_local_calendar(epoch,
+                lunaredu::lunaros::network_snapshot().clock == lunaredu::lunaros::NetworkClockState::Valid,
+                product_state.reminders, product_state.pending_reminders, calendar)) {
+          lv_obj_add_flag(g_calendar_panel, LV_OBJ_FLAG_HIDDEN);
+          detail = "系统时间未校准\n月历不可用";
+        } else {
+          char date[24] = {};
+          std::snprintf(date, sizeof(date), "%04d-%02u-%02u", calendar.year, calendar.month, calendar.today);
+          set_label_text(g_menu_text, date);
+          for (size_t i = 0; i < calendar.days.size(); ++i) {
+            const auto &day = calendar.days[i];
+            const auto label = g_calendar_days[i];
+            set_label_text(label, std::to_string(day.day) + (day.has_reminder ? "*" : ""));
+            const auto colour = lv_color_hex(day.today ? 0xF4C95D : day.in_month ? 0xE8E6DF : 0x555555);
+            if (!lv_color_eq(lv_obj_get_style_text_color(label, LV_PART_MAIN), colour))
+              lv_obj_set_style_text_color(label, colour, 0);
+          }
+          lv_obj_remove_flag(g_calendar_panel, LV_OBJ_FLAG_HIDDEN);
+          detail = "* 提醒";
+        }
+      } else {
+        detail = std::string(module_titles[static_cast<int>(nav.module)]) + "\n功能准备中";
+      }
+      set_label_text(g_menu_hint, detail);
+      lv_obj_set_pos(g_menu_hint, 16, 60);
+      lv_obj_set_width(g_menu_hint, 208);
+      if (nav.module == product::Module::Music) lv_obj_set_width(g_menu_hint, 128);
+      lv_label_set_long_mode(g_menu_hint, LV_LABEL_LONG_WRAP);
+      if (nav.module == product::Module::Information && !lv_obj_has_flag(g_calendar_panel, LV_OBJ_FLAG_HIDDEN))
+        lv_obj_set_y(g_menu_hint, 216);
+      if (nav.module == product::Module::Games && nav.item == 1)
+        lv_obj_add_flag(g_menu_hint, LV_OBJ_FLAG_HIDDEN);
+      else
+        lv_obj_remove_flag(g_menu_hint, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      g_product_list.show(labels, icons, count, selected,
+          static_cast<int>(nav.page) * 8 + static_cast<int>(nav.module));
+      const std::string footer = nav.page == product::Page::PetActions ?
+          (!catalog_ready ? "请在 SD 卡安装完整动画包" :
+           std::to_string(nav.item + 1) + "/" + std::to_string(product::kPetActionRows)) :
+          std::to_string(nav.item + 1) + "/" + std::to_string(count);
+      set_label_text(g_menu_hint, footer);
+      lv_obj_set_pos(g_menu_hint, 16, 212);
+      lv_obj_set_width(g_menu_hint, 208);
+      lv_label_set_long_mode(g_menu_hint, LV_LABEL_LONG_CLIP);
+      lv_obj_remove_flag(g_menu_hint, LV_OBJ_FLAG_HIDDEN);
+    }
+    lv_obj_remove_flag(g_menu_panel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(g_menu_panel);
+    g_local_overlay = true;
+    return;
+  }
+  g_product_list.hide();
+  g_launcher.hide();
   const bool overlay = menu.open || menu.binding || menu.information || menu.network || menu.library || menu.hold_percent > 0;
   static int previous_mode = -1;
   static int previous_selection = -1;
@@ -446,7 +759,9 @@ void update_local_menu() {
     g_display_stats.lvgl_pool_largest_block = memory.free_biggest_size;
     portEXIT_CRITICAL(&g_display_stats_lock);
   }
-  if (mode == previous_mode && menu.selected == previous_selection &&
+  // Product pages also own this panel. Their exit must run the visibility
+  // update even when the legacy cache still describes the same home state.
+  if (g_local_overlay == overlay && mode == previous_mode && menu.selected == previous_selection &&
       menu.information_page == previous_info_page &&
       menu.library_index == previous_library_index && menu.network_selected == previous_network_selected &&
       menu.account_selected == previous_account_selected &&
@@ -672,6 +987,7 @@ void update_local_menu() {
 }
 
 void set_visible(lv_obj_t *object, bool visible) {
+  if (visible == !lv_obj_has_flag(object, LV_OBJ_FLAG_HIDDEN)) return;
   if (visible) lv_obj_remove_flag(object, LV_OBJ_FLAG_HIDDEN);
   else lv_obj_add_flag(object, LV_OBJ_FLAG_HIDDEN);
 }
@@ -686,10 +1002,11 @@ void update_character_layout(bool visible) {
   }
 }
 
-void update_playback_indicator(bool visible, float morph, float opacity, float level) {
-  const bool changed = g_indicator_morph != morph || g_indicator_opacity != opacity ||
+void update_playback_indicator(bool visible, float opacity, float level) {
+  level = std::round(level * 108) / 108;
+  opacity = std::round(opacity * 255) / 255;
+  const bool changed = g_indicator_opacity != opacity ||
       g_indicator_level != level;
-  g_indicator_morph = morph;
   g_indicator_opacity = opacity;
   g_indicator_level = level;
   set_visible(g_volume, visible);
@@ -700,7 +1017,7 @@ void update_playback_indicator(bool visible, float morph, float opacity, float l
   }
 }
 
-bool render_character_direct(const character::Pose &pose, int screen_top, bool compact = false) {
+bool render_character_direct(const character::Pose &pose, int screen_top) {
   const uint64_t started = esp_timer_get_time();
   g_character_renderer.prepare(pose);
   uint32_t raster_us = static_cast<uint32_t>(esp_timer_get_time() - started);
@@ -711,7 +1028,7 @@ bool render_character_direct(const character::Pose &pose, int screen_top, bool c
   constexpr size_t capacity = character::kSize * character::kTileRows;
   const int inset = pose.mood == character::Mood::Radar ? 32 : 0;
   const int width = character::kSize - inset * 2;
-  const int bottom = compact ? 136 : character::kSize - inset;
+  const int bottom = character::kSize - inset;
   for (int top = inset; top < bottom; top += character::kTileRows) {
     const int rows = std::min(character::kTileRows, bottom - top);
     uint64_t stage_started = esp_timer_get_time();
@@ -816,19 +1133,93 @@ void display_task(void *) {
   g_body_font = lunaros_font_runtime_16();
   g_heading_font = lunaros_font_runtime_20();
   ESP_LOGI(kTag, "Shared Chinese fonts ready");
-  make_ui();
+  auto *pet_buffer = static_cast<uint8_t *>(heap_caps_calloc(
+      1, HomePetView::kBufferBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!pet_buffer) ESP_LOGW(kTag, "home pet buffer allocation failed");
+  make_ui(pet_buffer);
+  // First visible UI is a boot overlay on the same LVGL display. No extra
+  // task/timer or LCD writer; all objects are deleted once it yields the UI.
+  g_boot.create(lv_layer_top(), g_home, esp_app_get_description()->version,
+                static_cast<uint32_t>(esp_timer_get_time() / 1000));
+  portENTER_CRITICAL(&g_display_stats_lock);
+  g_display_stats.boot_visible = true;
+  portEXIT_CRITICAL(&g_display_stats_lock);
+  ESP_LOGI(kTag, "boot screen shown");
   update_setup_screen();
-  uint32_t last_status_ms = 0, last_clock_ms = 0, last_status_activity = 0;
-  char previous_clock[6] = {};
-  RuntimeStatus current_status = status_snapshot();
+  uint32_t last_status_ms = 0, last_status_activity = 0;
+  uint32_t last_home_ms = 0;
+  uint32_t last_stack_sample_ms = 0;
+  bool previous_home_visible = false;
+  // Only this resident task accesses these snapshots. Keep their retained
+  // storage separate from LVGL's nested layout and draw calls.
+  static RuntimeStatus current_status;
+  current_status = status_snapshot();
   uint32_t last_character_ms = 0;
+  static PetAnimation pet_animation;
+  static std::string reminder_hint, last_character_hint;
+  uint32_t last_reminder_poll = 0;
+  int last_drawn_pet_frame = -1;
   std::string previous_error;
   uint32_t error_seen_ms = 0;
   uint32_t error_generation = 0;
   bool previous_transfer_page = false;
+  // The resident task already has a deep LVGL drawing call chain. Keep the
+  // bounded boot histogram and baseline outside the task stack.
+  static const auto boot_start_display = lunaredu::desktop::lvgl_screen_runtime_status();
+  static std::array<uint16_t, 40> boot_frame_histogram{};
+  static uint64_t boot_previous_poll_us = 0, boot_total_frame_us = 0;
+  static uint32_t boot_frames = 0, boot_max_frame_us = 0, boot_slow_frames = 0;
+  static uint32_t boot_max_refresh_us = 0;
   for (;;) {
-    const uint32_t poll_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000);
+    const uint64_t poll_us = esp_timer_get_time();
+    const uint32_t poll_ms = static_cast<uint32_t>(poll_us / 1000);
+    if (poll_ms - last_stack_sample_ms >= 1000) {
+      const auto minimum = uxTaskGetStackHighWaterMark(nullptr);
+      portENTER_CRITICAL(&g_display_stats_lock);
+      g_display_stats.display_stack_min_free_bytes = minimum;
+      portEXIT_CRITICAL(&g_display_stats_lock);
+      last_stack_sample_ms = poll_ms;
+    }
+    const bool measuring_boot = g_boot.active();
+    if (measuring_boot) {
+      if (boot_previous_poll_us) {
+        const auto interval = static_cast<uint32_t>(poll_us - boot_previous_poll_us);
+        ++boot_frames;
+        boot_total_frame_us += interval;
+        boot_max_frame_us = std::max(boot_max_frame_us, interval);
+        if (interval > 50000) ++boot_slow_frames;
+        ++boot_frame_histogram[std::min<size_t>(interval / 10000, boot_frame_histogram.size() - 1)];
+      }
+      boot_previous_poll_us = poll_us;
+    }
     const uint32_t poll_activity = visual_activity_snapshot();
+    if (g_boot.active()) {
+      const auto menu = local_menu_snapshot();
+      // Explicit navigation wins immediately; never cover a requested menu.
+      if (menu.open || menu.product_shell || menu.binding || menu.information ||
+          menu.network || menu.library || menu.provisioning || menu.hold_percent > 0) {
+        g_boot.dismiss();
+      } else {
+        const auto network = lunaredu::lunaros::network_snapshot();
+        const BootNetworkStatus boot_network{
+            network.link == lunaredu::lunaros::NetworkLinkState::Up,
+            network.clock == lunaredu::lunaros::NetworkClockState::Valid,
+            network.provisioning == lunaredu::lunaros::NetworkProvisioningState::Active ||
+                !network.credentials_available};
+        const bool was_revealing = g_boot.revealing();
+        const bool home_target = !g_setup_visible && !boot_network.needs_setup;
+        g_boot.update(poll_ms, boot_network, home_target);
+        if (!was_revealing && g_boot.revealing())
+          ESP_LOGI(kTag, "boot home reveal started");
+      }
+      if (!g_boot.active()) {
+        portENTER_CRITICAL(&g_display_stats_lock);
+        g_display_stats.boot_visible = false;
+        portEXIT_CRITICAL(&g_display_stats_lock);
+        g_force_character_redraw = true;
+        ESP_LOGI(kTag, "boot screen dismissed");
+      }
+    }
     if (poll_ms - last_status_ms >= 80 || poll_activity != last_status_activity) {
       last_status_ms = poll_ms;
       last_status_activity = poll_activity;
@@ -836,15 +1227,63 @@ void display_task(void *) {
       update_setup_screen();
       update_status(current_status);
     }
-    if (poll_ms - last_clock_ms >= 1000) {
-      last_clock_ms = poll_ms;
-      update_clock(previous_clock);
-    }
-    update_local_menu();
+    if (!g_boot.active()) update_local_menu();
+    const auto assistant = lunaredu::pet::conversation::runtime_snapshot();
+    const bool voice_busy = assistant.interaction_active;
     const auto local_menu = local_menu_snapshot();
-    const bool menu_page = local_menu.open || local_menu.binding || local_menu.information || local_menu.network || local_menu.library;
+    const bool menu_page = local_menu.open || local_menu.product_shell || local_menu.binding || local_menu.information || local_menu.network || local_menu.library;
+    const bool home_visible = !menu_page && !g_setup_visible;
+    const bool home_face_visible = home_visible;
+    const auto resources = product::desktop_resources_snapshot();
+    const bool background_changed = resources.pixels != g_wallpaper_pixels;
+    if (background_changed) {
+      // Drop LVGL's cached decoder before releasing the old immutable buffer.
+      lv_obj_add_flag(g_wallpaper_view, LV_OBJ_FLAG_HIDDEN);
+      lv_image_set_src(g_wallpaper_view, nullptr);
+      lv_image_cache_drop(&g_wallpaper_image);
+      g_wallpaper_pixels = resources.pixels;
+      if (g_wallpaper_pixels) {
+        g_wallpaper_image.header.magic = LV_IMAGE_HEADER_MAGIC;
+        g_wallpaper_image.header.cf = LV_COLOR_FORMAT_RGB565;
+        g_wallpaper_image.header.w = g_wallpaper_image.header.h = product::kWallpaperSide;
+        g_wallpaper_image.header.stride = product::kWallpaperSide * 2;
+        g_wallpaper_image.data_size = g_wallpaper_pixels->size() * 2;
+        g_wallpaper_image.data = reinterpret_cast<const uint8_t *>(g_wallpaper_pixels->data());
+        lv_image_set_src(g_wallpaper_view, &g_wallpaper_image);
+      }
+      lv_obj_invalidate(lv_screen_active());
+    }
+    set_visible(g_wallpaper_view, home_visible && g_wallpaper_pixels);
+    if (home_face_visible && (!previous_home_visible || background_changed || poll_ms - last_home_ms >= 1000)) {
+      const auto network = lunaredu::lunaros::network_snapshot();
+      const bool trusted = network.clock == lunaredu::lunaros::NetworkClockState::Valid;
+      const std::time_t epoch = std::time(nullptr);
+      std::tm local{};
+      const bool local_valid = trusted && localtime_r(&epoch, &local) != nullptr;
+      const auto weather = product::weather_snapshot(poll_ms, epoch, trusted,
+          network.link == lunaredu::lunaros::NetworkLinkState::Up);
+      const bool missing = !g_wallpaper_pixels && !resources.selected.empty();
+      g_home.show(home_content(local_valid ? &local : nullptr, weather, missing),
+                  g_wallpaper_pixels != nullptr);
+      last_home_ms = poll_ms;
+    }
+    if (!home_face_visible) g_home.hide();
+    previous_home_visible = home_face_visible;
+    if (g_boot.active()) {
+      smart_speaker_set_pet_touch_target(0);
+      // Resume character/lyrics work when the opening yields the LCD.
+      lunaredu::desktop::lvgl_screen_runtime_handler();
+      boot_max_refresh_us = std::max(boot_max_refresh_us,
+          lunaredu::desktop::lvgl_screen_runtime_status().last_refresh_us);
+      const auto work_us = static_cast<uint32_t>(esp_timer_get_time() - poll_us);
+      const uint32_t period_us = kDisplayFrameMs * 1000;
+      const uint32_t sleep_ms = work_us < period_us ? (period_us - work_us) / 1000 : 0;
+      vTaskDelay(std::max<TickType_t>(1, pdMS_TO_TICKS(sleep_ms)));
+      continue;
+    }
     const bool holding = !menu_page && !g_setup_visible && local_menu.hold_percent > 0;
-    const bool character_allowed = !menu_page && (!g_setup_visible || g_setup_character);
+    const bool setup_character = !menu_page && g_setup_visible && g_setup_character;
+    const bool character_allowed = home_visible || setup_character || voice_busy;
     const uint32_t now = static_cast<uint32_t>(esp_timer_get_time() / 1000);
     const uint32_t activity = visual_activity_snapshot();
     const auto motion = smart_speaker_motion_input();
@@ -883,6 +1322,20 @@ void display_task(void *) {
         dual_i2s_expression_level(),
         motion.valid, motion.tilt_x, motion.tilt_y, motion.twist_z,
         motion.angular_speed_dps});
+    AssistantVisualState assistant_visual = AssistantVisualState::Inactive;
+    if (assistant.speaking) assistant_visual = AssistantVisualState::Speaking;
+    else if (assistant.thinking) assistant_visual = AssistantVisualState::Thinking;
+    else if (assistant.listening || (assistant.opening && voice_busy)) assistant_visual = AssistantVisualState::Listening;
+    else if (assistant.failed) assistant_visual = AssistantVisualState::Failed;
+    else {
+      const auto until = g_assistant_emotion_until_ms.load(std::memory_order_acquire);
+      if (until != 0 && static_cast<int32_t>(until - now) > 0)
+        assistant_visual = static_cast<AssistantVisualState>(
+            g_assistant_emotion.load(std::memory_order_acquire));
+    }
+    const bool animation_visible = (home_visible || voice_busy) && pet_buffer && pose.visible;
+    const auto animated_frame = product::pet_animation_snapshot();
+    const bool animation_ready = animation_visible && animated_frame.pixels;
     static bool previous_radar = false;
     const bool radar = pose.mood == character::Mood::Radar;
     if (radar != previous_radar) {
@@ -891,20 +1344,15 @@ void display_task(void *) {
       g_force_character_redraw = true;
       previous_radar = radar;
     }
-    if (!g_setup_visible && !menu_page)
-      update_character_layout(pose.visible);
-    const bool stopped = show_pause_for_volume(current_status.volume, current_status.playing,
-        current_status.paused, current_status.current_index >= 0);
-    const float pause_morph = g_pause_indicator.update(now, stopped);
-    const float volume_level = g_pause_indicator.volume_level(current_status.volume,
+    if (!menu_page) update_character_layout(setup_character && pose.visible);
+    const float volume_level = g_volume_indicator.update(now, current_status.volume,
         CONFIG_LUNAREDU_SMART_SPEAKER_MAX_VOLUME);
-    const float indicator_opacity = std::max({pose.volume_opacity,
-        stopped ? 1.0f : pause_morph, g_pause_indicator.resume_opacity(now)});
+    const float indicator_opacity = pose.volume_opacity;
     const bool indicator_visible = character_allowed && pose.visible &&
         !g_setup_visible && !holding && !transfer_page &&
         feedback == character::Feedback::None && indicator_opacity > 0;
     std::string hint;
-    if (pose.visible && !holding && !g_setup_visible) {
+    if (character_allowed && pose.visible && !holding && !g_setup_visible) {
       if (transfer_page) {
         if (transfer.receiving) hint = transfer.received >= transfer.total ? "正在保存…" :
             "接收歌曲 " + std::to_string(percent) + "%";
@@ -922,59 +1370,64 @@ void display_task(void *) {
       else if (current_status.mode_sequence && now - current_status.mode_updated_ms < 2200)
         hint = playback_mode_label(current_status.playback_mode);
       else {
-        const std::string xiaozhi = xiaozhi_status_label();
-        if (xiaozhi != "小智待命" && xiaozhi != "小智准备中") hint = xiaozhi;
+        auto xiaozhi = xiaozhi_status_label(true);
+        if (xiaozhi != "小智待命" && xiaozhi != "小智准备中") {
+          if (voice_busy || assistant.activation_pending || assistant.failed) hint = std::move(xiaozhi);
+        }
       }
     }
+    if (hint.empty() && home_visible && !resources.selected.empty() && !resources.pixels)
+      hint = "壁纸读取失败 · 可在网页重选";
     // Volume changes get priority over transient status text so the animated
     // level bar remains visible while the user turns the encoder.
     if (pose.volume_visible && feedback == character::Feedback::None &&
         !transfer_page) hint.clear();
-    // Keep the compact layout for the entire song (including instrumental
-    // gaps). Only the lyric band changes at sentence boundaries.
-    const bool compact = character_allowed && pose.visible && !g_setup_visible &&
-        !holding && !transfer_page && feedback == character::Feedback::None &&
-        current_status.has_lyrics && (current_status.playing || current_status.paused);
-    if (compact != g_lyrics_layout) {
-      g_lyrics_layout = compact;
-      lv_obj_invalidate(lv_screen_active());
-      lv_timer_ready(lv_display_get_refr_timer(lv_display_get_default()));
-      g_force_character_redraw = true;
+    const auto touch = smart_speaker_pet_touch_feedback();
+    auto conversation_clip = product::PetClip::Count;
+    using product::PetClip;
+    switch (assistant_visual) {
+      case AssistantVisualState::Speaking: conversation_clip = PetClip::Talk; break;
+      case AssistantVisualState::Thinking:
+      case AssistantVisualState::Listening: conversation_clip = PetClip::Think; break;
+      case AssistantVisualState::Happy: conversation_clip = PetClip::Tap; break;
+      case AssistantVisualState::Curious: conversation_clip = product::pet_action_named("东张西望"); break;
+      case AssistantVisualState::Sleepy: conversation_clip = product::pet_action_named("哈欠连天"); break;
+      case AssistantVisualState::Error:
+      case AssistantVisualState::Failed: conversation_clip = product::pet_action_named("被吓一跳"); break;
+      default: break;
     }
-    // Hints and lyrics share the footer with the playback indicator.
+    const bool pet_interactive = animation_visible && !voice_busy && !holding;
+    if (animation_visible && animated_frame.unavailable) g_pending_pet_action.store(-1);
+    const auto animation = pet_animation.update(now, animation_visible, pet_interactive,
+        conversation_clip, touch, animated_frame.clip, animated_frame.index,
+        animated_frame.frame_count, pose, 240,
+        pet_interactive && animation_ready ? g_pending_pet_action.exchange(-1) : -1, motion,
+        product::pet_animation_catalog_ready(), animated_frame.unavailable, true);
+    if (animation_visible && !voice_busy && now - last_reminder_poll >= 1000) {
+      reminder_hint = product::product_pending_reminder_hint();
+      last_reminder_poll = now;
+    }
+    if (hint.empty() && animation_visible && !voice_busy &&
+        !pose.volume_visible && !holding) {
+      if (!reminder_hint.empty()) hint = reminder_hint;
+      else if (animation.caption && animation.clip == animated_frame.clip) hint = animation.caption;
+    }
+    if (hint != last_character_hint) {
+      last_character_hint = hint;
+      lv_label_set_text(g_character_hint, last_character_hint.c_str());
+    }
     const bool show_indicator = indicator_visible && hint.empty();
-    update_playback_indicator(show_indicator, pause_morph, indicator_opacity, volume_level);
-    const bool show_lyric = compact && hint.empty() && !show_indicator && !current_status.lyric_line.empty();
-    const bool lyric_was_visible = !lv_obj_has_flag(g_lyrics_panel, LV_OBJ_FLAG_HIDDEN);
-    set_visible(g_lyrics_panel, show_lyric);
-    if (show_lyric && (!lyric_was_visible || current_status.lyric_line != lv_label_get_text(g_lyric_label))) {
-      lv_anim_delete(g_lyric_label, nullptr);
-      lv_label_set_text(g_lyric_label, current_status.lyric_line.c_str());
-      lv_anim_t slide;
-      lv_anim_init(&slide);
-      lv_anim_set_var(&slide, g_lyric_label);
-      lv_anim_set_values(&slide, 0, 255);
-      lv_anim_set_duration(&slide, 180);
-      lv_anim_set_exec_cb(&slide, [](void *object, int32_t value) {
-        auto *label = static_cast<lv_obj_t *>(object);
-        lv_obj_set_y(label, (255-value)*4/255);
-        lv_obj_set_style_opa(label, static_cast<lv_opa_t>(value), 0);
-      });
-      lv_anim_start(&slide);
-    }
-    if (compact) character::fit_lyrics_layout(pose);
-    set_visible(g_character_hint, !hint.empty());
-    set_label_text(g_character_hint, hint);
-    set_visible(g_track_panel, pose.visible && !holding && !g_setup_visible);
+    update_playback_indicator(show_indicator, indicator_opacity, volume_level);
+    set_visible(g_character_hint, !voice_busy && !hint.empty());
+    set_visible(g_track_panel, home_visible && transfer_page);
     portENTER_CRITICAL(&g_display_stats_lock);
     g_display_stats.character_visible = pose.visible;
-    g_display_stats.lyrics_visible = show_lyric;
-    g_display_stats.lyrics_layout = compact;
+
     g_display_stats.transfer_page = transfer_page;
     g_display_stats.transfer_percent = transfer_page ? percent : 0;
-    g_display_stats.volume_bar_visible = show_indicator && pause_morph < 1;
-    g_display_stats.pause_indicator_visible = show_indicator && pause_morph > 0;
-    g_display_stats.pause_indicator_percent = static_cast<uint8_t>(std::lround(pause_morph * 100));
+    g_display_stats.volume_bar_visible = show_indicator;
+    g_display_stats.pause_indicator_visible = false;
+    g_display_stats.pause_indicator_percent = 0;
     g_display_stats.character_edge_contact = static_cast<uint8_t>(pose.edge_contact);
     g_display_stats.character_edge_impact = static_cast<uint8_t>(
         std::lround(std::clamp(pose.edge_impact, 0.0f, 1.0f) * 100.0f));
@@ -983,27 +1436,86 @@ void display_task(void *) {
     g_display_stats.character_mood = static_cast<uint8_t>(pose.mood);
     const uint32_t character_frame_ms = g_display_stats.character_frame_ms;
     portEXIT_CRITICAL(&g_display_stats_lock);
-    const int character_top = g_setup_character ? (g_setup_cached_credentials ? 72 : 60) : compact ? 44 : kCharacterTop;
-    g_character_damage_height.store(compact ? 136 : character::kSize, std::memory_order_relaxed);
+    const int character_top = g_setup_character ? (g_setup_cached_credentials ? 72 : 60) : kCharacterTop;
+    product::pet_animation_request(animation.clip, animation.index);
+    portENTER_CRITICAL(&g_display_stats_lock);
+    g_display_stats.pet_animation_unavailable = animation_visible && animated_frame.unavailable;
+    g_display_stats.pet_dragging = pet_interactive && touch.dragging;
+    if (!animation_ready) {
+      g_display_stats.pet_animation_visible = false;
+      last_drawn_pet_frame = -1;
+    }
+    portEXIT_CRITICAL(&g_display_stats_lock);
+    if (animation_visible) {
+      const int frame_key = animation_ready ?
+          (static_cast<int>(animated_frame.clip) << 8) | animated_frame.index : -1;
+      g_home_pet.show(voice_busy ? PetSpriteRect{80, 48, 80, 80} : animation.sprite, animation_ready ? animated_frame.pixels->data() : nullptr,
+                      frame_key, kHomePetIdle);
+    } else {
+      g_home_pet.hide();
+    }
+    g_home_pet.set_conversation(voice_busy, voice_busy ? xiaozhi_status_label(true).c_str() : "");
+    if (pet_interactive) {
+      const auto r = animation.sprite;
+      // Exclude most of the transparent margin in the 80px default sprite.
+      smart_speaker_set_pet_touch_target(PetTouchTarget{
+          static_cast<unsigned>(r.x + r.w / 12), static_cast<unsigned>(r.y + r.h / 12),
+          static_cast<unsigned>(r.w * 5 / 6), static_cast<unsigned>(r.h * 5 / 6)}.packed());
+    } else {
+      smart_speaker_set_pet_touch_target(0);
+    }
+    g_character_damage_height.store(character::kSize, std::memory_order_relaxed);
     g_character_damage_top.store(character_top, std::memory_order_relaxed);
     lunaredu::desktop::lvgl_screen_runtime_handler();
     const auto lvgl_status = lunaredu::desktop::lvgl_screen_runtime_status();
+    if (measuring_boot) {
+      boot_max_refresh_us = std::max(boot_max_refresh_us, lvgl_status.last_refresh_us);
+      if (!g_boot.active()) {
+        uint32_t cumulative = 0, p95_us = 0;
+        for (size_t i = 0; i < boot_frame_histogram.size(); ++i) {
+          cumulative += boot_frame_histogram[i];
+          if (cumulative * 100 >= boot_frames * 95) {
+            p95_us = i + 1 == boot_frame_histogram.size() ? boot_max_frame_us :
+                static_cast<uint32_t>((i + 1) * 10000);
+            break;
+          }
+        }
+        portENTER_CRITICAL(&g_display_stats_lock);
+        g_display_stats.boot_frame_count = boot_frames;
+        g_display_stats.boot_frame_mean_us = boot_frames ? boot_total_frame_us / boot_frames : 0;
+        g_display_stats.boot_frame_p95_us = p95_us;
+        g_display_stats.boot_frame_max_us = boot_max_frame_us;
+        g_display_stats.boot_frames_over_50ms = boot_slow_frames;
+        g_display_stats.boot_max_refresh_us = boot_max_refresh_us;
+        g_display_stats.boot_refresh_count = lvgl_status.refresh_count - boot_start_display.refresh_count;
+        g_display_stats.boot_full_refresh_count = lvgl_status.full_refresh_count - boot_start_display.full_refresh_count;
+        g_display_stats.boot_flushed_pixels = lvgl_status.flushed_pixels - boot_start_display.flushed_pixels;
+        portEXIT_CRITICAL(&g_display_stats_lock);
+      }
+    }
     // Account for every flushed rectangle, not just the final tile. A scrolling
     // caption above the character no longer forces a full character upload.
     if (g_character_damaged.exchange(false, std::memory_order_acq_rel)) g_force_character_redraw = true;
-    // Radar uses a 96x96 viewport below credentials; failures use full Pebble.
-    if (character_allowed && !lvgl_status.flush_pending) {
-      if (pose.visible) {
-        if (g_force_character_redraw || now - last_character_ms >= character_frame_ms) {
-          g_force_character_redraw = !render_character_direct(pose, character_top, compact);
-          last_character_ms = now;
-        }
-      }
+    if (animation_ready) {
+      const int frame_key = (static_cast<int>(animated_frame.clip) << 8) | animated_frame.index;
+      portENTER_CRITICAL(&g_display_stats_lock);
+      if (frame_key != last_drawn_pet_frame) ++g_display_stats.pet_animation_frames_drawn;
+      g_display_stats.pet_animation_visible = true;
+      g_display_stats.pet_animation_clip = static_cast<uint8_t>(animated_frame.clip);
+      g_display_stats.pet_animation_frame = animated_frame.index;
+      portEXIT_CRITICAL(&g_display_stats_lock);
+      last_drawn_pet_frame = frame_key;
+    }
+    if (setup_character && pose.visible && !lvgl_status.flush_pending &&
+        (g_force_character_redraw || now - last_character_ms >= character_frame_ms)) {
+      g_force_character_redraw = !render_character_direct(pose, character_top);
+      last_character_ms = now;
     }
     // Drawing consumes part of the frame budget. Sleep only until the next
     // input poll or frame, rather than adding 20 ms after every slow draw.
-    uint32_t wait_ms = kDisplayFrameMs;
-    if (character_allowed && pose.visible) {
+    uint32_t wait_ms = display_frame_wait_ms(
+        static_cast<uint32_t>(esp_timer_get_time() - poll_us), kDisplayFrameMs);
+    if (setup_character && pose.visible) {
       const uint32_t since_frame = static_cast<uint32_t>(esp_timer_get_time() / 1000) - last_character_ms;
       wait_ms = std::min(wait_ms, since_frame >= character::kFrameMs ? 1U : character::kFrameMs - since_frame);
     }
@@ -1013,11 +1525,27 @@ void display_task(void *) {
 
 } // namespace
 
+void smart_speaker_display_set_assistant_emotion(AssistantVisualState state) {
+  switch (state) {
+    case AssistantVisualState::Happy:
+    case AssistantVisualState::Curious:
+    case AssistantVisualState::Sleepy:
+    case AssistantVisualState::Error:
+      g_assistant_emotion.store(static_cast<uint8_t>(state), std::memory_order_release);
+      g_assistant_emotion_until_ms.store(
+          static_cast<uint32_t>(esp_timer_get_time() / 1000) + 2200,
+          std::memory_order_release);
+      break;
+    default:
+      break;
+  }
+}
+
 bool setup_smart_speaker_display() {
   std::string task_error;
   const bool created = lunaredu::lunaros::create_managed_task(
       {.id = "speaker_display", .owner_service_id = "device.hardware", .role = "visualization",
-       .stack_bytes = 8192, .priority = 2,
+       .stack_bytes = kDisplayStackBytes, .priority = 2,
 #if CONFIG_FREERTOS_UNICORE
        .core_affinity = 0,
 #else
@@ -1035,6 +1563,10 @@ SmartSpeakerDisplayStats smart_speaker_display_stats() {
   const SmartSpeakerDisplayStats stats = g_display_stats;
   portEXIT_CRITICAL(&g_display_stats_lock);
   return stats;
+}
+
+void smart_speaker_display_request_pet_action(int action) {
+  if (action >= 0 && action <= product::kPetToggleSleep) g_pending_pet_action.store(action);
 }
 
 } // namespace smart_speaker

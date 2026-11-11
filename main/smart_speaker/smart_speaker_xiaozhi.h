@@ -12,6 +12,6 @@ bool xiaozhi_clear_activation();
 bool xiaozhi_start_listening();
 bool xiaozhi_stop_listening();
 bool xiaozhi_finish_listening();
-std::string xiaozhi_status_label();
+std::string xiaozhi_status_label(bool show_spoken_line = false);
 
 } // namespace smart_speaker

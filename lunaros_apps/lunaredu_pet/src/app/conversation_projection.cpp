@@ -2,6 +2,7 @@
 #include "app/conversation_projection.h"
 
 #include <cstring>
+#include "interaction/transport/assistant_provider.h"
 
 #include <ArduinoJson.h>
 
@@ -11,6 +12,7 @@
 #include "lunaredu_audio_bridge.h"
 #include "lunaredu_pet_conversation.h"
 #include "lunaredu_pet_conversation_policy.h"
+#include "interaction/conversation/assistant_endpoint_policy.h"
 
 namespace lunaredu::pet::conversation {
 
@@ -37,6 +39,7 @@ void fill_status(JsonObject payload) {
   const AssistantPolicySnapshot policy = assistant_policy_snapshot();
   const auto audio = lunaredu::audio::local_pcm_audio_bridge_status();
   payload["ok"] = status.initialized && !status.failed;
+  payload["assistant_platform"] = kAssistantUsesLunarLink ? "lunarlink" : "xiaozhi";
   payload["available"] = status.initialized;
   payload["initialized"] = status.initialized;
   payload["enabled"] = status.enabled;
@@ -45,6 +48,7 @@ void fill_status(JsonObject payload) {
   payload["running"] = status.running;
   payload["activation_ready"] = status.activation_ready;
   payload["activation_pending"] = status.activation_pending;
+  payload["activation_endpoint"] = status.activation_endpoint;
   payload["activation_code"] = status.activation_code;
   payload["transport_connected"] = status.transport_connected;
   payload["session_state"] = status.session_state;
@@ -94,7 +98,9 @@ void fill_capabilities(JsonObject payload) {
   payload["supports_temporary_suspension"] = true;
   payload["supports_product_persistence_callback"] = true;
   payload["supports_manual_listening"] = true;
-  payload["supports_mcp_tools"] = true;
+  payload["supports_mcp_tools"] = !kAssistantUsesLunarLink;
+  payload["assistant_platform"] = kAssistantUsesLunarLink ? "lunarlink" : "xiaozhi";
+  payload["supports_device_capabilities"] = kAssistantUsesLunarLink;
   payload["supports_standby_mode"] = true;
   payload["supports_test_message"] = true;
   payload["supports_microphone_control"] = true;
@@ -110,6 +116,7 @@ void fill_capabilities(JsonObject payload) {
   operations.add("volume.set");
   operations.add("activation.start");
   operations.add("activation.clear");
+  operations.add("activation.endpoint.set");
 }
 
 void fill_tools(JsonObject payload) {
@@ -213,6 +220,23 @@ DeviceOperationResult handle_activation_clear(JsonVariantConst,
   return device_operation_ack();
 }
 
+DeviceOperationResult handle_activation_endpoint_set(JsonVariantConst request,
+                                                     JsonObject response) {
+  if (!kAssistantUsesLunarLink) return device_operation_error("activation_endpoint_pinned", 409);
+  if (!request["url"].is<const char *>())
+    return device_operation_error("invalid_activation_endpoint", 400);
+  const char *url = request["url"].as<const char *>();
+  if (!internal::valid_activation_endpoint(url))
+    return device_operation_error("invalid_activation_endpoint", 400);
+  const auto before = snapshot();
+  if (before.activation_ready || before.activation_pending)
+    return device_operation_error("activation_endpoint_change_requires_unpair", 409);
+  if (!set_activation_endpoint(url))
+    return device_operation_error("activation_endpoint_write_failed", 500);
+  fill_status(response);
+  return device_operation_ack();
+}
+
 DeviceOperationResult handle_standby_mode_set(JsonVariantConst request,
                                                JsonObject response) {
   const char *mode = request["mode"] | "";
@@ -288,6 +312,10 @@ constexpr DeviceOperationDefinition kOperations[] = {
             lunaredu::lunaros::kNetworkServiceExecutor)),
     make_device_json_command(
         "activation.clear", handle_activation_clear,
+        device_operation_on_executor(
+            lunaredu::lunaros::kNetworkServiceExecutor)),
+    make_device_json_command(
+        "activation.endpoint.set", handle_activation_endpoint_set,
         device_operation_on_executor(
             lunaredu::lunaros::kNetworkServiceExecutor)),
     make_device_json_command(

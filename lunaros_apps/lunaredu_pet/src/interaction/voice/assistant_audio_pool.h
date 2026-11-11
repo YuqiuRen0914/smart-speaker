@@ -11,6 +11,8 @@ namespace lunaredu::pet::conversation::internal {
 struct DownlinkAudioWorkItem {
   std::atomic<bool> occupied{false};
   std::vector<uint8_t> frame;
+  uint32_t generation = 0;
+  uint32_t sequence = 0;
   static void release(DownlinkAudioWorkItem *item) {
     if (item == nullptr) return;
     // Preserve the existing payload reclamation on playback/drop/reset. Only

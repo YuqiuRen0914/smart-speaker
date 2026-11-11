@@ -20,6 +20,8 @@ code = r'''
 #include <mutex>
 #include <memory>
 #include "smart_speaker_lyrics.h"
+#include "smart_speaker_cover.h"
+#include "smart_speaker_focus_policy.h"
 #include <string>
 #include <vector>
 #include "smart_speaker_playback_mode.h"
@@ -37,17 +39,24 @@ struct TrackInfo {std::string path;};
 ''' + declaration('CommandType') + declaration('Command') + declaration('Runtime') + r'''
 Runtime g_runtime;std::mutex g_player_operation_mutex;
 std::atomic<uint32_t> g_visual_activity{0};
+std::atomic<uint32_t> g_playback_intent_revision{0};
 std::vector<Command> queued;
 std::vector<int> played;
 bool enqueue_command(CommandType t,int v=0,uint32_t r=0){queued.push_back({t,v,r});return true;}
 void set_error_locked(const char* e){g_runtime.last_error=e;}
 ''' + play_state + r'''
 bool play_index(int index){played.push_back(index);g_runtime.current_index=index;g_runtime.playing=true;g_runtime.paused=false;
+  g_runtime.white_noise=false;
   g_runtime.first_frame_seen=true;g_runtime.auto_advance=true;g_runtime.advance_queued=false;++g_runtime.playback_generation;return true;}
 int dual_i2s_audio_fade_to_mute(int){return 0;}void dual_i2s_audio_fade_up(){}
+int noise_plays=0;
+bool play_white_noise(){++noise_plays;g_runtime.white_noise=true;g_runtime.playing=true;g_runtime.paused=false;
+  g_runtime.first_frame_seen=true;g_runtime.auto_advance=true;g_runtime.advance_queued=false;++g_runtime.playback_generation;return true;}
 int pause_calls=0,resume_calls=0,pause_error=0,resume_error=0;
 int audio_player_resume(){++resume_calls;return resume_error;}int audio_player_pause(){++pause_calls;return pause_error;}int audio_player_stop(){return 0;}
 int clamp_volume(int x){return std::clamp(x,0,70);}void dual_i2s_audio_set_volume(int){}void rescan_locked(){}
+bool recover_sdcard_mount(){return true;}
+namespace product {bool desktop_resources_load(){return true;}}
 enum Event {AUDIO_PLAYER_CALLBACK_EVENT_PLAYING,AUDIO_PLAYER_CALLBACK_EVENT_COMPLETED_PLAYING_NEXT,
  AUDIO_PLAYER_CALLBACK_EVENT_PAUSE,AUDIO_PLAYER_CALLBACK_EVENT_IDLE,AUDIO_PLAYER_CALLBACK_EVENT_UNKNOWN_FILE_TYPE};
 struct audio_player_cb_ctx_t {Event audio_event;};
@@ -56,6 +65,7 @@ void reset(int count=3,int index=0,PlaybackMode mode=PlaybackMode::Sequential){
   g_runtime.playlist.resize(count);g_runtime.current_index=index;g_runtime.playback_mode=mode;
   g_runtime.playback_generation=1;g_runtime.playlist_revision=1;g_runtime.playing=true;g_runtime.paused=false;
   g_runtime.paused_by_volume=false;pause_calls=resume_calls=pause_error=resume_error=0;
+  g_runtime.white_noise=false;noise_plays=0;
   g_runtime.auto_advance=true;g_runtime.advance_queued=false;g_runtime.first_frame_seen=true;
   g_runtime.uploading=false;g_runtime.failed_tracks=0;g_runtime.mode_sequence=0;
   g_runtime.last_error.clear();queued.clear();played.clear();storage_error=0;saved_mode=-1;g_visual_activity=0;
@@ -63,6 +73,17 @@ void reset(int count=3,int index=0,PlaybackMode mode=PlaybackMode::Sequential){
 void event(Event e){audio_player_cb_ctx_t context{e};handle_audio_event(&context);}
 void drain(){auto pending=queued;queued.clear();for(const auto& c:pending)process_command(c);}
 int main(){
+  reset(0);process_command({CommandType::kWhiteNoise});assert(noise_plays==1 && g_runtime.white_noise);
+  event(AUDIO_PLAYER_CALLBACK_EVENT_IDLE);drain();assert(noise_plays==2 && played.empty());
+  process_command({CommandType::kPause});assert(g_runtime.paused);
+  process_command({CommandType::kPlay});assert(resume_calls==1 && g_runtime.white_noise);
+  event(AUDIO_PLAYER_CALLBACK_EVENT_IDLE);process_command({CommandType::kStop});drain();
+  assert(noise_plays==2 && !g_runtime.playing && !g_runtime.white_noise);
+  reset(0);process_command({CommandType::kWhiteNoise});g_runtime.first_frame_seen=false;
+  event(AUDIO_PLAYER_CALLBACK_EVENT_IDLE);assert(queued.empty() && !g_runtime.auto_advance);
+  assert(g_runtime.last_error=="noise_decode_failed");
+  reset();process_command({CommandType::kWhiteNoise});process_command({CommandType::kPlayTrack,1,1});
+  assert(!g_runtime.white_noise && played.back()==1);
   for(int count=1;count<=30;++count)for(int current=0;current<count;++current)for(uint32_t random=0;random<90;++random){
     int next=advance_track(PlaybackMode::Shuffle,TrackAdvance::Finished,current,count,random);
     assert(next>=0 && next<count && (count==1 || next!=current));

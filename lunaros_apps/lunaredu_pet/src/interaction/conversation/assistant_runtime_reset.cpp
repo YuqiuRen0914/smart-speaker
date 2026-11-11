@@ -6,6 +6,9 @@
 namespace lunaredu::pet::conversation::internal {
 
 void reset_session_locked(AssistantSessionState next_session_state) {
+  ++g_runtime.conversation.generation;
+  g_runtime.conversation.control_pending = false;
+  g_runtime.conversation.last_tts_state.clear();
   const AssistantSessionState previous = g_runtime.session_state;
   const std::string previous_session_id = g_runtime.transport.session_id;
   g_runtime.session_state = next_session_state;
@@ -34,6 +37,8 @@ void reset_session_locked(AssistantSessionState next_session_state) {
         g_runtime.conversation.idle_entered_at_ms +
         static_cast<int64_t>(kWakeWordResumeDelayMs);
   }
+  g_runtime.transport.wire.activity_id.clear();
+  g_runtime.transport.wire.open_request.clear();
   g_runtime.transport.session_id.clear();
   g_runtime.pending_mcp_messages.clear();
   g_runtime.conversation.session_close_deadline_ms = 0;
@@ -51,6 +56,7 @@ void reset_session_locked(AssistantSessionState next_session_state) {
   g_runtime.transport.mqtt_udp_channel.reset();
   lunaredu::pet::conversation::audio_io::enable_input(false);
   lunaredu::pet::conversation::audio_io::enable_output(false);
+  conversation_release_audio_focus("session_reset");
   g_runtime.vad.voice_activity_active = false;
   g_runtime.vad.pcm_frames = 0;
   g_runtime.vad.speech_frames = 0;
@@ -74,7 +80,11 @@ void reset_session_locked(AssistantSessionState next_session_state) {
 }
 
 void close_audio_channel_locked(const char *detail,
-                                AssistantSessionState next_session_state) {
+                                AssistantSessionState next_session_state,
+                                bool release_focus) {
+  ++g_runtime.conversation.generation;
+  g_runtime.conversation.control_pending = false;
+  g_runtime.conversation.last_tts_state.clear();
   const AssistantSessionState previous = g_runtime.session_state;
   const std::string previous_session_id = g_runtime.transport.session_id;
   g_runtime.session_state = next_session_state;
@@ -109,7 +119,9 @@ void close_audio_channel_locked(const char *detail,
   }
   g_runtime.conversation.local_audio_capture_not_before_ms = 0;
   if (next_session_state != AssistantSessionState::ReadyIdle) {
-    g_runtime.transport.session_id.clear();
+    g_runtime.transport.wire.activity_id.clear();
+  g_runtime.transport.wire.open_request.clear();
+  g_runtime.transport.session_id.clear();
     g_runtime.pending_mcp_messages.clear();
   }
   g_runtime.conversation.session_close_deadline_ms = 0;
@@ -126,6 +138,7 @@ void close_audio_channel_locked(const char *detail,
   lunaredu::pet::conversation::audio_io::enable_input(false);
   lunaredu::pet::conversation::audio_io::enable_output(false);
   lunaredu::pet::conversation::audio_io::clear_output_reference();
+  if (release_focus) conversation_release_audio_focus("audio_channel_closed");
   g_runtime.vad.voice_activity_active = false;
   g_runtime.vad.pcm_frames = 0;
   g_runtime.vad.speech_frames = 0;

@@ -55,6 +55,17 @@ struct SmartSpeakerMotionInput {
   float tilt_y = 0;
   float twist_z = 0;
   float angular_speed_dps = 0;
+  uint32_t shake_sequence = 0;
+  int8_t shake_x = 0, shake_y = 0;
+};
+
+struct PetTouchFeedback {
+  uint32_t taps = 0, releases = 0;
+  int16_t dx = 0, dy = 0;
+  int16_t release_dx = 0, release_dy = 0;
+  int16_t release_vx = 0, release_vy = 0;
+  bool release_sling = false;
+  bool dragging = false;
 };
 
 bool setup_smart_speaker_sensors();
@@ -62,6 +73,9 @@ void tick_smart_speaker_sensors();
 SmartSpeakerMpuSnapshot smart_speaker_mpu_snapshot();
 SmartSpeakerTouchSnapshot smart_speaker_touch_snapshot();
 SmartSpeakerMotionInput smart_speaker_motion_input();
+void smart_speaker_set_pet_touch_target(uint32_t packed_target);
+PetTouchFeedback smart_speaker_pet_touch_feedback();
+void smart_speaker_cancel_touch();
 TouchGesture smart_speaker_take_touch_gesture();
 const char *touch_gesture_name(TouchGesture gesture);
 

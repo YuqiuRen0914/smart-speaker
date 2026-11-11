@@ -201,6 +201,19 @@ void maybe_post_audio_playback_finished_locked(const char *source) {
   const bool received_audio =
       g_runtime.incoming_audio_packets >
       g_runtime.speaking_incoming_audio_packets_base;
+  auto &wire = g_runtime.transport.wire;
+  if (kAssistantUsesLunarLink && wire.terminal_seen && !wire.receipt_sent && !wire.activity_id.empty()) {
+    const bool delivered = wire.playback_delivered(received_audio,
+        !g_runtime.diagnostics.last_playback_error.empty(),
+        !g_runtime.diagnostics.last_binary_error.empty());
+    if (!g_runtime.pending_mcp_messages.try_push_front(wire.playback_receipt(
+            g_runtime.transport.session_id, delivered))) {
+      g_runtime.diagnostics.last_error = "lunarlink_playback_receipt_queue_full";
+      g_runtime.conversation.tts_stop_waiting_for_playback = true;
+      return;
+    }
+    wire.receipt_sent = true;
+  }
   if (!received_audio) {
     auto &conversation = g_runtime.conversation;
     const auto recovery =
@@ -293,7 +306,7 @@ void enter_connecting_state_locked(const char *detail, const char *result,
   g_runtime.diagnostics.last_error.clear();
   g_runtime.diagnostics.last_transport_error.clear();
   conversation_emit_status("连接中",
-                            detail == nullptr ? "正在连接小智后端" : detail,
+                            detail == nullptr ? "正在连接助手后端" : detail,
                             result == nullptr ? "自动连接" : result, nullptr);
 }
 
@@ -315,7 +328,7 @@ void enter_idle_ready_state_locked(const char *detail, const char *result) {
   g_runtime.vad.voice_activity_active = false;
   g_runtime.vad.utterance_started = false;
   conversation_emit_status(idle_ready_state_label_locked(),
-                            detail == nullptr ? "已连接小智" : detail,
+                            detail == nullptr ? "已连接助手" : detail,
                             result == nullptr ? idle_ready_result_text_locked()
                                               : result,
                             nullptr);
@@ -335,7 +348,7 @@ void enter_speaking_state_locked(bool entering_speaking,
   g_runtime.conversation.session_close_deadline_ms = 0;
   if (entering_speaking) {
     conversation_emit_status("播报中",
-                              detail == nullptr ? "小智正在回复" : detail,
+                              detail == nullptr ? "助手正在回复" : detail,
                               result == nullptr
                                   ? g_runtime.diagnostics.last_message_summary.c_str()
                                   : result,
@@ -705,7 +718,7 @@ void commit_stop_listening_success_locked(const char *reason,
   enter_idle_after_stop_locked(
       idle_detail == nullptr ? "已结束收音" : idle_detail,
       g_runtime.conversation.awaiting_response
-          ? "等待小智回复"
+          ? "等待助手回复"
           : (g_runtime.conversation.standby_mode ==
                      StandbyListenMode::ContinuousConversation
                  ? "等待自动开始下一轮连续短句"

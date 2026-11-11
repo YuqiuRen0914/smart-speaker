@@ -12,8 +12,11 @@
 #include "lunaredu_pet_conversation.h"
 #include "lunaredu_pet_conversation_entry.h"
 #include "lunaredu_pet_conversation_policy.h"
+#include "lunaredu_pet_emotion.h"
 #include "smart_speaker_audio.h"
+#include "smart_speaker_display.h"
 #include "smart_speaker_runtime.h"
+#include "smart_speaker_tool_status.h"
 
 namespace smart_speaker {
 namespace {
@@ -21,24 +24,10 @@ namespace {
 constexpr const char *kTag = "speaker_xiaozhi";
 
 bool audio_enable_input(void *, bool enable) {
-  if (enable) {
-    const auto status = status_snapshot();
-    // Do not enqueue a second pause when local playback is already paused.
-    // That stale command can otherwise arrive after XiaoZhi has enabled the
-    // output path and mute the first TTS frames again.
-    if (status.playing && !status.paused) pause();
-  }
   return smart_speaker_voice_audio_enable_input(enable);
 }
 
 bool audio_enable_output(void *, bool enable) {
-  if (enable) {
-    const auto status = status_snapshot();
-    // pause() is asynchronous. Only request it for an actively playing local
-    // track; an unconditional request can race with voice unmute and silence
-    // XiaoZhi playback even though decoded frames reach I2S successfully.
-    if (status.playing && !status.paused) pause();
-  }
   return smart_speaker_voice_audio_enable_output(enable);
 }
 
@@ -61,6 +50,40 @@ bool audio_write_output(void *, const int16_t *samples, size_t sample_count,
 
 bool control_allowed(void *) { return true; }
 
+bool request_assistant_audio_focus(void *, const char *, uint32_t timeout_ms) {
+  const auto policy = lunaredu::pet::conversation::assistant_policy_snapshot();
+  if (!policy.desired_enabled || !policy.microphone_enabled ||
+      !policy.audio_focus_owner.empty()) return false;
+  return assistant_playback_focus_acquire(timeout_ms);
+}
+
+void release_assistant_audio_focus(void *, const char *) {
+  assistant_playback_focus_release();
+}
+
+void assistant_visual_event(void *,
+    const lunaredu::pet::conversation::AssistantEvent &event) {
+  if (event.kind != lunaredu::pet::conversation::AssistantEventKind::Emotion ||
+      event.value == nullptr || event.value[0] == '\0') return;
+  lunaredu::presentation::Expression expression;
+  if (!lunaredu::pet::try_pet_expression_from_emotion(event.value, expression)) return;
+  AssistantVisualState state = AssistantVisualState::Inactive;
+  switch (expression) {
+    case lunaredu::presentation::Expression::Happy:
+    case lunaredu::presentation::Expression::Celebrate:
+      state = AssistantVisualState::Happy; break;
+    case lunaredu::presentation::Expression::Curious:
+      state = AssistantVisualState::Curious; break;
+    case lunaredu::presentation::Expression::Sleepy:
+      state = AssistantVisualState::Sleepy; break;
+    case lunaredu::presentation::Expression::Error:
+      state = AssistantVisualState::Error; break;
+    default:
+      return;
+  }
+  smart_speaker_display_set_assistant_emotion(state);
+}
+
 bool respond_ok(std::string text, std::string &response, std::string &error) {
   response = std::move(text);
   error.clear();
@@ -71,29 +94,29 @@ bool tool_play_pause(void *, const char *, std::string &response,
                      std::string &error) {
   const auto status = status_snapshot();
   if (status.playing && !status.paused) {
-    pause();
-    return respond_ok("已暂停音乐", response, error);
+    if (!pause()) { error = "暂停命令队列繁忙"; return false; }
+    return respond_ok("已提交暂停请求，设备状态待确认", response, error);
   }
-  play();
-  return respond_ok("开始播放音乐", response, error);
+  if (!play()) { error = "播放命令队列繁忙"; return false; }
+  return respond_ok("已提交播放请求，设备状态待确认", response, error);
 }
 
 bool tool_next(void *, const char *, std::string &response,
                std::string &error) {
-  next();
-  return respond_ok("已切到下一首", response, error);
+  if (!next()) { error = "切歌命令队列繁忙"; return false; }
+  return respond_ok("已提交下一首请求，设备状态待确认", response, error);
 }
 
 bool tool_previous(void *, const char *, std::string &response,
                    std::string &error) {
-  previous();
-  return respond_ok("已切到上一首", response, error);
+  if (!previous()) { error = "切歌命令队列繁忙"; return false; }
+  return respond_ok("已提交上一首请求，设备状态待确认", response, error);
 }
 
 bool tool_stop(void *, const char *, std::string &response,
                std::string &error) {
-  stop();
-  return respond_ok("已停止播放", response, error);
+  if (!stop()) { error = "停止命令队列繁忙"; return false; }
+  return respond_ok("已提交停止请求，设备状态待确认", response, error);
 }
 
 bool tool_set_volume(void *, const char *arguments, std::string &response,
@@ -108,8 +131,8 @@ bool tool_set_volume(void *, const char *arguments, std::string &response,
     return false;
   }
   const int volume = std::clamp(doc["volume"].as<int>(), 0, 70);
-  set_volume(volume);
-  response = "音量已调到 " + std::to_string(volume);
+  if (!set_volume(volume)) { error = "音量命令队列繁忙"; return false; }
+  response = "已提交音量设置请求（" + std::to_string(volume) + "），设备状态待确认";
   error.clear();
   return true;
 }
@@ -118,11 +141,10 @@ bool tool_status(void *, const char *, std::string &response,
                  std::string &error) {
   const auto status = status_snapshot();
   JsonDocument doc;
-  doc["playing"] = status.playing;
-  doc["paused"] = status.paused;
-  doc["volume"] = status.volume;
-  doc["track"] = status.current_name;
-  doc["playlist_count"] = status.playlist_count;
+  fill_playback_tool_status(doc.to<JsonObject>(),
+      {status.audio_ready, status.playing, status.paused, status.uploading,
+       status.volume, status.current_name, status.playlist_count,
+       status.last_error});
   serializeJson(doc, response);
   error.clear();
   return true;
@@ -160,10 +182,10 @@ bool tool_play_track(void *, const char *arguments, std::string &response,
   const auto result = handle_track_play_payload(request.as<JsonVariantConst>(),
                                                 output.to<JsonObject>());
   if (result.status_code >= 400) {
-    error = "点歌失败";
+    error = result.error.empty() ? "点歌失败" : "点歌失败：" + result.error;
     return false;
   }
-  response = "正在播放 " + path;
+  response = "已提交歌曲播放请求，设备状态待确认";
   error.clear();
   return true;
 }
@@ -176,7 +198,7 @@ void register_tools() {
       {"speaker.previous", "切到上一首本地歌曲。", R"json({"type":"object","additionalProperties":false,"properties":{}})json", tool_previous, nullptr},
       {"speaker.stop", "停止本地音乐播放。", R"json({"type":"object","additionalProperties":false,"properties":{}})json", tool_stop, nullptr},
       {"speaker.set_volume", "设置音箱音量，volume 范围 0 到 70。", R"json({"type":"object","additionalProperties":false,"properties":{"volume":{"type":"integer","minimum":0,"maximum":70}},"required":["volume"]})json", tool_set_volume, nullptr},
-      {"speaker.status", "查询当前播放状态。", R"json({"type":"object","additionalProperties":false,"properties":{}})json", tool_status, nullptr},
+      {"speaker.status", "查询当前播放状态、设备最近错误和上传占用；可用于复查已提交命令的设备状态，但最近错误不是逐命令回执。", R"json({"type":"object","additionalProperties":false,"properties":{}})json", tool_status, nullptr},
       {"speaker.play_track", "按歌曲索引或名称播放本地歌曲。", R"json({"type":"object","additionalProperties":false,"properties":{"index":{"type":"integer","minimum":0},"name":{"type":"string","minLength":1,"maxLength":96}}})json", tool_play_track, nullptr},
   };
   for (const auto &tool : tools) {
@@ -212,14 +234,17 @@ bool setup_xiaozhi_service() {
   lunaredu::pet::conversation::ServiceConfig config;
   config.tools.control_allowed = control_allowed;
   config.enabled = lunaredu::pet::conversation::assistant_desired_enabled();
-  config.host.request_audio_focus =
-      lunaredu::pet::conversation::request_assistant_audio_focus;
+  config.host.request_audio_focus = request_assistant_audio_focus;
+  config.host.release_audio_focus = release_assistant_audio_focus;
+  config.host.on_event = assistant_visual_event;
   config.enabled_changed =
       lunaredu::pet::conversation::on_assistant_enabled_changed;
   if (!lunaredu::pet::conversation::setup_service(config)) {
     LOGE(kTag, "xiaozhi service initialization failed");
     return false;
   }
+  (void)lunaredu::pet::conversation::set_standby_mode(
+      lunaredu::pet::conversation::StandbyMode::WakeWord);
   register_tools();
   return true;
 }
@@ -235,16 +260,11 @@ bool xiaozhi_clear_activation() {
 }
 
 bool xiaozhi_start_listening() {
-  const auto status = lunaredu::pet::conversation::snapshot();
-  if (!status.activation_ready || status.suspended) return false;
-  if (status.listening || status.opening) return true;
-  return lunaredu::pet::conversation::toggle_listening();
+  return lunaredu::pet::conversation::request_listening();
 }
 
 bool xiaozhi_stop_listening() {
-  const auto status = lunaredu::pet::conversation::snapshot();
-  if (!status.listening) return true;
-  return lunaredu::pet::conversation::toggle_listening();
+  return lunaredu::pet::conversation::cancel_conversation();
 }
 
 bool xiaozhi_finish_listening() {
@@ -253,23 +273,33 @@ bool xiaozhi_finish_listening() {
   return lunaredu::pet::conversation::finish_listening();
 }
 
-std::string xiaozhi_status_label() {
+std::string xiaozhi_status_label(bool show_spoken_line) {
   const auto status = lunaredu::pet::conversation::snapshot();
-  if (!status.initialized) return "小智未初始化";
+  if (!status.initialized) return "助手未初始化";
   if (status.activation_pending) {
     if (!status.activation_code.empty()) {
-      return "小智配对码 " + status.activation_code;
+      return "助手配对码 " + status.activation_code;
     }
-    return "小智配对中";
+    return "助手连接中";
   }
-  if (!status.activation_ready) return "长按屏幕配对小智";
-  if (status.listening) return "小智正在听";
-  if (status.speaking) return "小智正在说";
-  if (status.opening) return "小智连接中";
-  if (status.failed) return status.last_error.empty() ? "小智异常" : status.last_error;
-  if (status.transport_connected) return "长按呼叫小智";
-  if (status.ready) return "小智待命";
-  return "小智准备中";
+  if (!status.activation_ready) return "请先绑定平台账号";
+  if (status.session_state == "thinking") return "助手思考中";
+  if (status.listening) return "助手正在听";
+  if (status.speaking) {
+    if (show_spoken_line && status.transcript_role == "assistant" && !status.transcript_text.empty()) {
+      constexpr size_t kMaxCaptionBytes = 96;
+      if (status.transcript_text.size() <= kMaxCaptionBytes) return status.transcript_text;
+      size_t end = kMaxCaptionBytes;
+      while (end > 0 && (static_cast<uint8_t>(status.transcript_text[end]) & 0xc0) == 0x80) --end;
+      return status.transcript_text.substr(0, end) + "…";
+    }
+    return "助手正在说";
+  }
+  if (status.opening) return "助手连接中";
+  if (status.failed) return status.last_error.empty() ? "助手异常" : status.last_error;
+  if (status.transport_connected) return "长按呼叫助手";
+  if (status.ready) return "助手待命";
+  return "助手准备中";
 }
 
 } // namespace smart_speaker

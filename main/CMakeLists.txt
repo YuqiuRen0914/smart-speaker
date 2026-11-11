@@ -1,14 +1,23 @@
 set(smart_speaker_sources
     "smart_speaker/smart_speaker_audio.cpp"
+    "smart_speaker/smart_speaker_amoled_list.cpp"
     "smart_speaker/smart_speaker_audio_lifecycle.cpp"
     "smart_speaker/smart_speaker_avatar.cpp"
+    "smart_speaker/smart_speaker_boot.cpp"
     "smart_speaker/smart_speaker_character.cpp"
+    "smart_speaker/smart_speaker_cover.cpp"
+    "smart_speaker/smart_speaker_cover_api.cpp"
     "smart_speaker/smart_speaker_display.cpp"
+    "smart_speaker/smart_speaker_home.cpp"
+    "smart_speaker/smart_speaker_home_pet.cpp"
+    "smart_speaker/smart_speaker_launcher.cpp"
     "smart_speaker/smart_speaker_dsp.cpp"
     "smart_speaker/smart_speaker_library_commands.cpp"
     "smart_speaker/smart_speaker_log_buffer.cpp"
     "smart_speaker/smart_speaker_lyrics_api.cpp"
     "smart_speaker/smart_speaker_mp3_guard.cpp"
+    "smart_speaker/smart_speaker_noise.cpp"
+    "smart_speaker/smart_speaker_pet_frame_api.cpp"
     "smart_speaker/smart_speaker_projection.cpp"
     "smart_speaker/smart_speaker_runtime.cpp"
     "smart_speaker/smart_speaker_sensors.cpp"
@@ -21,8 +30,13 @@ set(smart_speaker_sources
 idf_component_register(
     SRCS
         "app_main.cpp"
+        "assets/home_clock_font.c"
         "product/runtime_tasks.cpp"
         "product/service_drivers.cpp"
+    "product/product_state.cpp"
+    "product/product_state_runtime.cpp"
+    "product/desktop_resources.cpp"
+    "product/weather.cpp"
         ${smart_speaker_sources}
     INCLUDE_DIRS
         "."
@@ -54,6 +68,8 @@ idf_component_register(
 
 
 lunaros_create_storage_pool("${LUNAREDU_APP_DIR}/data" FONT)
+
+target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_LIST_DIR}/assets/home_pet_idle.bin" BINARY)
 
 if(CONFIG_LUNAREDU_DEVICE_WEB)
     target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_LIST_DIR}/web/home.html" TEXT)

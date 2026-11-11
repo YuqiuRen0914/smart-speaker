@@ -70,7 +70,9 @@ bool register_services(std::string &error) {
   link.observer = &observer;
   link.board_type = "lunaredu-smart-speaker";
   link.model = "LunarEdu Smart Speaker";
+  link.production_base_url = "https://board.lunaredu.cn";
   link.open_claim = false;
+  link.legacy_remote_commands_enabled = false;
 #if CONFIG_LUNAREDU_SMART_SPEAKER_DEVELOPMENT_PLATFORM
   link.development_base_url = CONFIG_LUNAREDU_SMART_SPEAKER_DEVELOPMENT_PLATFORM_URL;
   if (link.development_base_url.empty()) {

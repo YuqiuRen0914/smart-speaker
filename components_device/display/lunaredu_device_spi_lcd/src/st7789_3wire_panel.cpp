@@ -249,9 +249,7 @@ esp_err_t panel_init(esp_lcd_panel_t *base) {
   if (result == ESP_OK) {
     result = send_command(panel, kCmdNormalOn);
   }
-  if (result == ESP_OK) {
-    result = send_command(panel, kCmdDisplayOn);
-  }
+  // The shared panel owner turns display on after the startup GRAM clear.
   vTaskDelay(pdMS_TO_TICKS(60));
   return result;
 }

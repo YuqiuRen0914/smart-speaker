@@ -1,5 +1,6 @@
 #include "interaction/voice/resident_audio.h"
 #include "interaction/conversation/assistant_loop.h"
+#include "interaction/conversation/assistant_turn_policy.h"
 
 #include <cinttypes>
 #include <utility>
@@ -52,11 +53,11 @@ bool apply_connect_service_action_locked(ConnectServiceAction action,
     g_runtime.transport.connected = true;
     set_session_has_announcement_locked(true);
     g_runtime.diagnostics.last_error.clear();
-    enter_idle_ready_state_locked("已连接小智", nullptr);
+    enter_idle_ready_state_locked("已连接助手", nullptr);
     return true;
   case ConnectServiceAction::WaitAnnouncement:
     g_runtime.transport.connected = true;
-    enter_connecting_state_locked("等待小智会话握手", "自动连接", false);
+    enter_connecting_state_locked("等待助手会话握手", "自动连接", false);
     return true;
   case ConnectServiceAction::ReopenMqttAudioChannel:
     g_runtime.transport.connected = true;
@@ -65,7 +66,7 @@ bool apply_connect_service_action_locked(ConnectServiceAction action,
          "自动连接", true});
     return true;
   case ConnectServiceAction::StartConnecting:
-    enter_connecting_state_locked("正在连接小智后端", "自动连接", false);
+    enter_connecting_state_locked("正在连接助手后端", "自动连接", false);
     return true;
   case ConnectServiceAction::MqttActivationIncomplete:
     g_runtime.diagnostics.last_error =
@@ -132,14 +133,14 @@ void enqueue_periodic_events_locked(int64_t now) {
     maybe_post_audio_playback_finished_locked("periodic_playback_drain");
   }
 
-  const bool should_end_auto_listening_for_no_speech =
-      g_runtime.session_state == AssistantSessionState::Listening &&
-      g_runtime.conversation.listening_mode == "auto" &&
-      g_runtime.conversation.listening_started_at_ms > 0 &&
-      !g_runtime.vad.utterance_started &&
-      (now - g_runtime.conversation.listening_started_at_ms) >=
-          static_cast<int64_t>(kAutoConversationNoSpeechTimeoutMs);
-  if (should_end_auto_listening_for_no_speech) {
+  const bool should_end_single_turn_without_speech =
+      should_timeout_empty_single_turn(
+          g_runtime.conversation.listening_mode.c_str(),
+          g_runtime.session_state == AssistantSessionState::Listening,
+          g_runtime.conversation.listening_started_at_ms,
+          g_runtime.vad.utterance_started, now,
+          kAutoConversationNoSpeechTimeoutMs);
+  if (should_end_single_turn_without_speech) {
     (void)post_assistant_event_locked(
         {AssistantEventType::ListeningNoSpeechTimeoutDue, {}, {}, false});
   }
@@ -226,7 +227,7 @@ void handle_stale_session_close_due() {
     const bool response_timed_out =
         g_runtime.conversation.awaiting_response;
     close_audio_channel_locked(response_timed_out
-                                   ? "小智回答超时，请重新唤醒"
+                                   ? "助手回答超时，请重新唤醒"
                                    : "会话收尾超时，已本地关闭",
                                AssistantSessionState::ReadyIdle);
   }
@@ -254,30 +255,35 @@ void handle_connection_watchdog_due() {
   }
 }
 
-void handle_wake_word_start_requested(const char *wake_word) {
+void handle_wake_word_start_requested(const char *wake_word, uint32_t generation) {
   // A wake request may already be queued when the user mutes the microphone.
   // Recheck policy at the consumer boundary so that stale audio can never
   // reopen a listening session after mute has been acknowledged.
   if (!lunaredu::pet::conversation::assistant_microphone_enabled()) {
+    conversation_release_audio_focus("wake_word_start_rejected");
     return;
   }
   std::lock_guard<std::mutex> lock(g_runtime.mutex);
+  if (generation != g_runtime.conversation.generation) return;
   if (!assistant_network_connected()) {
     g_runtime.diagnostics.last_error.clear();
     conversation_emit_status("已唤醒", "请先完成 Wi-Fi 配网",
                               wake_word == nullptr ? "" : wake_word, nullptr);
+    conversation_release_audio_focus("wake_word_network_unavailable");
     return;
   }
   if (!g_runtime.activation.ready) {
     g_runtime.diagnostics.last_error.clear();
     conversation_emit_status(
         g_runtime.activation.pending ? "等待激活" : "连接中",
-        g_runtime.activation.pending ? "请先完成小智激活"
-                                     : "正在获取小智配置",
+        g_runtime.activation.pending ? "请先完成平台账号绑定"
+                                     : "正在获取 LunarLink 配置",
         g_runtime.activation.code.c_str(), nullptr);
+    conversation_release_audio_focus("wake_word_activation_unavailable");
     return;
   }
-  g_runtime.conversation.listening_mode = "auto";
+  g_runtime.conversation.cancelled = false;
+  g_runtime.conversation.listening_mode = "manual";
   g_runtime.conversation.session_close_deadline_ms = 0;
 
   set_session_has_announcement_locked(false);
@@ -288,18 +294,21 @@ void handle_wake_word_start_requested(const char *wake_word) {
   const ConnectServiceAction action = derive_connect_service_action_locked();
   if (!apply_connect_service_action_locked(action, "wake_word_start_failed")) {
     set_session_start_inflight_locked(false);
+    conversation_release_audio_focus("wake_word_start_failed");
     return;
   }
   conversation_emit_status("已唤醒", "请开始说话", wake_word, nullptr);
 }
 
-void handle_manual_start_requested(const char *source) {
+void handle_manual_start_requested(const char *source, uint32_t generation,
+                                   bool preserve_session = false) {
   if (!lunaredu::pet::conversation::assistant_microphone_enabled()) {
     conversation_emit_status("麦克风已关闭", "请先在快捷控制中开启麦克风",
                            source == nullptr ? "manual" : source, nullptr);
     return;
   }
-  std::lock_guard<std::mutex> lock(g_runtime.mutex);
+  std::unique_lock<std::mutex> lock(g_runtime.mutex);
+  if (generation != g_runtime.conversation.generation) return;
   if (!assistant_network_connected()) {
     g_runtime.diagnostics.last_error.clear();
     conversation_emit_status("未联网", "请先完成 Wi-Fi 配网",
@@ -311,32 +320,56 @@ void handle_manual_start_requested(const char *source) {
     g_runtime.diagnostics.last_error.clear();
     conversation_emit_status(
         g_runtime.activation.pending ? "等待激活" : "连接中",
-        g_runtime.activation.pending ? "请先完成小智激活"
-                                     : "正在获取小智配置",
+        g_runtime.activation.pending ? "请先完成平台账号绑定"
+                                     : "正在获取 LunarLink 配置",
         g_runtime.activation.code.c_str(), nullptr);
     return;
   }
   if (session_start_inflight_locked() || session_connect_inflight_locked()) {
-    conversation_emit_status("连接中", "小智正在准备语音通道",
+    conversation_emit_status("连接中", "助手正在准备语音通道",
                               source == nullptr ? "manual" : source, nullptr);
     return;
   }
   conversation_emit_status("已唤醒", "正在切换到语音模式",
                          source == nullptr ? "manual" : source, nullptr);
+  lock.unlock();
   if (!conversation_request_audio_focus("manual_start", 500)) {
-    ESP_LOGW(kTag, "audio focus request timed out before manual listening");
+    lock.lock();
+    ESP_LOGW(kTag, "audio focus request failed before manual listening");
+    g_runtime.diagnostics.last_error = "assistant_audio_focus_unavailable";
+    conversation_emit_status("音频忙", "音乐未能安全暂停，语音对话未开始",
+                              source == nullptr ? "manual" : source,
+                              g_runtime.diagnostics.last_error.c_str());
+    return;
+  }
+  lock.lock();
+  if (generation != g_runtime.conversation.generation ||
+      !lunaredu::pet::conversation::assistant_microphone_enabled() ||
+      !assistant_network_connected() || !g_runtime.activation.ready ||
+      session_start_inflight_locked() || session_connect_inflight_locked()) {
+    lock.unlock();
+    conversation_release_audio_focus("manual_start_state_changed");
+    conversation_emit_status("语音未启动", "启动条件在音频切换期间发生变化",
+                              source == nullptr ? "manual" : source, nullptr);
+    return;
   }
 
+  g_runtime.conversation.cancelled = false;
   g_runtime.conversation.listening_mode = "manual";
   g_runtime.conversation.session_close_deadline_ms = 0;
-  set_session_has_announcement_locked(false);
-  g_runtime.transport.session_id.clear();
-  g_runtime.close_audio_channel_requested.store(true);
+  if (!preserve_session) {
+    set_session_has_announcement_locked(false);
+    g_runtime.transport.session_id.clear();
+    g_runtime.close_audio_channel_requested.store(true);
+  }
 
   set_session_start_inflight_locked(true);
   const ConnectServiceAction action = derive_connect_service_action_locked();
   if (!apply_connect_service_action_locked(action, "manual_start_failed")) {
     set_session_start_inflight_locked(false);
+    lock.unlock();
+    conversation_release_audio_focus("manual_start_failed");
+    lock.lock();
     conversation_emit_status("连接异常", "手动收音启动失败",
                               g_runtime.diagnostics.last_error.c_str(),
                               nullptr);
@@ -348,6 +381,7 @@ void handle_manual_start_requested(const char *source) {
 
 void handle_auto_stop_requested() {
   bool ok = false;
+  bool manual_single_turn = false;
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
     if (!session_listening_locked()) {
@@ -361,8 +395,11 @@ void handle_auto_stop_requested() {
       return;
     }
     g_runtime.vad.auto_stops += 1;
+    manual_single_turn = g_runtime.conversation.listening_mode == "manual";
   }
-  ok = stop_listening_now_locked("auto_stop", false,
+  ok = stop_listening_now_locked(
+      single_turn_stop_reason(manual_single_turn ? "manual" : "auto"),
+      false, manual_single_turn ? "手动单轮输入已结束" :
                                  "auto short utterance done");
   if (!ok) {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
@@ -375,12 +412,12 @@ void handle_listening_no_speech_timeout_due() {
   bool should_send_stop = false;
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
-    if (g_runtime.session_state != AssistantSessionState::Listening ||
-        g_runtime.conversation.listening_mode != "auto" ||
-        g_runtime.conversation.listening_started_at_ms <= 0 ||
-        g_runtime.vad.utterance_started ||
-        (now_ms() - g_runtime.conversation.listening_started_at_ms) <
-            static_cast<int64_t>(kAutoConversationNoSpeechTimeoutMs)) {
+    if (!should_timeout_empty_single_turn(
+            g_runtime.conversation.listening_mode.c_str(),
+            g_runtime.session_state == AssistantSessionState::Listening,
+            g_runtime.conversation.listening_started_at_ms,
+            g_runtime.vad.utterance_started, now_ms(),
+            kAutoConversationNoSpeechTimeoutMs)) {
       return;
     }
 
@@ -412,7 +449,7 @@ void handle_listening_no_speech_timeout_due() {
 
   std::lock_guard<std::mutex> lock(g_runtime.mutex);
   g_runtime.close_audio_channel_requested.store(true);
-  close_audio_channel_locked("连续对话无语音超时",
+    close_audio_channel_locked("单轮聆听无语音超时",
                              AssistantSessionState::Inactive);
 }
 
@@ -420,6 +457,10 @@ void handle_flush_pending_mcp() { flush_pending_mcp_messages(); }
 
 void handle_transport_connected_wait_session() {
   std::lock_guard<std::mutex> lock(g_runtime.mutex);
+  if (g_runtime.conversation.cancelled) {
+    g_runtime.transport.connected = true;
+    return;
+  }
   mark_transport_connected_waiting_session_locked();
 }
 
@@ -472,9 +513,10 @@ void handle_session_hello_received() {
   std::string pending_test_message;
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    if (g_runtime.conversation.cancelled) return;
     g_runtime.transport.connected = true;
     set_session_has_announcement_locked(true);
-    enter_idle_ready_state_locked("已连接小智", nullptr);
+    enter_idle_ready_state_locked("已连接助手", nullptr);
     // send_test_message consumes the pending marker. Leaving it in place until
     // then lets the send path distinguish a recovery retry from a new test and
     // preserve the retry budget across the channel rebuild.
@@ -576,15 +618,19 @@ void handle_continuous_idle_timeout_due() {
 
 void handle_tts_started() {
   std::lock_guard<std::mutex> lock(g_runtime.mutex);
+  if (!g_runtime.conversation.accepts_response(g_runtime.session_state)) return;
+  g_runtime.conversation.awaiting_response = false;
   const bool entering_speaking =
       g_runtime.session_state != AssistantSessionState::Speaking ||
       g_runtime.conversation.speaking_started_at_ms <= 0;
-  enter_speaking_state_locked(entering_speaking, "小智正在回复",
+  enter_speaking_state_locked(entering_speaking, "助手正在回复",
                               g_runtime.diagnostics.last_message_summary.c_str());
 }
 
 void handle_tts_stopped() {
   std::lock_guard<std::mutex> lock(g_runtime.mutex);
+  if (g_runtime.conversation.cancelled ||
+      g_runtime.session_state == AssistantSessionState::Listening) return;
   g_runtime.conversation.tts_stop_waiting_for_playback = true;
   if (g_runtime.conversation.tts_stop_playback_grace_deadline_ms <= 0) {
     g_runtime.conversation.tts_stop_playback_grace_deadline_ms =
@@ -602,8 +648,9 @@ void handle_tts_stopped() {
 }
 
 void handle_audio_playback_finished() {
-  std::lock_guard<std::mutex> lock(g_runtime.mutex);
-  if (g_runtime.session_state == AssistantSessionState::Listening ||
+  std::unique_lock<std::mutex> lock(g_runtime.mutex);
+  if (g_runtime.conversation.cancelled ||
+      g_runtime.session_state == AssistantSessionState::Listening ||
       !session_identity_available_locked()) {
     ESP_LOGI(kTag,
              "audio playback finished ignored state=%s mode=%s session=%s",
@@ -617,10 +664,11 @@ void handle_audio_playback_finished() {
   g_runtime.conversation.tts_stop_waiting_for_playback = false;
   g_runtime.conversation.tts_stop_playback_grace_deadline_ms = 0;
   const bool realtime = g_runtime.conversation.listening_mode == "realtime";
-  const bool automatic_resume_ready =
+  const bool automatic_resume_ready = should_resume_after_response(
+      g_runtime.conversation.listening_mode.c_str(),
       conversation_auto_resume_enabled_locked() && assistant_network_connected() &&
-      g_runtime.activation.ready && session_identity_available_locked() &&
-      session_control_path_ready_locked();
+          g_runtime.activation.ready && session_identity_available_locked() &&
+          session_control_path_ready_locked());
   const auto completion = lunaredu::pet::conversation::conversation_response_completion(
       automatic_resume_ready,
       g_runtime.conversation.one_shot_test_active,
@@ -639,8 +687,16 @@ void handle_audio_playback_finished() {
            assistant_session_state_name(g_runtime.session_state),
            should_resume, audio_ready);
 
+  const uint32_t generation = g_runtime.conversation.generation;
+  lock.unlock();
+  flush_pending_mcp_messages();
+  // Restoring the shared bus clock can wait for the output owner. Keep UI
+  // snapshots and cancellation responsive while it acknowledges that change.
   lunaredu::pet::conversation::audio_io::enable_output(false);
   lunaredu::pet::conversation::audio_io::clear_output_reference();
+  lock.lock();
+  if (generation != g_runtime.conversation.generation ||
+      g_runtime.conversation.control_pending) return;
   g_runtime.conversation.awaiting_response = false;
 
   if (completion ==
@@ -679,7 +735,8 @@ void handle_audio_playback_finished() {
     return;
   }
 
-  enter_idle_after_tts_stop_locked("已播报完成", nullptr);
+  close_audio_channel_locked("已播报完成", AssistantSessionState::ReadyIdle);
+  conversation_release_audio_focus("one_shot_response_finished");
 }
 
 void handle_stt_activity_received(const char *summary) {
@@ -704,12 +761,14 @@ void handle_session_goodbye() {
 }
 
 void handle_start_listening_succeeded() {
+  uint32_t generation = 0;
   std::string start_message;
   bool should_send_start = false;
   bool should_reopen_audio = false;
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
-    if (session_should_send_listen_start_locked()) {
+    if (!g_runtime.conversation.cancelled && session_should_send_listen_start_locked()) {
+      generation = g_runtime.conversation.generation;
       const PrepareStartListeningResult result =
           prepare_start_listening_locked(start_message);
       should_send_start = result == PrepareStartListeningResult::ReadyToSend;
@@ -731,6 +790,9 @@ void handle_start_listening_succeeded() {
   std::string muted_stop_message;
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    if (generation != g_runtime.conversation.generation || g_runtime.conversation.cancelled) {
+      return; // The control owner sends stop/abort for the invalidated start.
+    }
     if (ok && lunaredu::pet::conversation::assistant_microphone_enabled()) {
       commit_start_listening_success_locked();
     } else {
@@ -743,6 +805,41 @@ void handle_start_listening_succeeded() {
   }
   if (!muted_stop_message.empty()) {
     (void)send_service_text(muted_stop_message);
+  }
+}
+
+void handle_conversation_control(const AssistantEvent &event) {
+  // Wait for the current bounded audio iteration outside the runtime mutex.
+  // The request already invalidated its generation and blocked new downlink.
+  quiesce_audio();
+  std::string stop, abort;
+  uint32_t generation;
+  bool preserve_session;
+  {
+    std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    if (event.generation != g_runtime.conversation.generation) return;
+    if (session_identity_available_locked()) {
+      stop = xiaozhi_build_listen_stop_message(g_runtime.transport.session_id);
+      abort = xiaozhi_build_abort_message(g_runtime.transport.session_id);
+    }
+    preserve_session = session_identity_available_locked() && session_audio_path_ready_locked();
+    g_runtime.pending_mcp_messages.clear();
+    close_audio_channel_locked(event.flag ? "重新聆听" : "已取消对话",
+                              AssistantSessionState::ReadyIdle, !event.flag);
+    generation = g_runtime.conversation.generation;
+    g_runtime.conversation.control_pending = event.flag;
+  }
+  // End old cloud input/output before issuing a new listen on the same session.
+  if (!stop.empty()) (void)send_service_text(stop);
+  if (!abort.empty()) (void)send_service_text(abort);
+  if (event.flag) {
+    handle_manual_start_requested("left_hold", generation, preserve_session);
+    std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    if (generation == g_runtime.conversation.generation) {
+      g_runtime.conversation.control_pending = false;
+      if (!session_start_inflight_locked() && !session_listening_locked())
+        conversation_release_audio_focus("restart_listening_failed");
+    }
   }
 }
 
@@ -813,6 +910,7 @@ void handle_toggle_standby_mode() {
 }
 
 void handle_reopen_mqtt_audio_channel(const AssistantEvent &event) {
+  flush_pending_mcp_messages();
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
     set_session_has_announcement_locked(false);
@@ -859,7 +957,7 @@ void dispatch_event(const AssistantEvent &event) {
     handle_connection_watchdog_due();
     break;
   case AssistantEventType::WakeWordStartRequested:
-    handle_wake_word_start_requested(event.text.c_str());
+    handle_wake_word_start_requested(event.text.c_str(), event.generation);
     break;
   case AssistantEventType::AutoStopRequested:
     handle_auto_stop_requested();
@@ -916,7 +1014,10 @@ void dispatch_event(const AssistantEvent &event) {
     handle_start_listening_succeeded();
     break;
   case AssistantEventType::ManualStartRequested:
-    handle_manual_start_requested(event.text.c_str());
+    handle_manual_start_requested(event.text.c_str(), event.generation);
+    break;
+  case AssistantEventType::ConversationControlRequested:
+    handle_conversation_control(event);
     break;
   case AssistantEventType::AbortSpeakingRequested:
     handle_abort_speaking_requested();
@@ -958,7 +1059,41 @@ bool post_assistant_event_locked(AssistantEvent event) {
     g_runtime.diagnostics.last_error = "assistant_event_queue_full";
     return false;
   }
+  event.generation = g_runtime.conversation.generation;
   g_runtime.pending_events.push_back(std::move(event));
+  return true;
+}
+
+bool request_conversation_control(bool listen) {
+  std::lock_guard<std::mutex> lock(g_runtime.mutex);
+  if (!g_runtime.service_initialized) return false;
+  if (!listen && !g_runtime.conversation.control_pending &&
+      !session_start_inflight_locked() && !g_runtime.conversation.awaiting_response &&
+      !g_runtime.conversation.one_shot_test_active &&
+      g_runtime.session_state != AssistantSessionState::Listening &&
+      g_runtime.session_state != AssistantSessionState::Speaking) return true;
+  if (listen && (!g_runtime.service_enabled || g_runtime.service_suspended ||
+                 !lunaredu::pet::conversation::assistant_microphone_enabled())) return false;
+  if (listen && !g_runtime.conversation.cancelled &&
+      (g_runtime.session_state == AssistantSessionState::Listening ||
+       (g_runtime.session_state == AssistantSessionState::Opening &&
+        session_start_inflight_locked()))) return true;
+  // Explicit controls take priority over bounded background work. Supersede
+  // older queued events, including a start immediately followed by Back.
+  ++g_runtime.conversation.generation;
+  g_runtime.conversation.cancelled = true;
+  g_runtime.conversation.control_pending = true;
+  for (auto event = g_runtime.pending_events.begin(); event != g_runtime.pending_events.end();) {
+    if (assistant_event_tracks_turn(event->type)) event = g_runtime.pending_events.erase(event);
+    else ++event;
+  }
+  // Reserve a control slot even when background transport notifications filled
+  // the queue. A user cancellation must never be silently rejected.
+  if (g_runtime.pending_events.size() >= kAssistantEventQueueCapacity)
+    g_runtime.pending_events.pop_back();
+  AssistantEvent event{AssistantEventType::ConversationControlRequested, {}, {}, listen};
+  event.generation = g_runtime.conversation.generation;
+  g_runtime.pending_events.push_front(std::move(event));
   return true;
 }
 
@@ -1039,6 +1174,8 @@ void tick_assistant_loop() {
       }
       event = std::move(g_runtime.pending_events.front());
       g_runtime.pending_events.pop_front();
+      if (assistant_event_tracks_turn(event.type) &&
+          event.generation != g_runtime.conversation.generation) continue;
     }
     dispatch_event(event);
   }

@@ -12,6 +12,7 @@
 #include "smart_speaker_dsp.h"
 #include "smart_speaker_transfer.h"
 #include "smart_speaker_playback_mode.h"
+#include "smart_speaker_cover.h"
 
 namespace smart_speaker {
 bool start_audio_service(std::string &error);
@@ -24,6 +25,7 @@ struct TrackInfo {
   size_t size_bytes = 0;
   bool has_lyrics = false;
   int lyrics_delay_ms = 0;
+  bool has_cover = false;
 };
 
 struct RuntimeStatus {
@@ -37,6 +39,7 @@ struct RuntimeStatus {
   bool sd_ready = false;
   bool audio_ready = false;
   bool playing = false;
+  bool white_noise = false;
   bool paused = false;
   bool uploading = false;
   int volume = 50;
@@ -78,19 +81,32 @@ void tick_runtime();
 
 RuntimeStatus status_snapshot();
 std::vector<TrackInfo> playlist_snapshot();
+struct CoverSnapshot {
+  std::shared_ptr<const cover::Image> image;
+  std::string error;
+};
+CoverSnapshot current_cover_snapshot();
 
-void play();
-void pause();
-void stop();
-void next();
-void previous();
-void set_volume(int volume);
+// Returns command admission only; the caller must read status to confirm effect.
+bool play();
+bool pause();
+bool stop();
+bool next();
+bool previous();
+bool set_volume(int volume);
 void adjust_volume(int delta);
 void rescan();
+// The assistant acquires this before opening its microphone and releases it
+// after the one-shot response or any terminal failure. Resume is conditional
+// on the playback intent remaining unchanged while the lease was held.
+bool assistant_playback_focus_acquire(uint32_t timeout_ms);
+void assistant_playback_focus_release();
 bool take_provisioning_request();
 bool take_provisioning_cancel_request();
 struct LocalMenuState {
   bool open = false;
+  bool product_shell = false;
+  bool settings_child = false;
   bool binding = false;
   int account_selected = 0;
   bool unbind_confirm = false;

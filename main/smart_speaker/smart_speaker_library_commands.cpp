@@ -29,7 +29,7 @@ DeviceOperationResult handle_track_remove_payload(JsonVariantConst request,
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
     for (size_t i = 0; i < g_runtime.playlist.size(); ++i)
       if (g_runtime.playlist[i].path == path) removed_index = static_cast<int>(i);
-    current = removed_index == g_runtime.current_index;
+    current = !g_runtime.white_noise && removed_index == g_runtime.current_index;
     resume = current && g_runtime.playing;
     was_paused = current && g_runtime.paused;
     if (current) {
@@ -70,6 +70,8 @@ DeviceOperationResult handle_track_remove_payload(JsonVariantConst request,
     for (const char *suffix : {"", ".bak", ".upload", ".offset", ".offset.bak", ".offset.upload"})
       (void)remove((lyric_path+suffix).c_str());
   }
+  std::string cover_cleanup_error;
+  const bool cover_removed = !removed || cover::remove(path, cover_cleanup_error);
   int next_index = -1;
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
@@ -79,6 +81,8 @@ DeviceOperationResult handle_track_remove_payload(JsonVariantConst request,
       ++g_runtime.playlist_revision;
       if (current) {
         g_runtime.lyrics.reset();
+        g_runtime.cover_image.reset();
+        g_runtime.cover_error.clear();
         g_runtime.playing = g_runtime.paused = false;
         g_runtime.current_index = g_runtime.playlist.empty() ? -1 :
             removed_index % static_cast<int>(g_runtime.playlist.size());
@@ -94,6 +98,8 @@ DeviceOperationResult handle_track_remove_payload(JsonVariantConst request,
   if (!removed) return device_operation_error("track_delete_failed", 500);
   response["playback_continued"] = continued;
   response["removed"] = true;
+  response["associated_resources_removed"] = cover_removed;
+  if (!cover_removed) response["resource_error"] = cover_cleanup_error;
   response["path"] = path;
   fill_status_payload(response["status"].to<JsonObject>());
   return device_operation_ack();

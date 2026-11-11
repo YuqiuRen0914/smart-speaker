@@ -13,6 +13,16 @@ encoder = source[source.index('void sync_local_library_locked('):source.index('v
 routine_end = source.index('void process_touch_gestures()') if 'void process_touch_gestures()' in source else source.index('void ota_lifecycle(')
 routine = source[source.index('void poll_local_buttons() {'):routine_end]
 prefix = r'''
+#include "product_state_runtime.h"
+#include "desktop_resources.h"
+namespace product = smart_speaker::product;
+bool catalog_ready = false;
+int requested_pet_action = -1;
+void smart_speaker_display_request_pet_action(int action) { requested_pet_action = action; }
+namespace smart_speaker::product {
+DesktopResourcesSnapshot desktop_resources_snapshot() { return {}; }
+bool pet_animation_catalog_ready() { return catalog_ready; }
+}
 #include <algorithm>
 #include <atomic>
 #include <cassert>
@@ -48,7 +58,7 @@ bool cancel_device_link_pairing() { return true; }
 bool request_device_link_pairing() { ++pairing_requests; return true; }
 struct TransferStatus { bool receiving=false, batch_open=false; } transfer;
 TransferStatus transfer_snapshot() { return transfer; }
-enum class CommandType { kNext, kPrevious, kPlayTrack, kCycleMode };
+enum class CommandType { kNext, kPrevious, kPlayTrack, kCycleMode, kWhiteNoise };
 int mode_changes = 0;
 int tracks = 0, queued_index = -1; uint32_t queued_revision = 0;
 bool enqueue_command(CommandType type, int index = 0, uint32_t revision = 0) { if(type==CommandType::kCycleMode)++mode_changes;else ++tracks; queued_index=index; queued_revision=revision; return true; }
@@ -57,9 +67,24 @@ struct Runtime { std::mutex mutex; std::vector<TrackInfo> playlist; int current_
 uint32_t clock_ms = 0;
 bool left_down = false, right_down = false;
 uint32_t now_ms() { return clock_ms; }
+struct PlayerStatus {bool playing=false,paused=false,white_noise=false;};
+PlayerStatus status_snapshot(){return {};}
+void play(){}
+void pause(){}
+int assistant_starts=0, assistant_cancels=0;
+bool xiaozhi_start_listening(){++assistant_starts;return true;}
+bool xiaozhi_stop_listening(){++assistant_cancels;return true;}
+bool xiaozhi_start_activation(){return true;}
+namespace lunaredu::pet::conversation {
+struct Snapshot {bool activation_ready=true;};
+Snapshot snapshot(){return {};}
+struct RuntimeSnapshot {bool interaction_active=false, activation_ready=true, opening=false, listening=false, thinking=false, speaking=false;} assistant;
+RuntimeSnapshot runtime_snapshot(){auto result=assistant; result.interaction_active=result.opening||result.listening||result.thinking||result.speaking;return result;}
+}
 int gpio_get_level(int pin) { return (pin == 1 ? left_down : right_down) ? 0 : 1; }
 '''
 state = r'''
+bool g_assistant_start_requested = false;
 LocalMenuState g_menu;
 LocalButtonState g_local_left, g_local_right;
 std::mutex g_menu_mutex;
@@ -68,12 +93,18 @@ bool g_provisioning_observed = false, g_pairing_retry = false;
 '''
 tests = r'''
 void tick(uint32_t ms = 1) { clock_ms += ms; poll_local_buttons(); }
-void click(bool right) {
-  (right ? right_down : left_down) = true; tick(); tick(31);
-  (right ? right_down : left_down) = false; tick(); tick(31);
+void click(bool confirm) {
+  (!confirm ? right_down : left_down) = true; tick(); tick(31);
+  (!confirm ? right_down : left_down) = false; tick(); tick(31);
 }
 void reset(uint32_t start = 0) {
-  mode_changes=0; transfer={};
+  mode_changes=0; transfer={}; assistant_starts=assistant_cancels=0;
+  lunaredu::pet::conversation::assistant = {};
+  g_assistant_start_requested = false;
+  product::product_navigation_input(product::Input::Home);
+  product::product_navigation_input(product::Input::Confirm);
+  for (int i=0; i<10; ++i) product::product_navigation_input(product::Input::Up);
+  product::product_navigation_input(product::Input::Home);
   pairing = {}; unbind_state = DeviceLinkUnbindState::Idle; unbind_requests = pairing_requests = 0;
   g_runtime.playlist = {{"a.mp3","/a"},{"b.mp3","/b"},{"c.mp3","/c"},{"d.mp3","/d"}};
   g_runtime.current_index=1; g_runtime.playlist_revision=1; g_runtime.uploading=false; g_runtime.audio_ready=true;
@@ -83,10 +114,19 @@ void reset(uint32_t start = 0) {
   g_provisioning_observed = false; g_pairing_retry = false;
   left_down = right_down = false; tracks = 0; clock_ms = start;
 }
-void open_menu() {
-  right_down = true; tick(); tick(31); tick(1500);
-  assert(g_menu.open && g_menu.hold_percent == 0);
-  right_down = false; tick(); tick(31); assert(tracks == 0);
+// Legacy safety cases start at their existing parent, independently of the
+// new physical shortcut. Full product navigation is covered below.
+void open_menu() { g_menu.open = true; }
+void hold(bool right, uint32_t ms) {
+  (right ? right_down : left_down)=true; tick(); tick(31); tick(ms);
+}
+void release(bool right) {
+  (right ? right_down : left_down)=false; tick(); tick(31);
+}
+void launcher(unsigned index) {
+  product::product_navigation_input(product::Input::Confirm);
+  g_menu.open=g_menu.product_shell=true;
+  for (unsigned i=0; i<index; ++i) route_local_encoder(1);
 }
 void enter_setup() {
   open_menu(); click(true);
@@ -96,20 +136,60 @@ void enter_setup() {
   assert(!g_menu.open && g_menu.provisioning && g_provisioning_requested);
 }
 int main() {
+  reset();
+  (void)product::product_navigation_input(product::Input::Home);
+  (void)product::product_navigation_input(product::Input::Confirm);
+  g_menu.product_shell = true;
+  route_local_encoder(1); click(true); // Assistant
+  route_local_encoder(1); click(true); // Pet actions
+  assert(product::product_navigation_snapshot().page == product::Page::PetActions);
+  click(true);
+  assert(requested_pet_action == -1 && g_menu.product_shell);
+  catalog_ready = true;
+  route_local_encoder(-1); click(true); // Wrap to the last animation.
+  assert(requested_pet_action == int(product::kPetClipCount) - 1 && tracks == 0 &&
+         !g_menu.product_shell && product::product_navigation_snapshot().page == product::Page::Desktop);
+  catalog_ready = false;
   for (uint32_t start : {0U, 0xfffffff0U}) {
-    reset(start);click(false);assert(tracks==1 && mode_changes==0);
-    reset(start);left_down=true;tick();tick(31);tick(400);
-    assert(g_menu.mode_hold_percent==0);tick(100);assert(g_menu.mode_hold_percent>0);
-    tick(1000);assert(mode_changes==1 && tracks==0 && !g_menu.open);
-    tick(3000);assert(mode_changes==1);left_down=false;tick();tick(31);
-    assert(mode_changes==1 && tracks==0 && g_menu.mode_hold_percent==0);
-    reset(start);open_menu();left_down=true;tick();tick(31);tick(2000);
-    left_down=false;tick();tick(31);assert(!g_menu.open && mode_changes==0 && tracks==0);
-    reset(start);transfer.receiving=true;left_down=true;tick();tick(31);tick(2000);
-    assert(mode_changes==0 && g_menu.mode_hold_percent==0);
-    reset(start);left_down=right_down=true;tick();tick(31);tick(2000);
-    left_down=right_down=false;tick();tick(31);assert(mode_changes==0 && !g_menu.open && tracks==0);
+    reset(start); click(true); click(false); assert(tracks==2 && mode_changes==0);
+    reset(start); hold(false,799); assert(assistant_starts==0 && tracks==0);
+    assert(g_menu.hold_percent==0 && g_menu.mode_hold_percent==0);
+    tick(1); assert(assistant_starts==1); tick(3000); assert(assistant_starts==1);
+    release(false); assert(tracks==0 && mode_changes==0);
+    reset(start); hold(false,799); release(false); assert(tracks==1 && assistant_starts==0);
+    reset(start); left_down=right_down=true; tick(); tick(31); tick(1000);
+    left_down=right_down=false; tick(); tick(31); assert(tracks==0 && assistant_starts==0 && assistant_cancels==0);
+    reset(start); launcher(4); click(true); route_local_encoder(1); click(true);
+    const auto board=product::product_state_snapshot(0,0).game_board;
+    route_local_encoder(1); click(true); // 2048 does not react to physical moves.
+    assert(product::product_state_snapshot(0,0).game_board==board);
+    click(false); assert(product::product_navigation_snapshot().page==product::Page::ModuleMenu);
+    hold(true,800); assert(product::product_navigation_snapshot().page==product::Page::Desktop && !g_menu.open);
+    release(true); assert(tracks==0 && assistant_cancels==1);
+    // A new press on home can switch track after the consumed hold releases.
+    click(false); assert(tracks==1);
+    // Global assistant commands preserve the original page, including thinking.
+    reset(start); launcher(2); click(true); const auto source=product::product_navigation_snapshot();
+    for (int phase=0; phase<4; ++phase) {
+      auto &voice=lunaredu::pet::conversation::assistant;
+      voice={}; voice.opening=phase==0;voice.listening=phase==1;voice.thinking=phase==2;voice.speaking=phase==3;
+      click(false); assert(product::product_navigation_snapshot().revision==source.revision);
+      assert(route_local_encoder(1));
+    }
+    assert(assistant_cancels==4 && tracks==0);
+    hold(false,800); release(false); assert(assistant_starts==1);
+    // A key pressed before an asynchronous wake cannot act on the new owner.
+    reset(start); left_down=true;tick();tick(31);
+    lunaredu::pet::conversation::assistant.listening=true;
+    release(false);assert(tracks==0 && assistant_starts==0);
   }
+  // Settings children go back to Settings, then the launcher, then home.
+  reset(); launcher(6);click(true);assert(product::product_navigation_snapshot().page==product::Page::Settings);
+  click(true);assert(g_menu.network && g_menu.settings_child);
+  click(false);assert(g_menu.product_shell && product::product_navigation_snapshot().page==product::Page::Settings);
+  click(false);assert(product::product_navigation_snapshot().page==product::Page::ModuleList);
+  click(false);assert(!g_menu.open && product::product_navigation_snapshot().page==product::Page::Desktop);
+  launcher(0);assert(product::product_navigation_snapshot().item==6); // Selection survives home.
   // Account view is safe to confirm/leave; logout requires explicit selection
   // and a second confirmation with Cancel selected by default.
   reset(); pairing.state=DeviceLinkBindingState::Bound;open_menu();route_local_encoder(-1);click(true);
@@ -156,9 +236,6 @@ int main() {
   for (int page : {1, 2, 0}) {
     click(true); assert(g_menu.information_page == page && tracks == 0);
   }
-  right_down = true; tick(); tick(31); tick(1600);
-  assert(g_menu.information && !g_menu.open && g_menu.hold_percent == 0);
-  right_down = false; tick(); tick(31);
   click(false); assert(!g_menu.information && g_menu.open && g_menu.selected == 2);
   click(false); assert(!g_menu.open && tracks == 0);
 
@@ -166,9 +243,6 @@ int main() {
   for (auto link : {NetworkLinkState::Up, NetworkLinkState::Down, NetworkLinkState::Connecting}) {
     reset(); net.link=link; open_menu(); click(true);
     assert(g_menu.network && !g_provisioning_requested && !g_menu.provisioning);
-    right_down=true; tick(); tick(31); tick(1600);
-    assert(g_menu.network && !g_menu.open && g_menu.hold_percent==0);
-    right_down=false; tick(); tick(31); assert(!g_provisioning_requested);
     route_local_encoder(-1); assert(g_menu.network_selected==1);
     route_local_encoder(1); assert(g_menu.network_selected==0);
     click(false);assert(g_menu.open);click(false);assert(!g_menu.open && tracks==0);
@@ -197,42 +271,20 @@ int main() {
   g_runtime.uploading=true;click(true);assert(g_menu.library && tracks==0);
 
   for (uint32_t start : {0U, 0xfffffff0U}) {
-    for (uint32_t duration : {40U, 180U, 350U, 399U}) {
-      reset(start);
-      right_down = true; tick(); tick(31);
-      for (uint32_t ms = 0; ms < duration; ++ms) {
-        tick(); assert(g_menu.hold_percent == 0 && !g_menu.open);
-      }
-      right_down = false; tick(); tick(31);
-      assert(tracks == 1 && g_menu.hold_percent == 0 && !g_menu.open);
-    }
-    reset(start); right_down = true; tick(); tick(31); tick(500);
-    assert(g_menu.hold_percent > 0 && !g_menu.open);
-    tick(999); assert(!g_menu.open);
-    right_down = false; tick(); tick(31); // Release debounce must not open settings.
-    assert(!g_menu.open && tracks == 1);
-    reset(start); open_menu();
-    right_down = true; tick(); tick(31); tick(500);
-    assert(g_menu.hold_percent == 0 && g_menu.open); // Confirm never starts a morph.
-  }
-  for (uint32_t start : {0U, 0xfffffff0U}) {
     reset(start); enter_setup();
     // Cancel before the network executor has even started the AP.
     click(false);
-    assert(g_menu.open && !g_menu.provisioning);
+    assert(g_menu.network && !g_menu.provisioning);
     assert(!g_provisioning_requested && g_provisioning_cancel_requested && tracks == 0);
-    tick(); click(false); assert(!g_menu.open && tracks == 0);
+    tick(); click(false); click(false); assert(!g_menu.open && tracks == 0);
   }
   for (auto phase : {NetworkProvisioningState::Active, NetworkProvisioningState::Applying}) {
     reset(); enter_setup(); g_provisioning_requested = false;
     net.provisioning = phase; net.link = NetworkLinkState::Down; tick();
-    // Right press/hold has no hidden track/menu action during setup.
-    click(true); right_down = true; tick(); tick(31); tick(1700);
-    assert(!g_menu.open && g_menu.hold_percent == 0 && tracks == 0);
-    right_down = false; tick(); tick(31);
+    click(true); // Confirm remains inert on the provisioning screen.
     click(false);
-    assert(g_menu.open && g_menu.provisioning_dismissed && !g_menu.provisioning);
-    click(false); assert(!g_menu.open && tracks == 0); // Exit again while stop is pending.
+    assert(g_menu.network && g_menu.provisioning_dismissed && !g_menu.provisioning);
+    click(false); click(false); assert(!g_menu.open && tracks == 0); // Exit again while stop is pending.
     net.provisioning = NetworkProvisioningState::Idle;
     net.link = NetworkLinkState::Connecting; tick();
     assert(!g_menu.provisioning && !g_menu.provisioning_dismissed);
@@ -241,13 +293,13 @@ int main() {
   reset(); enter_setup(); g_provisioning_requested = false;
   net.provisioning = NetworkProvisioningState::Active; net.link = NetworkLinkState::Down; tick();
   net.provisioning = NetworkProvisioningState::Idle; tick(); // Failed connection can still be canceled.
-  assert(g_menu.provisioning); click(false); assert(g_menu.open && !g_menu.provisioning);
+  assert(g_menu.provisioning); click(false); assert(g_menu.network && !g_menu.provisioning);
   reset(); enter_setup(); g_provisioning_requested = false;
   net.provisioning = NetworkProvisioningState::Applying; net.link = NetworkLinkState::Connecting; tick();
   net.provisioning = NetworkProvisioningState::Idle; net.link = NetworkLinkState::Up; tick();
   assert(!g_menu.provisioning); click(false); assert(tracks == 1);
   reset(); net.provisioning = NetworkProvisioningState::Active; net.link = NetworkLinkState::Down;
-  click(false); assert(g_menu.open && g_provisioning_cancel_requested); // Boot-time automatic AP.
+  click(false); assert(g_menu.network && g_provisioning_cancel_requested); // Boot-time automatic AP.
 }
 '''
 with tempfile.TemporaryDirectory(prefix='speaker-menu-') as temp:
@@ -255,6 +307,6 @@ with tempfile.TemporaryDirectory(prefix='speaker-menu-') as temp:
     test = root / 'test.cpp'
     test.write_text(prefix + menu + button + state + encoder + routine + tests, encoding='utf-8')
     binary = root / 'test.exe'
-    subprocess.run(['g++', '-std=c++17','-D_WIN32_WINNT=0x0601','-include',str(app/'lunaros_apps/lunaredu_pet/test/host/mutex.h'), '-O2', '-Wall', '-Wextra', '-Werror', str(test), '-o', str(binary)], check=True)
+    subprocess.run(['g++', '-std=c++17','-D_WIN32_WINNT=0x0601','-include',str(app/'lunaros_apps/lunaredu_pet/test/host/mutex.h'), '-O2', '-Wall', '-Wextra', '-Werror', '-I'+str(app/'main/product'), '-I'+str(app/'lunaros/include'), '-I'+str(app/'managed_components/bblanchon__arduinojson/src'), str(app/'test/host/product_time_storage.cpp'), str(test), str(app/'main/product/product_state.cpp'), str(app/'main/product/product_state_runtime.cpp'), '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
 print('Local menu: pending/active/applying/failed setup cancel, return, success, auto-AP and clock-wrap passed')

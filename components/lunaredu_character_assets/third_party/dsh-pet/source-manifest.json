@@ -1,0 +1,2265 @@
+{
+  "formatVersion": 1,
+  "repository": "https://github.com/PC2005-cloud/dsh-pet",
+  "commit": "c25386848f70f6e40902e4376f6e7b1e196bc326",
+  "commitDate": "2026-11-09T02:42:53Z",
+  "retrievedDate": "2026-11-11",
+  "selection": {
+    "completeDirectories": [
+      "dsh-pet/assets/webm/",
+      "dsh-pet/assets/preview/",
+      "prompts/",
+      "dsh-pet/src/client/pet/",
+      "dsh-pet/src/shared/physics/"
+    ],
+    "individualFiles": [
+      "CONFIG.md",
+      "FEATURES.md",
+      "LICENSE",
+      "MAKE-YOUR-OWN-PET.md",
+      "README.md",
+      "dsh-pet/assets/config.jsonc",
+      "dsh-pet/assets/main-character.png",
+      "dsh-pet/src/shared/config.ts",
+      "dsh-pet/src/shared/physics.ts"
+    ],
+    "excluded": "No Git history, desktop runtimes, credentials, font, unrelated product trees, or generated firmware files."
+  },
+  "counts": {
+    "animation": 114,
+    "preview": 109,
+    "prompt": 3,
+    "reference": 92
+  },
+  "totalBytes": 128952411,
+  "licenseNotice": "Read upstream/README.md license and image authorization sections alongside upstream/LICENSE. Code MIT does not make the character commercially licensed. See README.md in this archive.",
+  "files": [
+    {
+      "path": "CONFIG.md",
+      "kind": "reference",
+      "size": 11820,
+      "gitBlobSha1": "cde4c5c5f86b67c0344656dc3d7f175232cdcf95",
+      "sha256": "7ca4b0e11d5348354c50979b5584950b40230d566e5b3ae0fcdab71079a2ff77"
+    },
+    {
+      "path": "FEATURES.md",
+      "kind": "reference",
+      "size": 7591,
+      "gitBlobSha1": "2054b1b1e6d10ab05ca42a8817bbcfe369424fa4",
+      "sha256": "700b6b11d38e2f6536077725c48d7d419ccae897bc07f8f1d2294f527f4c3c7d"
+    },
+    {
+      "path": "LICENSE",
+      "kind": "reference",
+      "size": 1069,
+      "gitBlobSha1": "7d87632065ae9bbebe4fb7a275f38f3cd1c30c41",
+      "sha256": "22757dc9c895b2729a2fc684d227cadfb54d5af3dd300029926839e8c4e269ce"
+    },
+    {
+      "path": "MAKE-YOUR-OWN-PET.md",
+      "kind": "reference",
+      "size": 5434,
+      "gitBlobSha1": "28b7c3ade1ae2af0658e56fd30fae8a34102c191",
+      "sha256": "45906c67574888abf258ad134a3fd8f99cb614ec377bac6e6e5f840b27b9efd8"
+    },
+    {
+      "path": "README.md",
+      "kind": "reference",
+      "size": 29069,
+      "gitBlobSha1": "76227d5ef26dc0cdaded0283b5f61385c879e497",
+      "sha256": "29281441aae3b04fd799ee81537ba1e34e1da645f8a8f12df8697ed752a8aa8d"
+    },
+    {
+      "path": "dsh-pet/assets/config.jsonc",
+      "kind": "reference",
+      "size": 36030,
+      "gitBlobSha1": "ed3b7c8be04153bc6fa918459f383eb39495fd4e",
+      "sha256": "c5c6d7f6ddcc5e68a501b3a58ba7cf5863c2f283207877c20f4319054762a987"
+    },
+    {
+      "path": "dsh-pet/assets/main-character.png",
+      "kind": "reference",
+      "size": 1175558,
+      "gitBlobSha1": "b522aaebfbe2ffe6e5ad584e207c07774af2fb54",
+      "sha256": "90e6d4b2fe01e1ead9a02827ac9a9cc249161b4474dc61c37cee9034f72e8ebf"
+    },
+    {
+      "path": "dsh-pet/assets/preview/beiluoye-yanmo.gif",
+      "kind": "preview",
+      "size": 629167,
+      "gitBlobSha1": "1928057248d8867822c319c682be6b25f0205613",
+      "sha256": "9c74307544e6d004cf0f7a51b89c9ffe2e8e4c68826d05e6c081963f84c5327b"
+    },
+    {
+      "path": "dsh-pet/assets/preview/beishubiao-tuozhuai-xuankong-fankui.gif",
+      "kind": "preview",
+      "size": 654762,
+      "gitBlobSha1": "5ee7e437d4e475e8cd09049eed09c54bf76e8ac5",
+      "sha256": "0bb3db0356490ae264d5278b977c432099b8d5e253e59bcd69e1fee313230caf"
+    },
+    {
+      "path": "dsh-pet/assets/preview/beixiayitiao-zhamao.gif",
+      "kind": "preview",
+      "size": 623877,
+      "gitBlobSha1": "42476913b85c13eb1898cdce1f865a6f8db883e3",
+      "sha256": "40d0aca6e68e3cf77efc318d10366fcdcf5c4f13d0b9415a96d4e99cba112eca"
+    },
+    {
+      "path": "dsh-pet/assets/preview/bian-gezi.gif",
+      "kind": "preview",
+      "size": 651972,
+      "gitBlobSha1": "4b4547822afaf08473f558f0e5384fd1fbd6487a",
+      "sha256": "4486060bf41994e39416a3d1279f834b30680e36c53aaa55a25389b51116d56f"
+    },
+    {
+      "path": "dsh-pet/assets/preview/cha-zhuyu-shangju.gif",
+      "kind": "preview",
+      "size": 615404,
+      "gitBlobSha1": "2a6f786b18ac27f5c317374bb7e55527d9a76891",
+      "sha256": "32ee908cd21244d3fa6a0e699290082bb924e7e4a3135e07bb579e72a656c9da"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chai-liwu.gif",
+      "kind": "preview",
+      "size": 622000,
+      "gitBlobSha1": "de7d76b64a1e120f06816cfba55f46d7d12fbeee",
+      "sha256": "4216b8c6177d9b97d26df7a43f2465041d90824985a1c9c62ac336d523bc5265"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chaoda-shenlanyao.gif",
+      "kind": "preview",
+      "size": 617589,
+      "gitBlobSha1": "b47ebcb730e1ce906787c558823890d45bbdbf10",
+      "sha256": "8b051919ba7edf4cfda7a0e8160c2a17fc5061e91f65d74e8f236b336e70f784"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chenjian-shuaya.gif",
+      "kind": "preview",
+      "size": 644856,
+      "gitBlobSha1": "319cf45d0fdfe051374bca52a1431740fc144c94",
+      "sha256": "e1c0b10711850b19391faf06090406ee6a800566cff53cc4b4a83e749af129ef"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chi-baifan.gif",
+      "kind": "preview",
+      "size": 622739,
+      "gitBlobSha1": "ad2bde6883e6667db72c803e9271bc9dca45abfb",
+      "sha256": "bb0a0f528c2e86d40c1260342dd4f780bfdd1612c56d2092852813b078b16bd4"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chi-bingqilin-ronghua.gif",
+      "kind": "preview",
+      "size": 620796,
+      "gitBlobSha1": "12035fbb533612da7305585b6eaea6b5233dfa9b",
+      "sha256": "6d351f42349906c9b757415ae0bc42c823ff48805e848fdf5617e108373d7d7c"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chi-changshoumian.gif",
+      "kind": "preview",
+      "size": 630211,
+      "gitBlobSha1": "03b83daca2442e7155718897cb21dc2bf57a6bc5",
+      "sha256": "e251267d4393a6413754e421109716c78ef80067dcec155a3b2820fb8d0fc5a5"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chi-chongyanggao.gif",
+      "kind": "preview",
+      "size": 609458,
+      "gitBlobSha1": "218df8b72cec91ddad18e2d9b8dda34282f00aab",
+      "sha256": "3ecb1c70ddb4e08725c3a2a4e1e57acd1fcf3619da1b71f6e40c1a21b76d7073"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chi-dazhaxie.gif",
+      "kind": "preview",
+      "size": 633443,
+      "gitBlobSha1": "db14d3975c0cac414b979f7421c48b884ef52da7",
+      "sha256": "608a4e9d3b7deb9a22a7daa1264835eb4a9f8f82fb4932ad08784132c099999a"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chi-labazhou.gif",
+      "kind": "preview",
+      "size": 611830,
+      "gitBlobSha1": "5e547091a96687376d1deefe10fb3325c46e4c4b",
+      "sha256": "6dbf6f4ed0c0fab5a5fbeac7b31e9489c7a91554e98b8e880c9e1de3834fcf31"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chi-niangao.gif",
+      "kind": "preview",
+      "size": 624791,
+      "gitBlobSha1": "6dc0ab0d6fe3a3b55368a0d363090c8ec29b0101",
+      "sha256": "1fe682a1c893b5cdfb36b7ad14b92dc006068b68f54301a5c93d5c22d5b13707"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chi-qingtuan.gif",
+      "kind": "preview",
+      "size": 624603,
+      "gitBlobSha1": "e20d8403d5adccb4639700e4a23c5e5471ce0559",
+      "sha256": "1f2c1180a569b372f44790ee2b29e4dc7ad7b32b513e8e635c9e2a756848a22b"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chi-tanghulu.gif",
+      "kind": "preview",
+      "size": 621400,
+      "gitBlobSha1": "7576ade5e1c040f813aa41e2d668ae6d3661103d",
+      "sha256": "520972e82d4de3f2c02fc6334fd8accd223c34184664b1b345277564ece45a2a"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chi-token.gif",
+      "kind": "preview",
+      "size": 670566,
+      "gitBlobSha1": "2e0c05713e5ee1562699f93bed2badf9e9a6a8cc",
+      "sha256": "93354fef7853db63d3ec59d404bfa6277554cd2f25e22be46b776ce0080a7a66"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chi-wancan.gif",
+      "kind": "preview",
+      "size": 742502,
+      "gitBlobSha1": "66a0a520fe9e17fee0572a8febe7696e5a6155a6",
+      "sha256": "de5765cae455def387c4c69d91fab86d0fecd5492280015cde0291658e065f24"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chi-wucan.gif",
+      "kind": "preview",
+      "size": 620733,
+      "gitBlobSha1": "b6bbf3111e86e9a76b8d9af720a103aa4cf935f6",
+      "sha256": "3bb6456d6c22fcb165ca83dbaf1e7094666912793706fbc5dea12198acfd0257"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chi-xigua.gif",
+      "kind": "preview",
+      "size": 614342,
+      "gitBlobSha1": "bb5eacee835959f980666e923f178499484de3d5",
+      "sha256": "dac06e17a361fed0901b76a8febab86d23fa034e6cc9c742f05c0eaaf3b6bbb4"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chi-zaocan.gif",
+      "kind": "preview",
+      "size": 622734,
+      "gitBlobSha1": "a6f6a92f132b8418717a2cb5251c73d5776527a4",
+      "sha256": "359f0e2ff47f582af96de0724eff9f83f518917b65f8fb5f2c8a5b733431aff2"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chi-zongzi.gif",
+      "kind": "preview",
+      "size": 630082,
+      "gitBlobSha1": "0dc10ded49a1c05f2bbb816c652493411fe6306d",
+      "sha256": "dbf52926be09a05ad2c77abb03f13dc49c09001b3beca353ef2f9e0fa21091e7"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chijiaozi.gif",
+      "kind": "preview",
+      "size": 668889,
+      "gitBlobSha1": "91846b420f21e223ce9b0f2180310c094a5727c7",
+      "sha256": "c44dbdde484db322ea2a5956671bd5afc1322a7d92c68c1c3b3c7ba409a8f3ce"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chitangyuan.gif",
+      "kind": "preview",
+      "size": 624086,
+      "gitBlobSha1": "08d8c000e9ca9643954df0f1b9d5011241b90be2",
+      "sha256": "b68e4aaa6496141cb4fbeed70db65285d84cb5be735b04157c61643f7d210ea1"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chou-tuoluo.gif",
+      "kind": "preview",
+      "size": 608654,
+      "gitBlobSha1": "1ca7394968873f7919997c6ed6e0254ce4f26d82",
+      "sha256": "f5a2311d1c1e3ca2746e5ef9812e00cc8a895352983f1b4b362da4e183d61f6b"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chuanzhenqiqiao.gif",
+      "kind": "preview",
+      "size": 646989,
+      "gitBlobSha1": "ed7c4de77c9872bdf34c48d4a5b3d1122e062c9a",
+      "sha256": "c9eec38b43a5d4a10f8ab023b807604837433dccdf71236ce643218b8969a9a6"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chui-dizi.gif",
+      "kind": "preview",
+      "size": 677790,
+      "gitBlobSha1": "11f53ced7ef7dbb59ede474eb75070ddc6cfdb61",
+      "sha256": "0b390acef351c8139386bac6d92e35794e2a7f388037a549e1bca9c38b14c077"
+    },
+    {
+      "path": "dsh-pet/assets/preview/chui-qiqiu.gif",
+      "kind": "preview",
+      "size": 641205,
+      "gitBlobSha1": "3392c9784a165affd7d3a25769b61507f7123c05",
+      "sha256": "31648088477d5d095e15d188e58a68f85247e21d1de0706311834eed491326b2"
+    },
+    {
+      "path": "dsh-pet/assets/preview/da-keshui-bei-jingxing.gif",
+      "kind": "preview",
+      "size": 617811,
+      "gitBlobSha1": "97264491fde2dd1993cf242f9f8da6ec351616c1",
+      "sha256": "4582e7cfd557c7dca8aa6cc98b5ca6f12944fe744f9fda700b589463c9e0aba7"
+    },
+    {
+      "path": "dsh-pet/assets/preview/dai-kong-ru-xi.gif",
+      "kind": "preview",
+      "size": 644316,
+      "gitBlobSha1": "6091a0064d971348ad1014e2f4be6ec16fff62fe",
+      "sha256": "b26345e63dbfecd89bc420e48e16d574c9224807d1cd74f4fcb447995658d705"
+    },
+    {
+      "path": "dsh-pet/assets/preview/daiji-huxi-xiuxian.gif",
+      "kind": "preview",
+      "size": 630669,
+      "gitBlobSha1": "f6fb7cca1bd6e32f80174ce7679fc5ae5554bc2f",
+      "sha256": "ab23562dafea476fd136909e4405b90150c7e9434a9e9d2ed4cb73d9f33ddce9"
+    },
+    {
+      "path": "dsh-pet/assets/preview/dakou-chi-lingshi.gif",
+      "kind": "preview",
+      "size": 643312,
+      "gitBlobSha1": "0a431bee8ce903c6fa1c7e168e58f77bc05940ed",
+      "sha256": "e3ba079a5e2108ed810a22ed10d9c2cc88efa1b5ad98778ee84decdf48f6f604"
+    },
+    {
+      "path": "dsh-pet/assets/preview/dangqiuqian.gif",
+      "kind": "preview",
+      "size": 671628,
+      "gitBlobSha1": "b4e856ece2a5655f3cfc6b3beaac3aa6f8a3ac26",
+      "sha256": "7c73c65cb94b461caab0c5e94f95a0a31a2d09c260ae58fd769acc4f2e894e58"
+    },
+    {
+      "path": "dsh-pet/assets/preview/dianji-huiying-aojiao-shengqi-ceshen-zhanshi.gif",
+      "kind": "preview",
+      "size": 562573,
+      "gitBlobSha1": "be0d6b07fb337c27222d85d2f4eb8b750d40052a",
+      "sha256": "f81f98400e441ff0010ac72314a43ba96806ec09332e667a6a3758042c0a4087"
+    },
+    {
+      "path": "dsh-pet/assets/preview/dianji-huiying-haixiu-jingya.gif",
+      "kind": "preview",
+      "size": 637081,
+      "gitBlobSha1": "79041862a134c542d750509bfcdcb86fd0b1b625",
+      "sha256": "3dfe3334a00ff8022077af5116a23d30305f4fbd34460bd5ac0684171d40c97e"
+    },
+    {
+      "path": "dsh-pet/assets/preview/dianji-huiying-kaixin-yuedong.gif",
+      "kind": "preview",
+      "size": 625946,
+      "gitBlobSha1": "e9aa82c702ce97e572d38cc57e884cce5827bb08",
+      "sha256": "904f9cc6e24daed9e313cd7ae1d1cac5b921c4300cd52e82ba6a9db0c718c27f"
+    },
+    {
+      "path": "dsh-pet/assets/preview/dianji-huiying-naoyang-gegexiao.gif",
+      "kind": "preview",
+      "size": 631461,
+      "gitBlobSha1": "fbffcb6b6ce4191557eb792fae5c2b765e5ef4d9",
+      "sha256": "750c2e6113132ebbeb4b41d2c48ae94b5d4f117e48f8c992c0637a9e3055023f"
+    },
+    {
+      "path": "dsh-pet/assets/preview/dianji-huiying-yuanqi-huishou.gif",
+      "kind": "preview",
+      "size": 627065,
+      "gitBlobSha1": "7834dabf82cd33b0fd857efec4d8f1921bc908de",
+      "sha256": "36daf6048b3038504d7dbe413545ad08f518cd723d2e1a7e828861818694975b"
+    },
+    {
+      "path": "dsh-pet/assets/preview/dongwu-huanrao.gif",
+      "kind": "preview",
+      "size": 789492,
+      "gitBlobSha1": "d5c7a39dc0fc0b1e776a4477e41b45b315cb0fcf",
+      "sha256": "317e56142e723b1d6d2a865974583006d3ffc3ab8cf7f14fcea30139914bd90c"
+    },
+    {
+      "path": "dsh-pet/assets/preview/dongzhangxiwang.gif",
+      "kind": "preview",
+      "size": 622863,
+      "gitBlobSha1": "8dad2f125e515a9a745167287dddaddb584ad554",
+      "sha256": "b0488b4eb7068526191abcbda3e4e5453931b672a898ee953489e9d0b2cd3c45"
+    },
+    {
+      "path": "dsh-pet/assets/preview/duixueren.gif",
+      "kind": "preview",
+      "size": 634657,
+      "gitBlobSha1": "6c9b36956e00f540fecf2757f75b967ff16fb1b1",
+      "sha256": "c3afe687ab9d0ebc7276becd1ae6d619ba118404224b53061a5dce13d80854cd"
+    },
+    {
+      "path": "dsh-pet/assets/preview/fang-fengzheng.gif",
+      "kind": "preview",
+      "size": 676169,
+      "gitBlobSha1": "375425febc798ec8aaf841cf141ffaf68894ce5f",
+      "sha256": "228012dad5096bd5b222aae17b28e08d02f01f02dc9f333c2b114d80db1fe540"
+    },
+    {
+      "path": "dsh-pet/assets/preview/fang-kongmingdeng.gif",
+      "kind": "preview",
+      "size": 615147,
+      "gitBlobSha1": "e4162d1167c70388c219d5e471c1f3cd147db048",
+      "sha256": "5ae237ec08ace8eaa52a9ee88e3e5a4a0f2f389f7fd876f553334725959be4fc"
+    },
+    {
+      "path": "dsh-pet/assets/preview/fang-yanhua.gif",
+      "kind": "preview",
+      "size": 740012,
+      "gitBlobSha1": "b389afc584c403d12a9b021a19f2b6da3b12a627",
+      "sha256": "2043be8e55d0a54c7bc0cc9e62d343f1ff50735c6d63d715e60350e3323ea8dd"
+    },
+    {
+      "path": "dsh-pet/assets/preview/fanghedeng.gif",
+      "kind": "preview",
+      "size": 608723,
+      "gitBlobSha1": "90206540737ebf84fc23bf58badbb8a747b0bce7",
+      "sha256": "652dea7ff742d339c195b829908fe63dcffafa6b94495eb732e8be23f9c52a27"
+    },
+    {
+      "path": "dsh-pet/assets/preview/fen-wen-bu-sheng.gif",
+      "kind": "preview",
+      "size": 660687,
+      "gitBlobSha1": "9a27dd2304a890d469d9c5259afa15ff55d7278e",
+      "sha256": "a6a9928f3ba127d53b703c2ba6c6a3df4d905558c9ce90b946a81d3314723666"
+    },
+    {
+      "path": "dsh-pet/assets/preview/gongzuozhuangtai-chuitou-tanqi-maohan.gif",
+      "kind": "preview",
+      "size": 312719,
+      "gitBlobSha1": "d1e725542f4d0b09bfafc16642290c6b48842970",
+      "sha256": "10d59731c0ad8ab077d7974edef033827b4573e3512e06ebc1413806522f0304"
+    },
+    {
+      "path": "dsh-pet/assets/preview/gongzuozhuangtai-manglu-dianan.gif",
+      "kind": "preview",
+      "size": 627629,
+      "gitBlobSha1": "16e18cd4d6458b3923b3abbbe4a13798512a09a2",
+      "sha256": "bab6cb7eff739bac96e8e593b34b842270a5252ae631c0912bb23ab47ebb9a47"
+    },
+    {
+      "path": "dsh-pet/assets/preview/gongzuozhuangtai-qingdian-guidang.gif",
+      "kind": "preview",
+      "size": 609676,
+      "gitBlobSha1": "3945e1e5673b1d75a3ab35617e498b0d0a19ab41",
+      "sha256": "cc33c95ed526d0606d3519a5487eb5ce805ece148fc9635f5660795e46075b34"
+    },
+    {
+      "path": "dsh-pet/assets/preview/gongzuozhuangtai-queyue-qingzhu.gif",
+      "kind": "preview",
+      "size": 633926,
+      "gitBlobSha1": "3b4f41e0e92971dc3b21e6ab35853c72b8b47fa8",
+      "sha256": "59232775c660091beb5cbe8d8d3381ac04515291caf25ce93313c0fe85989173"
+    },
+    {
+      "path": "dsh-pet/assets/preview/gongzuozhuangtai-sikao-maopao.gif",
+      "kind": "preview",
+      "size": 636712,
+      "gitBlobSha1": "19ed3513cee9f9ff5e008dc00a0bf5fc4f2cbdb2",
+      "sha256": "9d52ae5f84c4fa7e0249619b47b556ae26ff81168b5e712d8b5113645cc95546"
+    },
+    {
+      "path": "dsh-pet/assets/preview/gongzuozhuangtai-yuandi-duobu-zhangwang.gif",
+      "kind": "preview",
+      "size": 631287,
+      "gitBlobSha1": "15c8d5342c8da4a32f0f3914720b34c1fe361be3",
+      "sha256": "f90f0a28607fd132cb0b44a1e073e440039d25354d967af6f55cc4e3df221c6b"
+    },
+    {
+      "path": "dsh-pet/assets/preview/haqian-liantian.gif",
+      "kind": "preview",
+      "size": 632678,
+      "gitBlobSha1": "eed5f69f89eadb6a1d3003fe8031658d86a5c691",
+      "sha256": "904e76e90af46ca671597f6c54a11f04f21a861db54ef7444ffa3f2708f44f62"
+    },
+    {
+      "path": "dsh-pet/assets/preview/hudie-mifeng-huanrao-touding-kaihua.gif",
+      "kind": "preview",
+      "size": 715918,
+      "gitBlobSha1": "b465a1830a63fd5473c78652f730b28d4efd7e2e",
+      "sha256": "fb51031e8602a2d5c828e0580fc25b7c61d7e3e3460372ef2f188d448af78c66"
+    },
+    {
+      "path": "dsh-pet/assets/preview/jin-dai-ding-dang.gif",
+      "kind": "preview",
+      "size": 638229,
+      "gitBlobSha1": "ee0c6c35209493b82fb5346d13c13ef38e337b94",
+      "sha256": "93a19c34493bd738b1b7a85d699ce763f60679fddd8412f07af4534cc56c59b9"
+    },
+    {
+      "path": "dsh-pet/assets/preview/jingyu-tu-paopao-texiao.gif",
+      "kind": "preview",
+      "size": 647658,
+      "gitBlobSha1": "0c9ad80dfa6ce536689010f50a047f2ea582156d",
+      "sha256": "b8b09a866df0acdd08958f92b9c5042f087cb0796fe90e898601999bb0fc6a93"
+    },
+    {
+      "path": "dsh-pet/assets/preview/keai-zhaiwu.gif",
+      "kind": "preview",
+      "size": 617842,
+      "gitBlobSha1": "2bd7a42a7f168cc7300e8ef098c1b177a42b52ed",
+      "sha256": "2276e4650dc07ce2dae4029b5b2de9ab15798cd89f1ec858a1e6c5057646bff4"
+    },
+    {
+      "path": "dsh-pet/assets/preview/lanjing-xianshi.gif",
+      "kind": "preview",
+      "size": 654904,
+      "gitBlobSha1": "bf6e789610b63e51e740c73b12295b0bf14b155d",
+      "sha256": "9b1c56f241a352f80693a4ec22726a13ec019e9c802c24c4643ff006a0b6e70d"
+    },
+    {
+      "path": "dsh-pet/assets/preview/lu-mao.gif",
+      "kind": "preview",
+      "size": 634039,
+      "gitBlobSha1": "903641e4e1f2c34cd01bd737ca9627c58bbf3e96",
+      "sha256": "9f4b7093fcbfacf4e79c3a7e3c5f2757bd125cfa41b50142a01f38b2b13ed059"
+    },
+    {
+      "path": "dsh-pet/assets/preview/menghua-xiaoyouling.gif",
+      "kind": "preview",
+      "size": 630687,
+      "gitBlobSha1": "cce36b4b4cc1c8cfbf21edfff0d1f298f84473f4",
+      "sha256": "bd0fb724d5ccae95edeeee824b9bbcb6f08bfdda9db8781550ab46fd29844d3d"
+    },
+    {
+      "path": "dsh-pet/assets/preview/nvpu-quxi-liyi.gif",
+      "kind": "preview",
+      "size": 593893,
+      "gitBlobSha1": "170843899c3c35123fe18b6d62cc7ed74a29ca6c",
+      "sha256": "ededb6666ec8d438c0fd74252ebe95bb22c3ee00a26851f977c57e4993cc398f"
+    },
+    {
+      "path": "dsh-pet/assets/preview/pangxie-zoulu.gif",
+      "kind": "preview",
+      "size": 627328,
+      "gitBlobSha1": "86a8b6d0882e89cb516435e78b401374cc0714c2",
+      "sha256": "224fdf6076f8aec14fdaab894d2d179d91bdda2ac5d78af5ae86d438d085e096"
+    },
+    {
+      "path": "dsh-pet/assets/preview/pingkong-shenghua.gif",
+      "kind": "preview",
+      "size": 604041,
+      "gitBlobSha1": "7c8b1caf067a22cf8350ea0d4467631e64d4a85d",
+      "sha256": "f89eb7fc664fe45438a24764cdb46dbbbf8e77ef548a0776c781c1f4a40ae954"
+    },
+    {
+      "path": "dsh-pet/assets/preview/puke-moshu.gif",
+      "kind": "preview",
+      "size": 633858,
+      "gitBlobSha1": "82d6fa242045ba8d5e6f39480c5d15c3282ab1a1",
+      "sha256": "cfc6f199fc145b9edc9b0546ca5f13ec86667d1d1e47ca0e9cbd6cf6d19a4cf5"
+    },
+    {
+      "path": "dsh-pet/assets/preview/qi-muma.gif",
+      "kind": "preview",
+      "size": 806703,
+      "gitBlobSha1": "518416887f41c5cc84533dbef7c3ac016fc4d760",
+      "sha256": "c81d03355acfe0f5b09eef1ffd84d3a2cd20be2e49ce452c4709acc4a1065ade"
+    },
+    {
+      "path": "dsh-pet/assets/preview/qian-dai-man-yi.gif",
+      "kind": "preview",
+      "size": 620453,
+      "gitBlobSha1": "265310f4d01941406381364ec610a814a0edb99d",
+      "sha256": "b6aace2f161bcbf3d2ed74c4b7e23dc03d65875a7559fec8e56f204e4b9c921c"
+    },
+    {
+      "path": "dsh-pet/assets/preview/qian-dai-ru-chang.gif",
+      "kind": "preview",
+      "size": 656802,
+      "gitBlobSha1": "63c685bd1f3f9800785ba5ba4c0cc643339447a5",
+      "sha256": "a0f4073de383fdbb5ec601d7e5ac7e63bbcef819a50ea8f4ca027ff4b68a0a6b"
+    },
+    {
+      "path": "dsh-pet/assets/preview/qingkuai-jilu.gif",
+      "kind": "preview",
+      "size": 633555,
+      "gitBlobSha1": "60e049c165a5b0144036a76925d6d9db1175d73b",
+      "sha256": "8f573a77742ffa73601ad88b90b2a108e490a21cd1bea92ab0f09014fb1b5f8b"
+    },
+    {
+      "path": "dsh-pet/assets/preview/qingkuai-yaobaiwu.gif",
+      "kind": "preview",
+      "size": 624222,
+      "gitBlobSha1": "a26da12212eb22f1da2ef89759e56125b4510319",
+      "sha256": "7808d01e6f1c4ddb72cd5a8875c0aa61eb5d6fb6b76b1c1c3d5566a3056403ce"
+    },
+    {
+      "path": "dsh-pet/assets/preview/sanqiu-paojie.gif",
+      "kind": "preview",
+      "size": 632764,
+      "gitBlobSha1": "17dcb3d13c85184c61f4dbeb0f5772dfadb69956",
+      "sha256": "7d419e7a1fd2cb158329807ea47543a60c571e9e043bceab3f66a8a99eb71535"
+    },
+    {
+      "path": "dsh-pet/assets/preview/shendu-sikao-suisuinian.gif",
+      "kind": "preview",
+      "size": 725097,
+      "gitBlobSha1": "8350ee21d391fd728ca96f08b50a8aad2d8000d6",
+      "sha256": "d4be62ad8e764cedd895d59befeeb64e7f4fc9493ed90ccaced2a5ad381ba732"
+    },
+    {
+      "path": "dsh-pet/assets/preview/shia-chishenme.gif",
+      "kind": "preview",
+      "size": 855953,
+      "gitBlobSha1": "a834913afab0e9897c0b16d17e43fe476e8c6156",
+      "sha256": "7d5c530b93a335293959a8205318921997fee32420fe9f6d03f1f4d2de0e24fa"
+    },
+    {
+      "path": "dsh-pet/assets/preview/shou-hongbao.gif",
+      "kind": "preview",
+      "size": 617710,
+      "gitBlobSha1": "b151a43b3137bbda5246d947b2a075cf53b40378",
+      "sha256": "4f46777326f5b0be686be00bc49e5b7b3c1cc643f113e33bf145c4567f88cedf"
+    },
+    {
+      "path": "dsh-pet/assets/preview/shu-jin-zhou-mei.gif",
+      "kind": "preview",
+      "size": 635602,
+      "gitBlobSha1": "2e33a00efef80d3187403bb158767b26a83c3f56",
+      "sha256": "80bd752f0672fb373c36a971a1a90aa89aab8a16f7de133cd7b672151c23a6ae"
+    },
+    {
+      "path": "dsh-pet/assets/preview/shuan-huoguo.gif",
+      "kind": "preview",
+      "size": 652279,
+      "gitBlobSha1": "f0d33f3aa8e4ae6b2735daa0213c0ea595adcc2b",
+      "sha256": "489bcc2fb9ff5a4ebce9e14f25817f13cbebeb27c201c4b7d738157f0e105b3a"
+    },
+    {
+      "path": "dsh-pet/assets/preview/shuijiao-kaishi.gif",
+      "kind": "preview",
+      "size": 555763,
+      "gitBlobSha1": "9cfe0eed20279c491bf861d56d02fdbdb31a014f",
+      "sha256": "4c83204e6b16dd7213f581b36ae5025dab0f834f3f3e945f9de29496afb24507"
+    },
+    {
+      "path": "dsh-pet/assets/preview/shuijiao-qilai.gif",
+      "kind": "preview",
+      "size": 589135,
+      "gitBlobSha1": "975fe26b1ae66b10d4068e203d7c6c0c69ecc220",
+      "sha256": "49a53c07595ec6b04156030396f1efdcda7a2eed627d26007ea42686fdbf2206"
+    },
+    {
+      "path": "dsh-pet/assets/preview/shuijiao-xunhuan.gif",
+      "kind": "preview",
+      "size": 533116,
+      "gitBlobSha1": "d62e15df1aeb3260f430a8505464c814fc1b8a56",
+      "sha256": "41740732668409e3c629ad881074722cecdd4f6da567bbbbac6903e5e8ac7554"
+    },
+    {
+      "path": "dsh-pet/assets/preview/suisuinian-cazhuo-suisuinian.gif",
+      "kind": "preview",
+      "size": 612374,
+      "gitBlobSha1": "17545394fdee143bf26826ba4c1d6fc34f0f612f",
+      "sha256": "ead21ada195d860e9d2cab1f763a253522044bd99641e34bbf6c3290511ea674"
+    },
+    {
+      "path": "dsh-pet/assets/preview/suisuinian-duiping-suisuinian.gif",
+      "kind": "preview",
+      "size": 616674,
+      "gitBlobSha1": "c3d255ec6bb8bbb1a54bf3c3e5b4dd53877e06e3",
+      "sha256": "7063024fefb3081c87a05ffc7c342c41a3eff1b61d8a33d4d4dfd2e06937726a"
+    },
+    {
+      "path": "dsh-pet/assets/preview/suisuinian-fadai-suisuinian.gif",
+      "kind": "preview",
+      "size": 616214,
+      "gitBlobSha1": "82acdb18f999d4748c4a89691da0625d2fe6a588",
+      "sha256": "0d686d7b3cec4d20a58113ff7c0cbb3b681461bcfb3b3b3a19b39bb56efee7d0"
+    },
+    {
+      "path": "dsh-pet/assets/preview/taotang-nanguadeng.gif",
+      "kind": "preview",
+      "size": 625363,
+      "gitBlobSha1": "0b2c7aab35910583f0f69b7a4cfeabf1bae2c2f3",
+      "sha256": "deeb165a0df25da17e6f4e52599ee4e7125b24085b814d354503e750e53a78e0"
+    },
+    {
+      "path": "dsh-pet/assets/preview/ti-jianzi.gif",
+      "kind": "preview",
+      "size": 630934,
+      "gitBlobSha1": "7c2fd787c47ac532b22c418a173551a6ff94a896",
+      "sha256": "5d30ae7b352f03d722da63e68715ffc1a6c8286a6ee2652ee9d4e3855143a358"
+    },
+    {
+      "path": "dsh-pet/assets/preview/touchi-lingshi-bei-zhuazhu.gif",
+      "kind": "preview",
+      "size": 638708,
+      "gitBlobSha1": "f807dc47ab546c8528ccf305e05e8e2707f447a1",
+      "sha256": "53c8a102e5ac7e47c9cd84c072c8a9363eed12f4ba386b58d4847b56e1b17bd3"
+    },
+    {
+      "path": "dsh-pet/assets/preview/wan-shuiqiang.gif",
+      "kind": "preview",
+      "size": 634678,
+      "gitBlobSha1": "5ff73ee4ae035c31b8900dae7c436c48ab6b946f",
+      "sha256": "d503736c5f4d66e5d9d83d7d628481758bbe73654cc51409921fb0234e1bff2d"
+    },
+    {
+      "path": "dsh-pet/assets/preview/wan-youxi-qijibaituai.gif",
+      "kind": "preview",
+      "size": 676604,
+      "gitBlobSha1": "a24239cc4e37662d54a148920d6b88d3b26bfad1",
+      "sha256": "b2e8d2c0906395af97408bb0dd84af4a5308bc7b10e4b0dbabd1f711043737d8"
+    },
+    {
+      "path": "dsh-pet/assets/preview/wu-shitou.gif",
+      "kind": "preview",
+      "size": 640129,
+      "gitBlobSha1": "e922d30c65309268305849cdbb901b091353626a",
+      "sha256": "890b2c1852d58bbed7a00950295d0e7263a5a14be5bd46911332f9df4fb3dd76"
+    },
+    {
+      "path": "dsh-pet/assets/preview/xiaofudu-yuandi-360du-xuanzhuan-zhanshi.gif",
+      "kind": "preview",
+      "size": 606303,
+      "gitBlobSha1": "1953ddc6be3d4c1a66a6129a49358e44724733a6",
+      "sha256": "1fdf3c786f33ddf980d468e21a765791996ba1924dd31863db4b3cdca862fe80"
+    },
+    {
+      "path": "dsh-pet/assets/preview/xiaotiqin-yanzou.gif",
+      "kind": "preview",
+      "size": 629961,
+      "gitBlobSha1": "743cd821bf9ff2d2d1cafd8f93b65ff0474c4a53",
+      "sha256": "ef3c8b96e35dd67a3710ce1563151c49c2960f875d637370c80499afe3cd3f5a"
+    },
+    {
+      "path": "dsh-pet/assets/preview/xiawuziqi.gif",
+      "kind": "preview",
+      "size": 614374,
+      "gitBlobSha1": "3225be44ba0dd1336373833ab65463d6dfe4bb02",
+      "sha256": "44275db0686881a3af8161b70847537e335041c582fddc00a8185acd567cf811"
+    },
+    {
+      "path": "dsh-pet/assets/preview/xie-daima.gif",
+      "kind": "preview",
+      "size": 627078,
+      "gitBlobSha1": "1ed0d8d9affdf44f67c2b205d264ec0c17a59b9b",
+      "sha256": "966934b70bccd613ac8234b9aedf838b4802b441b8f0c7f67d586386583bb244"
+    },
+    {
+      "path": "dsh-pet/assets/preview/xie-fuzi.gif",
+      "kind": "preview",
+      "size": 631185,
+      "gitBlobSha1": "11bec1d5e023ce905d1dcbac30d1abf33da38657",
+      "sha256": "8c767f38af787336ce5af2badd620240006a573f1f2286245fb07ac9508e1520"
+    },
+    {
+      "path": "dsh-pet/assets/preview/yaoshan-naliang.gif",
+      "kind": "preview",
+      "size": 674462,
+      "gitBlobSha1": "5d698b43516b9fbe46f415438598c921bab2f08b",
+      "sha256": "ee039cac479af06661cb6b67ccdf83ab52d4e7dc7b605d9bc6f6e0eda223c41b"
+    },
+    {
+      "path": "dsh-pet/assets/preview/yong-jingyu-weiba-paidadi.gif",
+      "kind": "preview",
+      "size": 643856,
+      "gitBlobSha1": "1f6b4172cfaa67ede270070491b8b276436938e8",
+      "sha256": "7ebcc9e47e6e165c3476391e9633c089c1c39b2eba190644f569c45744d18685"
+    },
+    {
+      "path": "dsh-pet/assets/preview/youxian-hengga.gif",
+      "kind": "preview",
+      "size": 628797,
+      "gitBlobSha1": "8d218a18962a36bde4e774212085051472d27142",
+      "sha256": "78e60435539142bbd6ad493a0ac927daf3a4eb7bcfe549db70ddba4538e7cce6"
+    },
+    {
+      "path": "dsh-pet/assets/preview/youya-nvpuwu.gif",
+      "kind": "preview",
+      "size": 610270,
+      "gitBlobSha1": "d3502f2d4069c460e2810f1d63b9731659d53dca",
+      "sha256": "8d0a71cf094c7cb074058bf9ba1db86c2b705dda8c8f6629d3594173a8f90607"
+    },
+    {
+      "path": "dsh-pet/assets/preview/yuandi-dunxia-wan-wanju-qiche.gif",
+      "kind": "preview",
+      "size": 554474,
+      "gitBlobSha1": "0ce137e4e5d0c8421ac769045753b925834008dd",
+      "sha256": "92dd1777af2a9d4d3d9efefe86f2d5393371cc90851bda3746fcab277899ec54"
+    },
+    {
+      "path": "dsh-pet/assets/preview/yuandi-piaofu-tabu.gif",
+      "kind": "preview",
+      "size": 619678,
+      "gitBlobSha1": "1ff1a09ef333f951132f18b92c4c2619582146b7",
+      "sha256": "cc78ea0b5ee7e2fac0d6e24371ed808cd18d80430f4430f80129894dd2214606"
+    },
+    {
+      "path": "dsh-pet/assets/preview/yuandi-qiaoji-zhuomian-hudong.gif",
+      "kind": "preview",
+      "size": 598376,
+      "gitBlobSha1": "2705649630c3578fe7c5a9e52f4b803b3b750a8b",
+      "sha256": "21b3d32fe49529ef129257506c6571dfc55d9324216405bf0567f9fcfeadee3c"
+    },
+    {
+      "path": "dsh-pet/assets/preview/yuandi-tiaoyue-zhuasui-touding-wupin.gif",
+      "kind": "preview",
+      "size": 573264,
+      "gitBlobSha1": "85109278c416f8b66404ca1ea90b0101bac3fdb0",
+      "sha256": "887e6a6e8373f2acadfb6b8792e7b39f901e45371e03b3528381011db3eef40b"
+    },
+    {
+      "path": "dsh-pet/assets/preview/yuandi-xiaoqi-chenmian.gif",
+      "kind": "preview",
+      "size": 626237,
+      "gitBlobSha1": "07a66d90998ea5ae79f90b5e5f809adaad65e1e7",
+      "sha256": "a0f7f7c96dccb1679ca4f41fd6b4482eaa6b758b46e8c37219a3ea79c70ed201"
+    },
+    {
+      "path": "dsh-pet/assets/preview/yuandi-zhongli-xiadun-yasuo.gif",
+      "kind": "preview",
+      "size": 487025,
+      "gitBlobSha1": "e733b1b23aa7298c2ce83b9e9217d9c39f3a20f1",
+      "sha256": "1ff82fb5dd30b3c91187f3ab38c1a825a5ab15d64a5b52e048d05ae2cb6d421b"
+    },
+    {
+      "path": "dsh-pet/assets/preview/yuandi-zhuanxin-wan-mofang.gif",
+      "kind": "preview",
+      "size": 622501,
+      "gitBlobSha1": "9db5d701fd94264a5cbaddd07a76370ecd3eefcf",
+      "sha256": "4c4c22c191dc9a0e4f32d99c8d6a54a11d9a0457650d4ab09b8a0ebfaf709abc"
+    },
+    {
+      "path": "dsh-pet/assets/preview/yuandi-zuozhuan-benpao.gif",
+      "kind": "preview",
+      "size": 598197,
+      "gitBlobSha1": "f19f07fdef7e9d0277a6effaa3cb08873d94ab5c",
+      "sha256": "d0ab68586bb0407b0439ca290ecea14a241e399d815550c0ac9a35ade1d8f3e4"
+    },
+    {
+      "path": "dsh-pet/assets/preview/zhao-jingzi.gif",
+      "kind": "preview",
+      "size": 635078,
+      "gitBlobSha1": "1bde220f1cae917fe4dbcfcc4256c6b54e79e144",
+      "sha256": "6d872e75c2bbfb9114dd2285260ee7cfeb094d352917b133ed7889705c7beb78"
+    },
+    {
+      "path": "dsh-pet/assets/preview/zhengti-huanzhuang-shise.gif",
+      "kind": "preview",
+      "size": 582287,
+      "gitBlobSha1": "4b903dd61cf65f1f168fb6618725ab92ac450375",
+      "sha256": "54f946253bf39565c02cbe6728801c92d32e867fd32696b430289c7d981c8ab8"
+    },
+    {
+      "path": "dsh-pet/assets/preview/zhongqiu-shangyue-chi-yuebing.gif",
+      "kind": "preview",
+      "size": 686458,
+      "gitBlobSha1": "d77dc603c0bfdb62b0aa1151f53409f2148f72cb",
+      "sha256": "2d58b485683f1be6d821b8dc212b6053c4113db712540db5922e9d570d9dcf56"
+    },
+    {
+      "path": "dsh-pet/assets/preview/zhuangdian-shengdanshu.gif",
+      "kind": "preview",
+      "size": 848628,
+      "gitBlobSha1": "7b80df4c4e6ddf65d116fabdf415adb21ccfcea1",
+      "sha256": "3edfb27a37130f9822ebc866c3d83e2893920756ab31518b34588e9d37a8ff75"
+    },
+    {
+      "path": "dsh-pet/assets/webm/三球抛接.webm",
+      "kind": "animation",
+      "size": 549316,
+      "gitBlobSha1": "a76228cb5f42fa159e3ec565b8ef969a7d289dca",
+      "sha256": "a64c08a4b7e5c3549616faf9dcd418e17f156b4b72d906646e4d57067df70d23"
+    },
+    {
+      "path": "dsh-pet/assets/webm/下五子棋.webm",
+      "kind": "animation",
+      "size": 514704,
+      "gitBlobSha1": "63295b32e6a0522dac3840abb74a5af7b1431a08",
+      "sha256": "0802b6b808f44846b3d194a857fb0ffd38bdea2d7cdb91c9e5e6f311e44f1953"
+    },
+    {
+      "path": "dsh-pet/assets/webm/东张西望.webm",
+      "kind": "animation",
+      "size": 427005,
+      "gitBlobSha1": "3ba4edb2cc647c51edd41b5a6c71eeee8c418ed0",
+      "sha256": "a20ed02ccc5e72075a3ca83fabb57d9aac5ded699f52d00ec6de72069799fcd5"
+    },
+    {
+      "path": "dsh-pet/assets/webm/中秋赏月吃月饼.webm",
+      "kind": "animation",
+      "size": 512341,
+      "gitBlobSha1": "48beff57ddc5b3c7e1c0387348e33ce8e3a5b819",
+      "sha256": "3f64003262d3f129470721495695ecd231795d859693a748914c02c6e3883a3a"
+    },
+    {
+      "path": "dsh-pet/assets/webm/优雅女仆舞.webm",
+      "kind": "animation",
+      "size": 578915,
+      "gitBlobSha1": "390c504dfb0b56bb647f0253782a91ee705f8933",
+      "sha256": "74209c4c668545ab1e2366e0d1c0709b7bea0312eeba7e89b553d5b977bfe649"
+    },
+    {
+      "path": "dsh-pet/assets/webm/余额-分文不剩.webm",
+      "kind": "animation",
+      "size": 490318,
+      "gitBlobSha1": "013b69906a5c56b219bbd74986f973eea53e3675",
+      "sha256": "b232349bdbd962bad7f3a15cfce539c6fadadfd0a286b7f03b03e59cf7aca7a8"
+    },
+    {
+      "path": "dsh-pet/assets/webm/余额-数金皱眉.webm",
+      "kind": "animation",
+      "size": 319065,
+      "gitBlobSha1": "6c1dac8e3edddc02f4988e1c38e289177c335ecf",
+      "sha256": "94a7e0ee8e1012aadec33492301c893c2d1c5df7e36049dbada8c4a264bf1810"
+    },
+    {
+      "path": "dsh-pet/assets/webm/余额-袋空如洗.webm",
+      "kind": "animation",
+      "size": 383104,
+      "gitBlobSha1": "a85eb2206596c7031fbc64146df09f6e7b137aae",
+      "sha256": "3db780bbc96bb362ced36078fecacfb63b9d292c06b533cfb61797adb553a7f8"
+    },
+    {
+      "path": "dsh-pet/assets/webm/余额-金袋叮当.webm",
+      "kind": "animation",
+      "size": 530955,
+      "gitBlobSha1": "1bbe074a0bef1a7ef80508b3033269885edb6b2c",
+      "sha256": "6fda0c4ae013cf7906afa1cb846717d097db576343dab11006f14ca5c7a9a34f"
+    },
+    {
+      "path": "dsh-pet/assets/webm/余额-钱袋如常.webm",
+      "kind": "animation",
+      "size": 387407,
+      "gitBlobSha1": "a52b686a7a3d801a98cccb81534eae2bfa7ac2b3",
+      "sha256": "f6cb9aa1c829fcbc62478dbddd0e0fcd7beb47433cea751d18b81ccccbec95d3"
+    },
+    {
+      "path": "dsh-pet/assets/webm/余额-钱袋满溢.webm",
+      "kind": "animation",
+      "size": 622258,
+      "gitBlobSha1": "34212594a3b9fc03daf2ae742763e62dfe4b034f",
+      "sha256": "dddd6ffc4e763b77360e49c0ccee0987a43c3d253a23e3133c334aabb598b362"
+    },
+    {
+      "path": "dsh-pet/assets/webm/侧身急躁跑.webm",
+      "kind": "animation",
+      "size": 735190,
+      "gitBlobSha1": "376ce791a69736a57e173e79cfba26ed84670db2",
+      "sha256": "75dac326108fc701214042e0cabff5e950bc21b7ba03ca2ee54cdb0afc0618d6"
+    },
+    {
+      "path": "dsh-pet/assets/webm/偷吃零食被抓住.webm",
+      "kind": "animation",
+      "size": 432201,
+      "gitBlobSha1": "9f50ed6c3ba1a3f96b614e34ecaaf067ef6ab9cd",
+      "sha256": "c3b783351ad38fdd931e80b188ecb12d273f21e4794aed2c41f267bdb75ff897"
+    },
+    {
+      "path": "dsh-pet/assets/webm/写代码.webm",
+      "kind": "animation",
+      "size": 383960,
+      "gitBlobSha1": "47902f235c11fadd22134dd71d2fbcc3a36a13fc",
+      "sha256": "0441287737cdbb993ce90dfa74c67ea4ea3549d8c8ea98946604668464589ed7"
+    },
+    {
+      "path": "dsh-pet/assets/webm/写福字.webm",
+      "kind": "animation",
+      "size": 500314,
+      "gitBlobSha1": "b7aa9ce458b6e8d1c9513b5e4b059a07ca143f88",
+      "sha256": "7841a47a6997bb7c90d81671d524c44b1afc87ca2e8fceb17d06d99003a67181"
+    },
+    {
+      "path": "dsh-pet/assets/webm/凭空生花.webm",
+      "kind": "animation",
+      "size": 620252,
+      "gitBlobSha1": "085fe6d74ddfc268670be32b7c3f78c6806b68f1",
+      "sha256": "d1c336bc54c57a282bec180859c7b7b58912b70b5bca7b2f49495cd30cc7d5d6"
+    },
+    {
+      "path": "dsh-pet/assets/webm/动物环绕.webm",
+      "kind": "animation",
+      "size": 981435,
+      "gitBlobSha1": "44722e0afb7ef4c1cd85c5c98eadd9b4ade2fea9",
+      "sha256": "814d41e7d619f9a61f38e5494a0cfd703f8bcfd829a14fa921e1c59acf3ce872"
+    },
+    {
+      "path": "dsh-pet/assets/webm/原地专心玩魔方.webm",
+      "kind": "animation",
+      "size": 442948,
+      "gitBlobSha1": "d2730f4c17e8ccb793973929c237b4fb32d8e3fc",
+      "sha256": "ad54da175ba86b19a84b73b3169fb418b2df016560bb274283f200aca351e712"
+    },
+    {
+      "path": "dsh-pet/assets/webm/原地小憩沉眠.webm",
+      "kind": "animation",
+      "size": 433769,
+      "gitBlobSha1": "9b258545a841647a11ffdc5882ad8b2bb808a343",
+      "sha256": "31d4a6b36a29b2a4fe097384173d3bbeb3fa2f40f526b13191791456bf7507a1"
+    },
+    {
+      "path": "dsh-pet/assets/webm/原地左转奔跑.webm",
+      "kind": "animation",
+      "size": 614526,
+      "gitBlobSha1": "d9b6611b32065a7937878a5467cd84d47a1be543",
+      "sha256": "79882aedd7b77caaacce1a34dece68e2f001a3dbfa5f9d049c1ce2fc04518d52"
+    },
+    {
+      "path": "dsh-pet/assets/webm/原地敲击桌面互动.webm",
+      "kind": "animation",
+      "size": 403033,
+      "gitBlobSha1": "c7e55e6f83c1847a45d81d60c04de2a167680c92",
+      "sha256": "a40f481e89abcc726c89f30b01d085ca8c17a090e71facdd5e7f747e771093eb"
+    },
+    {
+      "path": "dsh-pet/assets/webm/原地漂浮踏步.webm",
+      "kind": "animation",
+      "size": 591446,
+      "gitBlobSha1": "d700e4fdd38e8795b88f6d81418e8fc196fe80ed",
+      "sha256": "7dee1c14672f1f99bebe5e6f1a52d6664b851ed95f9958ac6c12b753a5e5cc81"
+    },
+    {
+      "path": "dsh-pet/assets/webm/原地跳跃抓碎头顶物品.webm",
+      "kind": "animation",
+      "size": 619282,
+      "gitBlobSha1": "b45cdcb57340f12fff1b40ea9391bdd1d3c2845a",
+      "sha256": "ccb906c677c7b739eb0dbf5307160e66583562c2a6caec72a9d3d14a202fcccd"
+    },
+    {
+      "path": "dsh-pet/assets/webm/原地蹲下玩玩具汽车.webm",
+      "kind": "animation",
+      "size": 505114,
+      "gitBlobSha1": "9a4ba01b33e6fba841a99ebf55631433651cdcd3",
+      "sha256": "3ec9978ce3663d9bc4bfe5f5223f0a4e3d9ea6fcd0a6acdbaa802e0cfba36bf2"
+    },
+    {
+      "path": "dsh-pet/assets/webm/原地重力下蹲压缩.webm",
+      "kind": "animation",
+      "size": 215047,
+      "gitBlobSha1": "67acb52f7e7c49e77b000730b3bff9a65fb21a10",
+      "sha256": "1c8972478a7f347818165db62b468f1624ec11d0862f38aec3078e3870831d24"
+    },
+    {
+      "path": "dsh-pet/assets/webm/变鸽子.webm",
+      "kind": "animation",
+      "size": 509462,
+      "gitBlobSha1": "150abd9011b3c9fec7229fa2b30418958040a7ad",
+      "sha256": "796eba8ebe705e9339035e533e4f913fb8b9810432dcd6e7ae4fc1602e9ce3cf"
+    },
+    {
+      "path": "dsh-pet/assets/webm/可爱宅舞.webm",
+      "kind": "animation",
+      "size": 576307,
+      "gitBlobSha1": "0b96ac0de6fa7afe72f256148dd719698769043c",
+      "sha256": "4f737e44ea67c20368bdce474b951902c87c37991fb0750da8ed7794df6ec55c"
+    },
+    {
+      "path": "dsh-pet/assets/webm/吃Token.webm",
+      "kind": "animation",
+      "size": 574754,
+      "gitBlobSha1": "619722b50ea75fcb3c18b3de5d996ce4e87a7893",
+      "sha256": "d46ef798fb189cd7652f63d03a35e6f314e5a598b4a65f76202ec95852eb719c"
+    },
+    {
+      "path": "dsh-pet/assets/webm/吃冰淇淋融化.webm",
+      "kind": "animation",
+      "size": 509816,
+      "gitBlobSha1": "c696cf2f61366cd9ba973aae1526dbf920c3d85d",
+      "sha256": "17d73682926d6ce4203ad12d9049527e604d448bcc5c82ac5b12950b4ceb0447"
+    },
+    {
+      "path": "dsh-pet/assets/webm/吃午餐.webm",
+      "kind": "animation",
+      "size": 495122,
+      "gitBlobSha1": "83618038d3d4fe98b9f42d0fd7ae1b7a24f686b3",
+      "sha256": "e48a70e61d93195c611c2d4041be32a26a114f78c835ff6b2345459ae39a90ce"
+    },
+    {
+      "path": "dsh-pet/assets/webm/吃大闸蟹.webm",
+      "kind": "animation",
+      "size": 545299,
+      "gitBlobSha1": "f8e0774d6b4b38f27adfecdfc591dd40812f5e38",
+      "sha256": "fbd0f445c15fda1f827e6eb485270ddf9025ac29b3edcac28a5eff7d9aa80f46"
+    },
+    {
+      "path": "dsh-pet/assets/webm/吃年糕.webm",
+      "kind": "animation",
+      "size": 451257,
+      "gitBlobSha1": "7b4473435dfa219428f5bb2e1dbf34fe83b59190",
+      "sha256": "ba0c86988687801a5b19d055d728bb182c8a95a0bdd7071dea16b83c1162135c"
+    },
+    {
+      "path": "dsh-pet/assets/webm/吃早餐.webm",
+      "kind": "animation",
+      "size": 441484,
+      "gitBlobSha1": "6691dc43900e3f906b6576cc6eb7e0f23b0e2702",
+      "sha256": "893b61587aeda8ca146e32b596b00903461aab04684a146d84b31965968d60e4"
+    },
+    {
+      "path": "dsh-pet/assets/webm/吃晚餐.webm",
+      "kind": "animation",
+      "size": 741965,
+      "gitBlobSha1": "14f9eee2a361a592fd55c95979f5810b7b8dcd03",
+      "sha256": "8902602fb012c29d33392822ab534ed119a136610f6bc2e8c0c51d60afec673a"
+    },
+    {
+      "path": "dsh-pet/assets/webm/吃汤圆.webm",
+      "kind": "animation",
+      "size": 437152,
+      "gitBlobSha1": "eac65950006cf0814e6e4f1ebe1c73b9e36a8791",
+      "sha256": "53a0f93612bb59c7279010f993a1101b033fc01df1998dd9874d8aea175afa6f"
+    },
+    {
+      "path": "dsh-pet/assets/webm/吃白饭.webm",
+      "kind": "animation",
+      "size": 459590,
+      "gitBlobSha1": "0f400023c2f036e6edc28033083d49f68686d347",
+      "sha256": "b620413d6fa303a0ed9168dc71453c3bddc10141a0b7edeff87dc2e6e054d502"
+    },
+    {
+      "path": "dsh-pet/assets/webm/吃粽子.webm",
+      "kind": "animation",
+      "size": 446268,
+      "gitBlobSha1": "6ad057c473cbaf209de8d4ec91781d9bc759cda9",
+      "sha256": "f3af3217674427fdc5609bf50b170f69669c84cf229cd7b44261c00da7876ade"
+    },
+    {
+      "path": "dsh-pet/assets/webm/吃糖葫芦.webm",
+      "kind": "animation",
+      "size": 469809,
+      "gitBlobSha1": "def3fa70022f6b728f0d0b3ebbfcff601c406c57",
+      "sha256": "6900468dc166bfb90e1cfb73de9b41a08c62513483ce1300658340cf942be3cd"
+    },
+    {
+      "path": "dsh-pet/assets/webm/吃腊八粥.webm",
+      "kind": "animation",
+      "size": 460665,
+      "gitBlobSha1": "c20156c0de0863832d7bc10fb65153559de388be",
+      "sha256": "f821527812875262cc0dda50fe023c603fc89ec566172777c6bff4fa45943011"
+    },
+    {
+      "path": "dsh-pet/assets/webm/吃西瓜.webm",
+      "kind": "animation",
+      "size": 482918,
+      "gitBlobSha1": "ffa2c36e86e9056a7e965c73364a50c1fd8bb192",
+      "sha256": "0dd992fb7fb51d707d6589cb813a450437a2bd54046709f424a73353e2d7f78d"
+    },
+    {
+      "path": "dsh-pet/assets/webm/吃重阳糕.webm",
+      "kind": "animation",
+      "size": 468951,
+      "gitBlobSha1": "cc54c1f82bb5c4b8e366fba6433b6534bedcf4fc",
+      "sha256": "d2b6b466fcb1ee689ae130680bf38311e9988d995879ca3b5b1d9aa0b5438058"
+    },
+    {
+      "path": "dsh-pet/assets/webm/吃长寿面.webm",
+      "kind": "animation",
+      "size": 489038,
+      "gitBlobSha1": "ac71008a07686f858627e7f7f69e77448941bb97",
+      "sha256": "2881e1cd4ca31fd56ca578ce2ee73d21222f0006f237c865d9b2dc1ebc436edd"
+    },
+    {
+      "path": "dsh-pet/assets/webm/吃青团.webm",
+      "kind": "animation",
+      "size": 377524,
+      "gitBlobSha1": "00031236d476501f71b3f03f978a4b79952e5097",
+      "sha256": "0d99393dd64ddf0b1ec4ab4cf392c86092ab5edf58d12f5b72e325035da23606"
+    },
+    {
+      "path": "dsh-pet/assets/webm/吃饭·碗饭.webm",
+      "kind": "animation",
+      "size": 436316,
+      "gitBlobSha1": "791b20e72405251d6f0a286a31c7010c1110a17b",
+      "sha256": "17272de2ea1350146a8b9fa387d9a5c8eca16a222372479215088a9dfcfb9019"
+    },
+    {
+      "path": "dsh-pet/assets/webm/吃饭团.webm",
+      "kind": "animation",
+      "size": 419609,
+      "gitBlobSha1": "98f508fe5f5339e57b3e641681b211d53fb5d307",
+      "sha256": "dd19c4ad30c20022d72d50055eee2f5c90e1184d6389c0edee8ad20dbaa505b1"
+    },
+    {
+      "path": "dsh-pet/assets/webm/吃饺子.webm",
+      "kind": "animation",
+      "size": 554828,
+      "gitBlobSha1": "2dee24954bae172a20ef1e0d44b34d7105872851",
+      "sha256": "a607391c206cb2a1a977d72f318a6b5bfe95aee4da9b11c9de8724bd9981cc06"
+    },
+    {
+      "path": "dsh-pet/assets/webm/吹气球.webm",
+      "kind": "animation",
+      "size": 751040,
+      "gitBlobSha1": "3a632cd91c409ed1b889f0313ae1394113c0d7c0",
+      "sha256": "3258f91b2000d949ba38f34c1f161b0d5fa148ecffb5a95eb8a3e10b5df7fc87"
+    },
+    {
+      "path": "dsh-pet/assets/webm/吹笛子.webm",
+      "kind": "animation",
+      "size": 768350,
+      "gitBlobSha1": "fd57f820116b72c35e7b50ee3cdb5c20e775062b",
+      "sha256": "9c8b754a3256778cddd88fbb073b649d5b1d2e5f96e70231bc2c3bee06fa7c78"
+    },
+    {
+      "path": "dsh-pet/assets/webm/哈欠连天.webm",
+      "kind": "animation",
+      "size": 424352,
+      "gitBlobSha1": "63da356fa373ecf6256bc8f4deb9709577e2f18e",
+      "sha256": "2b23372e1ff2bc2f9078c09740708c960d4ea021f9fc3cca294d9df11e393ec8"
+    },
+    {
+      "path": "dsh-pet/assets/webm/堆雪人.webm",
+      "kind": "animation",
+      "size": 519196,
+      "gitBlobSha1": "ce8e8be3b7e5c0dfbdebf15f5a8fd70e2836ee0f",
+      "sha256": "478bdc31cc60e55e3efa139b81c7d8680a8cf83aca2304495e6da50a20a09cf5"
+    },
+    {
+      "path": "dsh-pet/assets/webm/大口吃零食.webm",
+      "kind": "animation",
+      "size": 806998,
+      "gitBlobSha1": "ab57e48e28d0e0fb832549e1b546bed28f2eb3df",
+      "sha256": "fdacb534a828b0c669f22a54e8da9bb9b5d731e0132dd5ea946f7badc9229a39"
+    },
+    {
+      "path": "dsh-pet/assets/webm/女仆屈膝礼仪.webm",
+      "kind": "animation",
+      "size": 365712,
+      "gitBlobSha1": "0bcac6ada85e78527fcce020db73bf0b6eff41d3",
+      "sha256": "6536fb519ba73bbc338d30cf7286b14ffde1278b6d469c64573536dc0f896918"
+    },
+    {
+      "path": "dsh-pet/assets/webm/小幅度原地360度旋转展示.webm",
+      "kind": "animation",
+      "size": 585715,
+      "gitBlobSha1": "915feb453f11f0267693109b3e847a850cdb1ec7",
+      "sha256": "9f1a927f63c73e3c35ee5f4d2eb58f4a46ac7eca2af69388f320d10cdef8d29c"
+    },
+    {
+      "path": "dsh-pet/assets/webm/小提琴演奏.webm",
+      "kind": "animation",
+      "size": 605350,
+      "gitBlobSha1": "2de1533cd0f2d7a72e0099f9ac6f816353f3912f",
+      "sha256": "03816be0fcd499b63ed667e8b87c234094e64c59f1cd222455cf6a27ac832d1c"
+    },
+    {
+      "path": "dsh-pet/assets/webm/工作状态-原地踱步张望.webm",
+      "kind": "animation",
+      "size": 471725,
+      "gitBlobSha1": "7b9459a1efdf4155f5ddd3beb07936fcc5c8a7ed",
+      "sha256": "a56c17ef901fa531324a46a04def2381f65922d319ec83dadde34d2a4669e411"
+    },
+    {
+      "path": "dsh-pet/assets/webm/工作状态-垂头叹气冒汗.webm",
+      "kind": "animation",
+      "size": 198937,
+      "gitBlobSha1": "653ef82b71d52faa1d26a014afb7764f778926f7",
+      "sha256": "ab00c844e62221905574b4c070e0d7b6fa14fb2afa1064c27a160f10e25f7196"
+    },
+    {
+      "path": "dsh-pet/assets/webm/工作状态-忙碌点按.webm",
+      "kind": "animation",
+      "size": 475613,
+      "gitBlobSha1": "32bc6dbf65a7f1afa403520c3dd37980ca353e5f",
+      "sha256": "b5d702e0c04adb7b255ac702001c24da36c8bf95efc891f693f4976986ab2435"
+    },
+    {
+      "path": "dsh-pet/assets/webm/工作状态-思考冒泡.webm",
+      "kind": "animation",
+      "size": 408849,
+      "gitBlobSha1": "51bc3bb2fb894e6f1499974d62a3d93592f91859",
+      "sha256": "b4a36cfa28ea5d7089e362a01972c6e880297c6dcd0d39f1994efd889a3c1be5"
+    },
+    {
+      "path": "dsh-pet/assets/webm/工作状态-清点归档.webm",
+      "kind": "animation",
+      "size": 362510,
+      "gitBlobSha1": "af694fb0013cbc0aa5313ab0221f417b4efdb14a",
+      "sha256": "8c84f58f3a9e7b912e1cbfd89f77eb3652053fc9b2844295c8440cb636305d3b"
+    },
+    {
+      "path": "dsh-pet/assets/webm/工作状态-雀跃庆祝.webm",
+      "kind": "animation",
+      "size": 488024,
+      "gitBlobSha1": "edd6645a8ee9b222c720fb20cfff3b715e92db9b",
+      "sha256": "3ff681051a0bb4f152d7535d64b7f3194c30298bf56d41e521216a278f135d3e"
+    },
+    {
+      "path": "dsh-pet/assets/webm/开心小跑.webm",
+      "kind": "animation",
+      "size": 533054,
+      "gitBlobSha1": "bd6b878090af79122ec3e988e9843588e8b9c9d0",
+      "sha256": "fa6a6d589490845a24aade4b8d9d16bd67143b36348261526f0acb9e6c2eb145"
+    },
+    {
+      "path": "dsh-pet/assets/webm/待机呼吸休闲.webm",
+      "kind": "animation",
+      "size": 441437,
+      "gitBlobSha1": "fd64a428a2be1d3b4ff6cd7f9867dfe978ba0bbb",
+      "sha256": "deb965d05a85dacf5ff4a20faa757846f0d11679598c3ec578a5571487660395"
+    },
+    {
+      "path": "dsh-pet/assets/webm/悠闲哼歌.webm",
+      "kind": "animation",
+      "size": 584008,
+      "gitBlobSha1": "01bd5c202583ef634de424904e76f2906f7289d3",
+      "sha256": "358905afc2c81a9ed478bcf121a8f2f19276766b1d382d0067456bd57d1d7dbb"
+    },
+    {
+      "path": "dsh-pet/assets/webm/扑克魔术.webm",
+      "kind": "animation",
+      "size": 461997,
+      "gitBlobSha1": "2e33efead726dff587fa0ca46adef5ecb5d0b7c9",
+      "sha256": "1d44a7624fb027e5f615c747014ab040ddc497f6bdbcb67194a23a53a5dba78c"
+    },
+    {
+      "path": "dsh-pet/assets/webm/打瞌睡被惊醒.webm",
+      "kind": "animation",
+      "size": 454028,
+      "gitBlobSha1": "e5c5759895274e1f7c4017dce9c9c51beec44e51",
+      "sha256": "7e10c87cfcbd63b20b5a3787be71b0500381d54ea04a5ac0e9d99f59ed49a6d7"
+    },
+    {
+      "path": "dsh-pet/assets/webm/抽陀螺.webm",
+      "kind": "animation",
+      "size": 521068,
+      "gitBlobSha1": "1a0cd6a9447c3a36b068fb9db46fd56447520a73",
+      "sha256": "693689d7b4d02ae8cda53f8d580de5087287fc339360dd20909342f566e969ba"
+    },
+    {
+      "path": "dsh-pet/assets/webm/拆礼物.webm",
+      "kind": "animation",
+      "size": 517803,
+      "gitBlobSha1": "01445f708db3e19b707e6d1609902dd4da9c0ade",
+      "sha256": "6f781e7eac2b295417c80ff9468902280fdcf3ae5921d59977daa8dab537940c"
+    },
+    {
+      "path": "dsh-pet/assets/webm/插茱萸赏菊.webm",
+      "kind": "animation",
+      "size": 486358,
+      "gitBlobSha1": "7e2976e00317dfd681279890ab48f3a68ceb03f9",
+      "sha256": "4e1ba56724da3663e2f5480001ab1141a82e8618c316e6e81e3dae84998452f3"
+    },
+    {
+      "path": "dsh-pet/assets/webm/摇扇纳凉.webm",
+      "kind": "animation",
+      "size": 510022,
+      "gitBlobSha1": "bbb9b8344e6c30579c967a27831ad85f19db1002",
+      "sha256": "87d4b9454692484e4809b45071751b2144fc82fd8696fafabb32e19af98350f2"
+    },
+    {
+      "path": "dsh-pet/assets/webm/撸猫.webm",
+      "kind": "animation",
+      "size": 348432,
+      "gitBlobSha1": "466044675ea20b863db850373aab8a6c2b7c11a8",
+      "sha256": "068d84e944dfce17de1c5a2ee2a4bc391e2848dad88a7df4877ebf23cf38bcec"
+    },
+    {
+      "path": "dsh-pet/assets/webm/收红包.webm",
+      "kind": "animation",
+      "size": 472277,
+      "gitBlobSha1": "ca07f8792572e3b182b2077b768fbcf9ece4ee91",
+      "sha256": "a0e7a9a5997aff1357c76eeaaad7a01503c320f7017766dd5a42e643daa505c1"
+    },
+    {
+      "path": "dsh-pet/assets/webm/放孔明灯.webm",
+      "kind": "animation",
+      "size": 594144,
+      "gitBlobSha1": "ca554c0df5fb9cd2f35ad9eb54957b9e1dfcd2cf",
+      "sha256": "cc6540b4651f6603363dd326801921d6ba220ecaaf00828b42d248eb28beeb31"
+    },
+    {
+      "path": "dsh-pet/assets/webm/放河灯.webm",
+      "kind": "animation",
+      "size": 379124,
+      "gitBlobSha1": "2827fd308393a036201bc85dca0a9b2cc9f3ee13",
+      "sha256": "af744bed1ff20cc1b0492247add45f2b16433fde0b0897c31d6b0579429b788d"
+    },
+    {
+      "path": "dsh-pet/assets/webm/放烟花.webm",
+      "kind": "animation",
+      "size": 1330462,
+      "gitBlobSha1": "3a1bcd38b00b170b619e42b76ab8c9ea9225903a",
+      "sha256": "539ac09ae29ed0a11bd828df096f3e72f606529b3c59e29a5fcf3b051779a4d0"
+    },
+    {
+      "path": "dsh-pet/assets/webm/放风筝.webm",
+      "kind": "animation",
+      "size": 770134,
+      "gitBlobSha1": "000eba2f49a11beb21aa63ddc64c4d1522afa27e",
+      "sha256": "9d9ac75871b1c70a77fc4aaa63dd24778d79cbf492c2c5df42167199c7dd2132"
+    },
+    {
+      "path": "dsh-pet/assets/webm/整体换装试色.webm",
+      "kind": "animation",
+      "size": 524724,
+      "gitBlobSha1": "abd198a8d1e4e67f09d86e4a5bdc99859e61098e",
+      "sha256": "e8e599b12da7f3437c98425f6b192dd0c81a6b63bbba5e7927f53c22f757b094"
+    },
+    {
+      "path": "dsh-pet/assets/webm/是啊，吃什么.webm",
+      "kind": "animation",
+      "size": 588163,
+      "gitBlobSha1": "e347b7574b4dca0d65bdd34bf9af0a176fbb15a1",
+      "sha256": "94e1d69e05cc66cc1dc8bf6986efc51dfd71fe22fd34166f9efe7ca2d21c1e8c"
+    },
+    {
+      "path": "dsh-pet/assets/webm/晨间刷牙.webm",
+      "kind": "animation",
+      "size": 425460,
+      "gitBlobSha1": "66581dbd88c72bcba960d551b9cdcb0239da7d2f",
+      "sha256": "017e384e7e13732fb12428d024ef686e79df5b79bfab0d83faa7fa50653d1bc4"
+    },
+    {
+      "path": "dsh-pet/assets/webm/期待开饭.webm",
+      "kind": "animation",
+      "size": 409072,
+      "gitBlobSha1": "ecc1d4e2f0b5d0c163eb601bfe84ef26b3417145",
+      "sha256": "4999759c8c32af0b5400518084ade31c9445c4e5e3ea40218efa28f2e79d9c3e"
+    },
+    {
+      "path": "dsh-pet/assets/webm/涮火锅.webm",
+      "kind": "animation",
+      "size": 466547,
+      "gitBlobSha1": "d3e99cf6d8694b5e83a3957793f8fc7a0fc2cc2a",
+      "sha256": "f0b345c22cf2841137d215a7b9d50252b8be0ede64887e91fdc9bd09843e3c8f"
+    },
+    {
+      "path": "dsh-pet/assets/webm/深度思考碎碎念.webm",
+      "kind": "animation",
+      "size": 433031,
+      "gitBlobSha1": "5a40d5bfdfa818a1df37cef6405f10cd8b71961c",
+      "sha256": "db66867cd1f5bf68b0638fe1f966d0fdf95d1573523e60c77aa8913706118e82"
+    },
+    {
+      "path": "dsh-pet/assets/webm/点击回应-傲娇生气.webm",
+      "kind": "animation",
+      "size": 392336,
+      "gitBlobSha1": "77c6461a1f8ced2dc7272f44192f37dd682becf8",
+      "sha256": "6b7176b98408cb649d1d37b6a6222a21aa6b128187e3e0b2d18550d35ab81064"
+    },
+    {
+      "path": "dsh-pet/assets/webm/点击回应-元气挥手.webm",
+      "kind": "animation",
+      "size": 421669,
+      "gitBlobSha1": "f60556f06c386cfb569f76b0cfa2e34e34fdc362",
+      "sha256": "48cd729ccdcf746369942ea954d242e9afdd5643e1dac3827fa5e67450eb8776"
+    },
+    {
+      "path": "dsh-pet/assets/webm/点击回应-害羞惊讶.webm",
+      "kind": "animation",
+      "size": 538281,
+      "gitBlobSha1": "499b73c42844bd0268bff9044e0523fcae1c1b27",
+      "sha256": "a04968bbc46d1ebea07f81e5dabd93b0b67a9d07f1371e9887b33075134ad00d"
+    },
+    {
+      "path": "dsh-pet/assets/webm/点击回应-开心跃动.webm",
+      "kind": "animation",
+      "size": 538110,
+      "gitBlobSha1": "fb614abf8d19c650fb5bd4727b2585282733a996",
+      "sha256": "86dcb0c3dd7b651de9c107e927d57a5c4224599101706dbdcc782fa48bcd0ad7"
+    },
+    {
+      "path": "dsh-pet/assets/webm/点击回应-挠痒咯咯笑.webm",
+      "kind": "animation",
+      "size": 425393,
+      "gitBlobSha1": "d896eb9a91ca8eafa7f0af35a3073dc04a397742",
+      "sha256": "f228279219f4084323ca1bfef1604f7c77bb3f505d45a8d1747b5ac3f9f2393b"
+    },
+    {
+      "path": "dsh-pet/assets/webm/照镜子.webm",
+      "kind": "animation",
+      "size": 504127,
+      "gitBlobSha1": "f9ead4a5e1ab6cb702bd349794264f398f470867",
+      "sha256": "13dc61c003e500d906b6526765072b7a78c0709491a397d4e70a88ec7ea63310"
+    },
+    {
+      "path": "dsh-pet/assets/webm/玩水枪.webm",
+      "kind": "animation",
+      "size": 523346,
+      "gitBlobSha1": "70cabac39a03ab1738540fdb9a9581ae523de463",
+      "sha256": "448f732417ac4dcb6ca140cd3d73896aaea7f5dac2876a9a0f7c0776478d7128"
+    },
+    {
+      "path": "dsh-pet/assets/webm/玩游戏气急败坏.webm",
+      "kind": "animation",
+      "size": 525022,
+      "gitBlobSha1": "a3375c2980634529e84ba2ee61a57776ea8205e9",
+      "sha256": "8e406bc52cf2a20c9d288867367c4df7c45a5dc78443bc5c2fdc83835ac0b4c3"
+    },
+    {
+      "path": "dsh-pet/assets/webm/用鲸鱼尾巴拍打地面.webm",
+      "kind": "animation",
+      "size": 352213,
+      "gitBlobSha1": "822a7c41f795906ca46e2f1757c63e6633d39214",
+      "sha256": "e3f92df2cf182fdcb109ad0a865689d66e0a0d10db14c1528e5b3cb2f0bf090d"
+    },
+    {
+      "path": "dsh-pet/assets/webm/睡觉-开始.webm",
+      "kind": "animation",
+      "size": 331611,
+      "gitBlobSha1": "cd3c9e42d140354a69c7ae9e2a42edafdf5c983a",
+      "sha256": "5352a208925e01e191c1529d07c61ae61bcda90d92f2b89549c25c949f207e11"
+    },
+    {
+      "path": "dsh-pet/assets/webm/睡觉-循环.webm",
+      "kind": "animation",
+      "size": 237002,
+      "gitBlobSha1": "e91b946423a17ba81f3d27727c8e9c6b4ec52ae0",
+      "sha256": "b49deb9b8dae4b83f84b6dc49efd41fdb654b05ad08ac6c5083977e17ef1122c"
+    },
+    {
+      "path": "dsh-pet/assets/webm/睡觉-起来.webm",
+      "kind": "animation",
+      "size": 379582,
+      "gitBlobSha1": "dcea582e52937f6c3b10e2a331ff5a4a4b4d46cb",
+      "sha256": "a2a4832e546e7639782b74f998d8a6ebc2ec3b3b933c0bcc709487fb4d19ab46"
+    },
+    {
+      "path": "dsh-pet/assets/webm/碎碎念-发呆碎碎念.webm",
+      "kind": "animation",
+      "size": 326752,
+      "gitBlobSha1": "4afcaf7459e3b27b30252648b388e9cd3296807f",
+      "sha256": "02da8cc2194250ae9708b137a3deff43fed2ebd40a7aa4a033b6262c3485eb5b"
+    },
+    {
+      "path": "dsh-pet/assets/webm/碎碎念-对屏碎碎念.webm",
+      "kind": "animation",
+      "size": 364946,
+      "gitBlobSha1": "8b7b357f01a9e5cf733dce28f32e8f94be4a030d",
+      "sha256": "fda85ca286e173b7cf868c91829c3445e55c395e0c788b6be310a855b9b37973"
+    },
+    {
+      "path": "dsh-pet/assets/webm/碎碎念-擦桌碎碎念.webm",
+      "kind": "animation",
+      "size": 350436,
+      "gitBlobSha1": "343513cf0d5583b5f476080d5082f3f5e01588b8",
+      "sha256": "bfb616a3e6ed7375826d8fd00b41b9476d2e4bd65e10abddfb98f04c734e30e6"
+    },
+    {
+      "path": "dsh-pet/assets/webm/穿针乞巧.webm",
+      "kind": "animation",
+      "size": 480887,
+      "gitBlobSha1": "f78881f4e996d5160ce4910ed06646b5b9d5bd60",
+      "sha256": "cf16647ec4cb5634e4ff022bfc139a2233cd8be82f2391472bc842f7014ddc90"
+    },
+    {
+      "path": "dsh-pet/assets/webm/舞狮头.webm",
+      "kind": "animation",
+      "size": 632110,
+      "gitBlobSha1": "b16d549ec2572f5d693bdc7691e3247544ccb88e",
+      "sha256": "6d2006b4023d44087cf4c7dc055d1d8f2a8cec32e22610807a2dfea7bb0dc367"
+    },
+    {
+      "path": "dsh-pet/assets/webm/荡秋千.webm",
+      "kind": "animation",
+      "size": 644126,
+      "gitBlobSha1": "41c61429405139344b13875135468edb25b6f28e",
+      "sha256": "f32ea98e9c04553ae39939cd76c469192ebc19d98b90ebf93ec4b88bf95b25c9"
+    },
+    {
+      "path": "dsh-pet/assets/webm/萌化小幽灵.webm",
+      "kind": "animation",
+      "size": 421990,
+      "gitBlobSha1": "cae5ebbca8634591a49daf5f7a4bc56fa369a7bf",
+      "sha256": "ac2012601d05bf7de7c7cced415b8793b0be3b7cfa569da06c2325f135f7e94f"
+    },
+    {
+      "path": "dsh-pet/assets/webm/蓝鲸现世.webm",
+      "kind": "animation",
+      "size": 482896,
+      "gitBlobSha1": "eb62a155d056d35a16b1d4e961d5ff10c109f684",
+      "sha256": "ed72f0ede7c6cd9482d44aa31002214d461b833c456f3ea40a52c3a0ddc20230"
+    },
+    {
+      "path": "dsh-pet/assets/webm/蝴蝶蜜蜂环绕头顶开花.webm",
+      "kind": "animation",
+      "size": 852828,
+      "gitBlobSha1": "6f39bb90fd8349d5f23d0912a4bc01c2c06470f2",
+      "sha256": "fd286c78001fe57fc093c06a4b79ef077ade2dacd2a77e011d3f393f587707ec"
+    },
+    {
+      "path": "dsh-pet/assets/webm/螃蟹走路.webm",
+      "kind": "animation",
+      "size": 596902,
+      "gitBlobSha1": "6ff80136295718a2e866e70d90fa8a0bada333dd",
+      "sha256": "5696b0878be38cc450d6eaace837aef1c1b5834f1382bc6c11c2de582f284673"
+    },
+    {
+      "path": "dsh-pet/assets/webm/被吓一跳.webm",
+      "kind": "animation",
+      "size": 282771,
+      "gitBlobSha1": "a7afe71ed72990bbace7026abb1ef69ae7e3706c",
+      "sha256": "537dde496e0f776e775dec1bb7bfe3fbc5eebf89112469a1a910ad0433ccde66"
+    },
+    {
+      "path": "dsh-pet/assets/webm/被落叶淹没.webm",
+      "kind": "animation",
+      "size": 766832,
+      "gitBlobSha1": "1e35fff171fb8856bd89de91329ef357c7d33e65",
+      "sha256": "91fc8e3dbfcd24546bc30366beb120fb5de7823ed67986dd8032c9c1b29ff079"
+    },
+    {
+      "path": "dsh-pet/assets/webm/被鼠标拖拽悬空反馈.webm",
+      "kind": "animation",
+      "size": 464764,
+      "gitBlobSha1": "728f04b2997aa9ec4bdb87d1b9b14d7910bc7fd6",
+      "sha256": "31373a86026636eecc890db763760309360310eb095cf5575b13c9ca2a6cc80e"
+    },
+    {
+      "path": "dsh-pet/assets/webm/装点圣诞树.webm",
+      "kind": "animation",
+      "size": 818456,
+      "gitBlobSha1": "1217c9625c3a682732bc4398108ce7c4ae2a07f6",
+      "sha256": "25da448acdbba49c2d4b209d24053b6dd1b79e656273d1f3e659385dc2bc3759"
+    },
+    {
+      "path": "dsh-pet/assets/webm/讨糖南瓜灯.webm",
+      "kind": "animation",
+      "size": 483293,
+      "gitBlobSha1": "3a17ac14fba449e8d7bb0e0d38085825b068a9e1",
+      "sha256": "9535d1a29f780aa2d78ffaabd7ee1765952bf34b2b380e9edc25dc6a3003070b"
+    },
+    {
+      "path": "dsh-pet/assets/webm/超大伸懒腰.webm",
+      "kind": "animation",
+      "size": 396987,
+      "gitBlobSha1": "689e04f120f9f678a9424dac6cadf4b6a0bd6e6b",
+      "sha256": "0ac66d918cc5efd49be1273c3830de73eae5f9bdcd5fcb968d1b2f9b487705ad"
+    },
+    {
+      "path": "dsh-pet/assets/webm/踢毽子.webm",
+      "kind": "animation",
+      "size": 531015,
+      "gitBlobSha1": "1a0586564e58e6a60e4f151d2bf161e975673e30",
+      "sha256": "68937b619a44e9ca7ccdfe77e5657f7a9bfa238beb33768378b6f254a16f3dbd"
+    },
+    {
+      "path": "dsh-pet/assets/webm/轻快摇摆舞.webm",
+      "kind": "animation",
+      "size": 542928,
+      "gitBlobSha1": "596558b14cacee0d96f5e9d3942fd5731be49718",
+      "sha256": "c621d00e1b959b991df8fc420e409b569e768fad7f75d1fb489375d101fee630"
+    },
+    {
+      "path": "dsh-pet/assets/webm/轻快记录.webm",
+      "kind": "animation",
+      "size": 447726,
+      "gitBlobSha1": "d0c1bc670b74450e53019b36366edbe54056a363",
+      "sha256": "1da04162fed5cd52bd4a6a6027a6902f50bda0969d34465bc2d332cf3679bbd5"
+    },
+    {
+      "path": "dsh-pet/assets/webm/骑木马.webm",
+      "kind": "animation",
+      "size": 697580,
+      "gitBlobSha1": "b578f4c951a11c3fe97bdbd609315d3e72fe6827",
+      "sha256": "5f54a98ccac97eac000d799043411f4fc0732096dc51a2ad766552737578f313"
+    },
+    {
+      "path": "dsh-pet/assets/webm/鲸鱼吐泡泡特效.webm",
+      "kind": "animation",
+      "size": 452096,
+      "gitBlobSha1": "4848e28f2c4fde323025a03a7980b75f1c56f98e",
+      "sha256": "d64d02059dc1602f7de5aa3135d381351363f021b2bceed47655db322cc71db3"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/animation/animation.test.ts",
+      "kind": "reference",
+      "size": 10381,
+      "gitBlobSha1": "2215107392b70f785721a03727f5483661f4f0e4",
+      "sha256": "c09d51090dbf58ebadda9ff9cf2a5706111219b94ea48c7034b5915d2f1a37f3"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/animation/animation.ts",
+      "kind": "reference",
+      "size": 13061,
+      "gitBlobSha1": "fd47cd759e488ec25c3d5cd6ad309eb52071f8a2",
+      "sha256": "a732df1b07cf38496d976032b00ac2e3c513434d12f021c724bf074c6fa0a52a"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/animation/asset-loader.ts",
+      "kind": "reference",
+      "size": 2583,
+      "gitBlobSha1": "88156c4b51d5277af644805f423808650606709c",
+      "sha256": "788117791940a92305e8638f25ebed631ac3bdf0731383d9cef92630b2cc4ae1"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/animation/assets.test.ts",
+      "kind": "reference",
+      "size": 1786,
+      "gitBlobSha1": "f18ad1b7a08ce1eba79127096a1ad09522837ada",
+      "sha256": "48f28ecaf67c2f2a6d4d6b90f20e0bc8230ca11c98b68c6bd6870f616eda8df2"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/animation/assets.ts",
+      "kind": "reference",
+      "size": 1393,
+      "gitBlobSha1": "68a43c22e7ebd570b7a7fd60fa0dcd6f0ecb336b",
+      "sha256": "14a86736bedda597c9e6e4f84db99f819ec07f35cd6e8870dbb12d83cdf0fad4"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/animation/cues.test.ts",
+      "kind": "reference",
+      "size": 2943,
+      "gitBlobSha1": "c87c8f42472e6fb9a3d924769e8681189e85e309",
+      "sha256": "17e0aa1206862ed1c5e28222bf9c232aa13adedcbbe8b4985be7d7f7322f2063"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/animation/cues.ts",
+      "kind": "reference",
+      "size": 2475,
+      "gitBlobSha1": "09ff67a3caa1a5e13b053b5354df5eb7405858bf",
+      "sha256": "2d8a9fc07c7f2e515a2558363963e24a430b019e115438851822cd7c261e269d"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/animation/media.test.ts",
+      "kind": "reference",
+      "size": 3353,
+      "gitBlobSha1": "50ee02bce82f07981df90258b181648110c818da",
+      "sha256": "41f251b0a8bc7a38e55c9c65276c4fb0b55fd5d9fd59255784d38e9628dcb48b"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/animation/media.ts",
+      "kind": "reference",
+      "size": 2046,
+      "gitBlobSha1": "f0be0da7aecdec1abc32c30a2085ef6241f994c0",
+      "sha256": "9e482ea88e710423434ec751097d3702895671b48a34636aaea69ed6c3230ac8"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/animation/next-animation.test.ts",
+      "kind": "reference",
+      "size": 3191,
+      "gitBlobSha1": "00268778077eb91c88af28c679c605ed7c41a32e",
+      "sha256": "ad55aa98d70b3ef28fc211befa2afbe75df85eca19d5583903974cc58b12ffa1"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/animation/next-animation.ts",
+      "kind": "reference",
+      "size": 2459,
+      "gitBlobSha1": "01769476c00e1e290e11477f7eb63ca8097c0286",
+      "sha256": "d28c4b2c3b24558a998ab66a7fbe2fc4ceb924975f31e14a3355901d7cc3c052"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/animation-flow.ts",
+      "kind": "reference",
+      "size": 9919,
+      "gitBlobSha1": "4ce248e54776f2f7bf4a668e1c1c988bddeea907",
+      "sha256": "8e9b19052d5afc7aa7e946bb9cbbcdea944809dd3fec06f9985e7b2f63781ed4"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/animation.ts",
+      "kind": "reference",
+      "size": 7693,
+      "gitBlobSha1": "80867183c204ec51f5b54376268dbda4f3929daf",
+      "sha256": "6c60e15068fb6dffd5629f3d188207797b22b07a01aa2ad69e4376d7497a52fa"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/bubble-slots.test.ts",
+      "kind": "reference",
+      "size": 4550,
+      "gitBlobSha1": "d830e5a22c8434dd07383953ea1d20bde17b0344",
+      "sha256": "3d8ac3190613f1e64f06beede2b5c789783fb7039baa177864aaae1c73d768b4"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/bubble-slots.ts",
+      "kind": "reference",
+      "size": 15062,
+      "gitBlobSha1": "e846050d81fa7715fb8d02e879dd90df35e9f144",
+      "sha256": "616d1d9a1fdad138463ed5a2d20f4e69892b7306cae73ca83560a60220ab353b"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/cue-effects.ts",
+      "kind": "reference",
+      "size": 12178,
+      "gitBlobSha1": "99af934d0e11c0cd469068931b9b114897ac2e53",
+      "sha256": "dc8ebf37053a230c05d00f37b090539dc414b0312a89aac6b3f1d4d4c950983e"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/drag.ts",
+      "kind": "reference",
+      "size": 5378,
+      "gitBlobSha1": "35fbcfc60e12bf346100ec17e04fc63492070c34",
+      "sha256": "c55303f77aa51510348adccec18947d04c2c5730ed5c41b1b6b3b1512df26ac3"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/entry.ts",
+      "kind": "reference",
+      "size": 18497,
+      "gitBlobSha1": "3ed3572a0532b1b9bcf0a82d64daa083108317d7",
+      "sha256": "1e14a98567a77f81a5b78c0e9a1aad44186ff22d7487838e55c75899eb851642"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/hub.ts",
+      "kind": "reference",
+      "size": 2528,
+      "gitBlobSha1": "e358b010c39aaefd14b989fdc1365258d2b8b7f1",
+      "sha256": "7ad7bbca02fee3095ea5f190a2bf2c6b4349a2afe454c2ffdf624bac8a0517e6"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/live.ts",
+      "kind": "reference",
+      "size": 1736,
+      "gitBlobSha1": "514be17b98f059463b0391fedeb74d5030aba749",
+      "sha256": "c81e2cab5dbe0a7313b6ee4412bc25e4a4892e02cf5dc70465042f0b577b18ef"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/lock-freeze.test.ts",
+      "kind": "reference",
+      "size": 1237,
+      "gitBlobSha1": "0db2a1aa1ebcbb5564a6629aa03b08a520998098",
+      "sha256": "736c14e5fab0cb4769bb53b4128a43603f96a5ffaf50c295a41f0aec0313d730"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/lock-freeze.ts",
+      "kind": "reference",
+      "size": 4159,
+      "gitBlobSha1": "f385574beece8ba66ee79f38d84fca10b344b6fe",
+      "sha256": "570f0f139e8b128149621459b6e5e7c73cda19919ae6790276bb49e512b4e82b"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/motion.ts",
+      "kind": "reference",
+      "size": 14740,
+      "gitBlobSha1": "9b2d3d9e859bee5de1e521d25b86352e3e98a633",
+      "sha256": "e8d804717bf4b3272ba7c0992ea21087fbc548c62f443273a7c12b8207345cba"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/open-chat.ts",
+      "kind": "reference",
+      "size": 2677,
+      "gitBlobSha1": "1cd698fcde591243e620a2ccc581ab7c568f6b45",
+      "sha256": "452d87eb55f9c68c7051ce46d463ed4fd63cadfde6b2d91fdeba1a808e955c8f"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/pet-card.ts",
+      "kind": "reference",
+      "size": 1023,
+      "gitBlobSha1": "4ad6fecb328441720561a9706c3ce98908e3bb2c",
+      "sha256": "27a072d7a0632430c033763fc4d4f93e41062a74be892bb6051aab11ec285dba"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/props.ts",
+      "kind": "reference",
+      "size": 3120,
+      "gitBlobSha1": "8eb6088e99f4aeb03d209f491d8bd656fb51e897",
+      "sha256": "040ed4a015910489bb85f59c9848b1ae9099f4fb1f41ead5cc9b879b31ccd550"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/registry.test.ts",
+      "kind": "reference",
+      "size": 4910,
+      "gitBlobSha1": "6bc8509ff2c0d5876a9ee2fe83b6a9dd28e58c77",
+      "sha256": "66b4d01631769814ca487452ff771e2c5bf995581952fd3a55375cd133c78bf7"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/registry.ts",
+      "kind": "reference",
+      "size": 3199,
+      "gitBlobSha1": "1d5954ac16402c6f756bc69cd42ea86c6b8aa4b0",
+      "sha256": "3b18bcbf203613c1f1229a2d0e593bcbb7e50cbf086872e8c04c189c50b7b5fb"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/runtime.ts",
+      "kind": "reference",
+      "size": 15415,
+      "gitBlobSha1": "933bb48e4ec37eb631f26a4c6d3744d6b5fa8322",
+      "sha256": "b3ab28fa90d44f0ea74099eca857b87c2e3b613c0365cd467ad5b636e4470519"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/shortcut.test.ts",
+      "kind": "reference",
+      "size": 7274,
+      "gitBlobSha1": "d482e72cbea2bb3fe28fb8e22ba7a9304a6cbf4d",
+      "sha256": "61cc9ba8f043fbaa62aa2c292446c3768a9fc8c73e82c57ce136a803e6ee04ba"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/shortcut.ts",
+      "kind": "reference",
+      "size": 3797,
+      "gitBlobSha1": "3eb9b26353bd90ff84d0af90b52d04048ef15f8c",
+      "sha256": "0607c8cda30b03ae08ced910287cadc4c94d49041197043c223f4b7016197711"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/sleep-machine.test.ts",
+      "kind": "reference",
+      "size": 4804,
+      "gitBlobSha1": "9608e9321a67a8d4482d1563f1d53a02f32afaf7",
+      "sha256": "986afde378b0fd3c24df708f74cc3e2e5fc41708e4d1e115a787ba254290268e"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/sleep-machine.ts",
+      "kind": "reference",
+      "size": 4350,
+      "gitBlobSha1": "6ee406fc37acd251d96b45a5f6f79eb305a4441f",
+      "sha256": "4112230bbc31b9d53b4d265a1e39ceef7114e661425052dc062b678803231949"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/state.ts",
+      "kind": "reference",
+      "size": 5729,
+      "gitBlobSha1": "51f5040b9cb180fc59d024c4d29cecaa16206798",
+      "sha256": "3d4e5d593877fa5971ff738750c0533a394a1a7bb01524ed42a6a276f47ba143"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/card/view.ts",
+      "kind": "reference",
+      "size": 5674,
+      "gitBlobSha1": "e5b6044e2bee4f4dd4325784e6e4461408865a5b",
+      "sha256": "9fc9653abf4fc9521ae82b138104240e00b0468068d4805feb990a62ea1a8bac"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/click-sound.test.ts",
+      "kind": "reference",
+      "size": 2961,
+      "gitBlobSha1": "456b15d890b06675b18883bde264da9c8f69846d",
+      "sha256": "e3b30e12bb5abaeb7bfa68cc46c14da3c5e50e90fdb455b8ed5f9f61e9382a18"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/click-sound.ts",
+      "kind": "reference",
+      "size": 1733,
+      "gitBlobSha1": "e0b85a76fb5944473ee3e3c9a6e961de800a82a0",
+      "sha256": "4ca6be7d03b772c2e0ae2681648917ab785e80109ad2ea8959111c115c178ac7"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/css.ts",
+      "kind": "reference",
+      "size": 4238,
+      "gitBlobSha1": "27c6e7e5954ba70ed50e501d359e42d31a377e62",
+      "sha256": "b21906714bd38cb1c093734a7818079d4ab476cf1191186224e3432941050a7c"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/device-tilt.test.ts",
+      "kind": "reference",
+      "size": 6780,
+      "gitBlobSha1": "f15c79a218e3f3d2622bfdaad090bf1ce5e3207e",
+      "sha256": "51d76dc87fca2c7fffad4d7504c01784b693d3d1a2ffcc850f601eb5be307bdd"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/device-tilt.ts",
+      "kind": "reference",
+      "size": 7925,
+      "gitBlobSha1": "52d6cd3dfea59aca09de231afe2bae82cd5112fa",
+      "sha256": "75c15caa6975d0720ae3f8a7997ea4d91ff96e4cd2e4b1682caa3230554b34a8"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/haptics.test.ts",
+      "kind": "reference",
+      "size": 2669,
+      "gitBlobSha1": "e5e5323366b8425686b7d525300f109382ed13cb",
+      "sha256": "a67caa8abe139142d29dafb1b11595a5c81cbf96fb888eedd18c4a2de7a62d97"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/haptics.ts",
+      "kind": "reference",
+      "size": 2969,
+      "gitBlobSha1": "40b78e46905783c77218cf2b10332fd25dd2c884",
+      "sha256": "270870ebebb19ef21daad13eb2b0e2ff66ed996b4eee1d3917f492c8457770ef"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/menu-actions.test.ts",
+      "kind": "reference",
+      "size": 9822,
+      "gitBlobSha1": "a6cd8d6c26259344cfbf07c4a8c68cfa07e2f717",
+      "sha256": "8a7ca9f5077fc268070eefc1248857c4cffd07789cceeccf38c51995460f8272"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/menu-actions.ts",
+      "kind": "reference",
+      "size": 9994,
+      "gitBlobSha1": "5ae7fee031f5ed5a174ba77e5319a8343a6892bc",
+      "sha256": "4667d49abfb0231918abb76fc5d8125632424a54245d7e66ee48d691c7f86ab7"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/motion/drag-follow.ts",
+      "kind": "reference",
+      "size": 3333,
+      "gitBlobSha1": "26caf7e4516a1ae4caae3d3fcdce40d122a1a9b3",
+      "sha256": "bf8d2087e1d8fb1d18dbf76a2df1f3e6cdc1c41826088c8c33a09081ac9f58ec"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/motion/drag-release.test.ts",
+      "kind": "reference",
+      "size": 3582,
+      "gitBlobSha1": "e5f3a26aef5072fd80488c3748925c2d1955dcd1",
+      "sha256": "d248cc286b1304c4208a53b015c7ceebba959871442d84e0de5302ab90d226f2"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/motion/drag-release.ts",
+      "kind": "reference",
+      "size": 2585,
+      "gitBlobSha1": "5c99705b9e81d8234466d73f8dbbfdaaf2ea9fd3",
+      "sha256": "4601bf4e5754f79f37780ae37efadefd719f130a16708a92089a213ef3694d16"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/motion/drag.test.ts",
+      "kind": "reference",
+      "size": 16166,
+      "gitBlobSha1": "0887753cbf28ec8c95fbb76901bc9349bf330b7d",
+      "sha256": "e514e5b3f14ab3261bb2ca8e4175d9f9b6ca2476c76ab52cdf063a3c4242c596"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/motion/drag.ts",
+      "kind": "reference",
+      "size": 17739,
+      "gitBlobSha1": "fe76238af3154ce0177b671655ed357e6cb0a38a",
+      "sha256": "a85b73f45a82f17c738718f424eab3f5b9af00f0390a6dd5c935eae630654d8b"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/motion/flight-integrate.ts",
+      "kind": "reference",
+      "size": 1770,
+      "gitBlobSha1": "a23b5c607824d5736a33160c74bdbaaeca8671ba",
+      "sha256": "2229bd83416cde850a569657b78a7b2a00890c33e0a1416ae4367d818fca654a"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/motion/flight.test.ts",
+      "kind": "reference",
+      "size": 9776,
+      "gitBlobSha1": "87d3a2af904c8a89883143efbfc1dc7e911965bd",
+      "sha256": "a2d79c2f37cc2d14a0c0ddd9283b411b46aaf7dd24bfdcf3a8ab2b02cc6c1c3d"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/motion/flight.ts",
+      "kind": "reference",
+      "size": 10545,
+      "gitBlobSha1": "c6807c29f296ca16ecba996358ff8572d7e8a1d9",
+      "sha256": "60486d7c6540eae5d4a9449bd64747a8454f376eb83ac7f89210dfe57ade2fc3"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/motion/geometry.test.ts",
+      "kind": "reference",
+      "size": 8645,
+      "gitBlobSha1": "816980e21eb7d0a6391416de899becda7c24f4ae",
+      "sha256": "c7a53642d61d0d0bc98dd00f63f372c45d5d7333d1a6a474ac32241714642435"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/motion/geometry.ts",
+      "kind": "reference",
+      "size": 6420,
+      "gitBlobSha1": "0f5bed26dd4a334a27aa1d73438c15b9eaa9cac1",
+      "sha256": "db83450156ae6ffd5820c1fb0fb30d7282f491d120ade62bfec22f7a5aec8f8d"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/motion/move-action.test.ts",
+      "kind": "reference",
+      "size": 3273,
+      "gitBlobSha1": "dda94d4f307b5af0c4cb0ae8369ec700dddaaa6a",
+      "sha256": "0018bdf9dfe3d39a9af15502d8a59bb4787bd7c45ce727fd5cb02e9d7be1509b"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/motion/move-action.ts",
+      "kind": "reference",
+      "size": 3277,
+      "gitBlobSha1": "d702ba124cf48dd1fa5ade91369c7a7a7548e08c",
+      "sha256": "a853311c791587ce943db240228882fe3abdb13c096830b1ed0a9af3dd484084"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/motion/pet-collision.test.ts",
+      "kind": "reference",
+      "size": 3361,
+      "gitBlobSha1": "81cc533741d080b9766813495058f26ccf3a8f15",
+      "sha256": "731d0fd9addb62a6aaf7e6bd770e3b7e940b1f3a8ce2b101db847448e05f8a2a"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/motion/pet-collision.ts",
+      "kind": "reference",
+      "size": 3358,
+      "gitBlobSha1": "bfba2e5e90ce1cdc68e9e2052a4d020c38886ff1",
+      "sha256": "6fb063149adcea0170bee827dd97903439f9ce5607bfdd18b1a9b2a606c3fb6c"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/motion/position-follow.test.ts",
+      "kind": "reference",
+      "size": 6231,
+      "gitBlobSha1": "3e7451ec599d9265d6b97f63ff9859ee4decdb08",
+      "sha256": "404e2d1c07ee1e32e5feb5b8d0cde87d139c76894fa8d06855bb03e3130d9ff5"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/motion/position-follow.ts",
+      "kind": "reference",
+      "size": 5422,
+      "gitBlobSha1": "7d414a342e0a223b7f1baf483c6ba5e7378e7dbc",
+      "sha256": "2aad1b128e2492a13b8b3bf034d401f8ab29b95fa9c98ebb0187d2b8f8ebfe6a"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/motion/squash.test.ts",
+      "kind": "reference",
+      "size": 4870,
+      "gitBlobSha1": "20d3b3dc92d8a1e096698a59280aa989799905c4",
+      "sha256": "3db722e964e80096ad95392b0bf8bb12e780a8c7cdddca88efd255f84ddeb92b"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/motion/squash.ts",
+      "kind": "reference",
+      "size": 2477,
+      "gitBlobSha1": "50badc1c977d88483307912b425861472987fcac",
+      "sha256": "74653b98c2b8b94ec0fed11d21eb65fd3d3c3deb0612b57d24c6191c84ca394d"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/motion/touch-press.test.ts",
+      "kind": "reference",
+      "size": 4222,
+      "gitBlobSha1": "d7731c43c99d3f9061af41b23e03411c91f16566",
+      "sha256": "490d8c3e030ef9ee4d6a17addcebe04c26ad31497e7582f26029283a3cc0751c"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/motion/touch-press.ts",
+      "kind": "reference",
+      "size": 2953,
+      "gitBlobSha1": "34581f02e9f3fde2f207c233e66190bb8dcf95a7",
+      "sha256": "1d5f79e9de268e75e819ca2bdf9690070b91649d0a997ea8f5337ec5fecb97df"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/motion/walk.test.ts",
+      "kind": "reference",
+      "size": 8985,
+      "gitBlobSha1": "9753bea7bb3cdf076ea46a7aa0a4507a36a4e79d",
+      "sha256": "cb14432f268609215048dfe3c7f8f2bcf36a9b9e588691281778f414111e8f61"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/motion/walk.ts",
+      "kind": "reference",
+      "size": 5886,
+      "gitBlobSha1": "5455c3f177eb4087d996fba11b78b4dde638e4a7",
+      "sha256": "157d153311c560f5121689ff838830b7a7f985db5204e46ea5fa9d0e79b786a5"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/multi.ts",
+      "kind": "reference",
+      "size": 17922,
+      "gitBlobSha1": "58a3051c0352fba8c4db6ddc997015a5f86b2142",
+      "sha256": "14b2388dcc04f5c5816b3d71f0a4ac20b2f4b24b1ac29272f1003f985875b156"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/playback-report.test.ts",
+      "kind": "reference",
+      "size": 1622,
+      "gitBlobSha1": "77439dc9859e5b6a46072fbe7ef7146257f9fb0b",
+      "sha256": "8d4d5f1ab88c5aefcea141d07d8a3d71a19b36b14bf3f727bb680b878b5ed020"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/playback-report.ts",
+      "kind": "reference",
+      "size": 2000,
+      "gitBlobSha1": "b96407cefaf4137845cd4b7898ce99cd4c879f07",
+      "sha256": "c28ab410a9d20824910a9bdba3b9fa9ee9e0f5bbcf3925c4cdb48a09b59feca4"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/state-poll.ts",
+      "kind": "reference",
+      "size": 2367,
+      "gitBlobSha1": "132dd8f9908d8d6dfa4bf1fe3bf9da6400533148",
+      "sha256": "1ac80d61e666dd8078a84a0f3e53d476ae6a0c86916a2ece633f7061032207a6"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/timings.ts",
+      "kind": "reference",
+      "size": 678,
+      "gitBlobSha1": "eac78ad4aafa9db4424a675ec391ffb82008a20f",
+      "sha256": "6e879a6b23d5a689240a8ce9668e31ebcc7d6f68427026300b0ec426a573deec"
+    },
+    {
+      "path": "dsh-pet/src/client/pet/types.ts",
+      "kind": "reference",
+      "size": 1056,
+      "gitBlobSha1": "dab6fb0cf9db208bc53f8815c1d2369b629365e4",
+      "sha256": "1111dd3dde2b59d91b38e0d3b4af807751f382a70e978c0bf3c6c389853daa8f"
+    },
+    {
+      "path": "dsh-pet/src/shared/config.ts",
+      "kind": "reference",
+      "size": 3304,
+      "gitBlobSha1": "33097ca431e779f8cc689ef24d261cf8c0698cbf",
+      "sha256": "f51e0e1bf763adea958d571f1c0971f06249ecdfaa2df28360555ec35d55527b"
+    },
+    {
+      "path": "dsh-pet/src/shared/physics.ts",
+      "kind": "reference",
+      "size": 1660,
+      "gitBlobSha1": "561e921a26582c0173a6e45158067009f59f3725",
+      "sha256": "fd4f4f372a4fee8d21d32e6be7c6b51b39ef048a74f2d4716fdbe49dd3d3c343"
+    },
+    {
+      "path": "dsh-pet/src/shared/physics/collide.test.ts",
+      "kind": "reference",
+      "size": 6302,
+      "gitBlobSha1": "4ef7e1585fce237194665ab329545c075a50ddd3",
+      "sha256": "24f10f0c024e34cdeef73d287d4fa80bc9a1d346c8969edd098917483a43793c"
+    },
+    {
+      "path": "dsh-pet/src/shared/physics/collide.ts",
+      "kind": "reference",
+      "size": 5248,
+      "gitBlobSha1": "6c6edae314c4d9d4eb1f64dd2b537f578b37c479",
+      "sha256": "45fb825464136a3ab2969d4e9e8294dea832e362cee014336af50fa2649e52e1"
+    },
+    {
+      "path": "dsh-pet/src/shared/physics/constants.ts",
+      "kind": "reference",
+      "size": 5087,
+      "gitBlobSha1": "5399f6fa7a76673e23ebb53037ef93c9950a9b2d",
+      "sha256": "cc89852e74ca0f1aa9caf96ff5e08a68b56aa864e18a7843ed09b9e26a94f41d"
+    },
+    {
+      "path": "dsh-pet/src/shared/physics/contact.test.ts",
+      "kind": "reference",
+      "size": 3526,
+      "gitBlobSha1": "a01b6e8e05e489f69000cfac9277798597f85731",
+      "sha256": "c76366bbc84f309eb51d7cdb1bed9249ac8ddba4c6e4acb943348fc137efd615"
+    },
+    {
+      "path": "dsh-pet/src/shared/physics/contact.ts",
+      "kind": "reference",
+      "size": 3332,
+      "gitBlobSha1": "705f8e3395d8cd91d91fcd6ffaef712944950397",
+      "sha256": "7b6bfa44c6cff704b410c232d380ffc40f22ae53102ef57e24c8e786b1a6b0b6"
+    },
+    {
+      "path": "dsh-pet/src/shared/physics/release.ts",
+      "kind": "reference",
+      "size": 5815,
+      "gitBlobSha1": "3f5ee3790663b11b0ac30dbda280a41d3b6ea433",
+      "sha256": "0e2af96a0f00010f4bde9adafe71243f5b4b7258c852285a544fd9a98ed1a3cd"
+    },
+    {
+      "path": "dsh-pet/src/shared/physics/spring.ts",
+      "kind": "reference",
+      "size": 1062,
+      "gitBlobSha1": "c4c6163a3da7d502a75759da6ecc0e6e7a5670d8",
+      "sha256": "82fc11b002e918c0be5fea31b785d83e85a71df602a9177f3f7b94d5cade879e"
+    },
+    {
+      "path": "dsh-pet/src/shared/physics/squash.test.ts",
+      "kind": "reference",
+      "size": 2901,
+      "gitBlobSha1": "2c15ff73d79d623a424d1d03f9bb1117808bc026",
+      "sha256": "4852f022a56903d39635c485b306d00c08c6e52700c44ea5ee59fbc01bd8ae0e"
+    },
+    {
+      "path": "dsh-pet/src/shared/physics/squash.ts",
+      "kind": "reference",
+      "size": 1344,
+      "gitBlobSha1": "d4e41b3099060e1c336c8be99f1c76a36e25ac11",
+      "sha256": "5fc9684e8042ca1c12c331e9b272f5558444cece46592b6c6b2a3e2af65ce4cf"
+    },
+    {
+      "path": "dsh-pet/src/shared/physics/throw.test.ts",
+      "kind": "reference",
+      "size": 4693,
+      "gitBlobSha1": "3d99c370e87d1625d4b6504c07fd01ef6c12ed69",
+      "sha256": "24566e5f13788a42865458d0f4a9258ace9286e9eb4a9bfe0abfb26b5caa57a9"
+    },
+    {
+      "path": "dsh-pet/src/shared/physics/throw.ts",
+      "kind": "reference",
+      "size": 11764,
+      "gitBlobSha1": "e0a2b25e60699e06bc27e310ee96b74f4a2aa3c8",
+      "sha256": "b90ef084b84a5d8b076bd051f995e57f7950fbda99d2484a9cb995aba709c9c4"
+    },
+    {
+      "path": "prompts/桌面宠物 10 秒动作提示词.md",
+      "kind": "prompt",
+      "size": 291106,
+      "gitBlobSha1": "62c978c83a79a259f9d57ea3889a6e685bb946e5",
+      "sha256": "df4af712c2d9c34da823ecf4b69e92d119e8f24fb37f8ad7a0be3ff4dd581405"
+    },
+    {
+      "path": "prompts/睡觉动作提示词.md",
+      "kind": "prompt",
+      "size": 7947,
+      "gitBlobSha1": "c8ea029c6437d07476b82a3c9d5196c1d479c3e2",
+      "sha256": "19e65d72b3c1a5c9b6f9cd13c8e001033bb715c8116acc20d0999506ca54bdbf"
+    },
+    {
+      "path": "prompts/系统通知图标 AI 生成提示词.md",
+      "kind": "prompt",
+      "size": 3622,
+      "gitBlobSha1": "7a3571fea28a00e4d861edb6b18dea1e690cb97d",
+      "sha256": "6a35276e4821b748ef670b5f8e27ecd7c2465b42579418064bf3eb95db431016"
+    }
+  ],
+  "treeResponseSha": "c25386848f70f6e40902e4376f6e7b1e196bc326"
+}

@@ -8,7 +8,7 @@ with tempfile.TemporaryDirectory(prefix='speaker-track_remove-') as tmp:
     args += ['-I'+str(p) for p in [app/'test/host',app/'main/smart_speaker',repo/'lunaros/include',app/'managed_components/bblanchon__arduinojson/src']]
     if platform.system() == 'Darwin':
         args += ['-Dremove=__wrap_remove']
-    args += [str(app/'test/track_remove_test.cpp'),str(app/'main/smart_speaker/smart_speaker_library_commands.cpp'),str(repo/'lunaros/src/device_api/projections/device_projection_json.cpp'),'-o',str(binary)]
+    args += [str(app/'test/track_remove_test.cpp'),str(app/'main/smart_speaker/smart_speaker_library_commands.cpp'),str(app/'main/smart_speaker/smart_speaker_cover.cpp'),str(repo/'lunaros/src/device_api/projections/device_projection_json.cpp'),'-o',str(binary)]
     if platform.system() != 'Darwin':
         args += ['-Wl,--wrap=remove']
     subprocess.run(args,check=True)

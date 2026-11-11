@@ -13,3 +13,4 @@ void conversation_emit_emotion(const std::string &emotion);
 void conversation_emit_transcript(const std::string &text);
 std::string conversation_host_last_error();
 bool conversation_request_audio_focus(const char *reason, uint32_t timeout_ms);
+void conversation_release_audio_focus(const char *reason);

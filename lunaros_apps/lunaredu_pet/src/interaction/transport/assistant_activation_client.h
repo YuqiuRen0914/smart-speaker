@@ -8,11 +8,15 @@ struct XiaozhiActivationRequest {
   std::string board_name;
   std::string device_id;
   std::string client_id;
+  std::string mac_address;
+  std::string device_token;
+  int binding_epoch = 0;
   uint32_t activation_timeout_ms = 30000;
 };
 
 struct XiaozhiActivationResult {
   bool ok = false;
+  int binding_epoch = 0;
   std::string activation_message;
   std::string activation_code;
   std::string activation_challenge;

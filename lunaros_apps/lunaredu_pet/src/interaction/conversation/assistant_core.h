@@ -80,7 +80,8 @@ void reset_session_locked(
     AssistantSessionState next_session_state = AssistantSessionState::Inactive);
 void close_audio_channel_locked(
     const char *detail,
-    AssistantSessionState next_session_state = AssistantSessionState::Inactive);
+    AssistantSessionState next_session_state = AssistantSessionState::Inactive,
+    bool release_focus = true);
 bool ensure_opus_encoder_locked();
 bool ensure_opus_decoder_locked(int sample_rate, int frame_duration_ms);
 

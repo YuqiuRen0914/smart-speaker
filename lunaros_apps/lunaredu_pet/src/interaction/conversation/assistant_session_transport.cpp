@@ -57,28 +57,37 @@ void bind_service_mqtt_callbacks_locked() {
   if (!g_runtime.transport.mqtt_session) {
     return;
   }
-  g_runtime.transport.mqtt_session->OnConnected([]() {
+  const auto *source = g_runtime.transport.mqtt_session.get();
+  g_runtime.transport.mqtt_session->OnConnected([source]() {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    if (g_runtime.transport.mqtt_session.get() != source ||
+        (kAssistantUsesLunarLink && !(g_runtime.platform_identity == lunarlink_identity()))) return;
     (void)post_assistant_event_locked(
         {AssistantEventType::TransportConnectedWaitSession, {}, {}, false});
   });
-  g_runtime.transport.mqtt_session->OnDisconnected([]() {
+  g_runtime.transport.mqtt_session->OnDisconnected([source]() {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    if (g_runtime.transport.mqtt_session.get() != source ||
+        (kAssistantUsesLunarLink && !(g_runtime.platform_identity == lunarlink_identity()))) return;
     (void)post_assistant_event_locked(
         {AssistantEventType::TransportDisconnected, "MQTT 已断开，正在重连", {},
          false});
   });
-  g_runtime.transport.mqtt_session->OnError([](const std::string &message) {
+  g_runtime.transport.mqtt_session->OnError([source](const std::string &message) {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    if (g_runtime.transport.mqtt_session.get() != source ||
+        (kAssistantUsesLunarLink && !(g_runtime.platform_identity == lunarlink_identity()))) return;
     g_runtime.diagnostics.last_transport_error = message;
     g_runtime.diagnostics.last_error = g_runtime.diagnostics.last_transport_error;
     (void)post_assistant_event_locked(
         {AssistantEventType::TransportError, message, {}, false});
   });
   g_runtime.transport.mqtt_session->OnMessage(
-      [](const std::string &topic, const std::string &payload) {
+      [source](const std::string &topic, const std::string &payload) {
         (void)topic;
         std::unique_lock<std::mutex> lock(g_runtime.mutex);
+    if (g_runtime.transport.mqtt_session.get() != source ||
+        (kAssistantUsesLunarLink && !(g_runtime.platform_identity == lunarlink_identity()))) return;
         handle_server_text_locked(payload, lock);
       });
 }
@@ -104,6 +113,7 @@ ConnectServiceAction derive_connect_service_action_locked() {
 
 bool reopen_mqtt_audio_channel() {
   std::shared_ptr<NetworkMqttSession> mqtt;
+  std::string hello;
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
     if (!reopen_mqtt_audio_channel_locked_impl()) {
@@ -112,9 +122,11 @@ bool reopen_mqtt_audio_channel() {
     // Retain the session while publishing. Cloud maintenance may remove the
     // runtime-owned reference as soon as this lock is released.
     mqtt = g_runtime.transport.mqtt_session;
+    hello = kAssistantUsesLunarLink ? g_runtime.transport.wire.open()
+                                   : xiaozhi_build_mqtt_hello_message();
   }
 
-  if (mqtt == nullptr || !mqtt->Publish(xiaozhi_build_mqtt_hello_message())) {
+  if (mqtt == nullptr || !mqtt->Publish(hello)) {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
     (void)post_assistant_event_locked(
         {AssistantEventType::ConnectFailure,
@@ -381,6 +393,7 @@ bool send_service_text_locked(const std::string &message) {
 }
 
 bool send_service_text(const std::string &message) {
+  std::string wire_message;
   std::shared_ptr<NetworkMqttSession> mqtt_session;
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
@@ -392,6 +405,19 @@ bool send_service_text(const std::string &message) {
                heap_snapshot_text().c_str());
       return false;
     }
+    if ((kAssistantUsesLunarLink && !(g_runtime.platform_identity == lunarlink_identity()))) return false;
+    if (kAssistantUsesLunarLink) {
+    wire_message = g_runtime.transport.wire.encode_intent(message,
+        g_runtime.transport.mqtt_udp_channel.last_sent_sequence());
+    if (wire_message.empty()) return false;
+    // Queued replies cannot cross a session rebuild.
+    JsonDocument fence;
+    if (deserializeJson(fence, wire_message) != DeserializationError::Ok ||
+        fence["session"]["id"] != g_runtime.transport.session_id ||
+        fence["session"]["binding_epoch"] != g_runtime.platform_identity.epoch) return false;
+    } else {
+      wire_message = message;
+    }
     mqtt_session = g_runtime.transport.mqtt_session;
   }
 
@@ -399,7 +425,7 @@ bool send_service_text(const std::string &message) {
   std::string transport_error;
   ESP_LOGD(kTag, "[DEBUG-MQTT-LINK] service text publish begin size=%u %s",
            static_cast<unsigned>(message.size()), heap_snapshot_text().c_str());
-  ok = mqtt_session != nullptr && mqtt_session->Publish(message);
+  ok = mqtt_session != nullptr && mqtt_session->Publish(wire_message);
   if (!ok) {
     transport_error = "service_mqtt_publish_failed";
   }
@@ -433,11 +459,13 @@ bool send_service_binary(const std::vector<uint8_t> &message) {
   uint32_t timestamp_ms = 0;
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    if ((kAssistantUsesLunarLink && !(g_runtime.platform_identity == lunarlink_identity()))) return false;
     if (!send_service_binary_locked(message)) {
       return false;
     }
     udp_channel = g_runtime.transport.udp_channel;
-    timestamp_ms = 0;
+    timestamp_ms = g_runtime.transport.audio_uplink_timestamp_ms;
+    g_runtime.transport.audio_uplink_timestamp_ms += kFrameDurationMs;
     if (!g_runtime.transport.mqtt_udp_channel.encrypt_payload(
             message.data(), message.size(), timestamp_ms, datagram)) {
       g_runtime.diagnostics.last_transport_error =

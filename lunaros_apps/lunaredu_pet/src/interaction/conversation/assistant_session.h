@@ -45,8 +45,8 @@ bool send_service_binary_locked(const std::vector<uint8_t> &message);
 bool reopen_mqtt_audio_channel();
 void flush_pending_mcp_messages();
 void maybe_post_audio_playback_finished_locked(const char *source);
-bool enqueue_downlink_audio(std::vector<uint8_t> frame);
-void handle_server_binary(const std::vector<uint8_t> &frame);
+bool enqueue_downlink_audio(std::vector<uint8_t> frame, uint32_t sequence = 0);
+void handle_server_binary(const std::vector<uint8_t> &frame, uint32_t generation, uint32_t sequence = 0);
 void connect_task(void *argument);
 
 } // namespace lunaredu::pet::conversation::internal

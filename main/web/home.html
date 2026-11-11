@@ -182,6 +182,9 @@
       color: var(--muted);
     }
     .message.error { color: var(--red); }
+    #productCalendar td { text-align: center; }
+    #productCalendar .muted { opacity: 0.4; }
+    #productCalendar [aria-current="date"] { color: var(--accent); font-weight: bold; }
     @media (max-width: 720px) {
       header { display: grid; }
       .status { text-align: left; }
@@ -203,6 +206,105 @@
     </header>
 
     <section>
+      <h2>个人桌面终端</h2>
+      <div class="grid">
+        <div class="stat"><label>桌面</label><strong id="productDesktop">-</strong></div>
+        <div class="stat"><label>页面</label><strong id="productPage">-</strong></div>
+        <div class="stat"><label>番茄钟</label><strong id="productPomodoro">-</strong></div>
+        <div class="stat"><label>电脑</label><strong id="productComputer">-</strong></div>
+      </div>
+      <div class="controls" style="margin-top:14px">
+        <button class="secondary" data-product-nav="up">上移</button>
+        <button class="secondary" data-product-nav="down">下移</button>
+        <button class="secondary" data-product-nav="confirm">确认</button>
+        <button class="secondary" data-product-nav="back">返回</button>
+        <button class="secondary" data-product-nav="home">桌面</button>
+        <button class="secondary" data-product-nav="assistant">助手</button>
+      </div>
+      <div class="controls" style="margin-top:10px">
+        <button class="secondary" data-product-pomodoro="start">开始番茄钟</button>
+        <button class="secondary" data-product-pomodoro="pause">暂停</button>
+        <button class="secondary" data-product-pomodoro="resume">继续</button>
+        <button class="secondary" data-product-pomodoro="finish">结束</button>
+        <input id="computerId" type="text" placeholder="电脑配对 ID">
+        <button id="computerPair" class="secondary">配对</button>
+        <button id="computerDisconnect" class="secondary">断开</button>
+      </div>
+      <div class="controls" style="margin-top:10px">
+        <input id="reminderTitle" maxlength="64" type="text" placeholder="提醒内容">
+        <input id="reminderDue" type="datetime-local">
+        <select id="reminderRepeat"><option value="once">一次</option><option value="weekly">每周</option></select>
+        <button id="reminderAdd" class="secondary" type="button">添加提醒</button>
+      </div>
+      <div class="controls" style="margin-top:10px">
+        <input id="weatherPlace" maxlength="64" type="text" placeholder="地点名称">
+        <input id="weatherLatitude" type="number" min="-90" max="90" step="0.0001" placeholder="纬度">
+        <input id="weatherLongitude" type="number" min="-180" max="180" step="0.0001" placeholder="经度">
+        <label><input id="weatherEnabled" type="checkbox" checked>启用天气</label>
+        <button id="weatherConfigure" class="secondary" type="button">保存天气地点</button>
+        <button id="weatherRefresh" class="secondary" type="button">刷新天气</button>
+      </div>
+      <ul id="reminderList" class="track-list"></ul>
+      <div id="productCalendar" class="message">设备日历等待校时数据。</div>
+      <div id="productWeather" class="message">天气服务未配置。</div>
+      <p class="hint">天气来自 <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a>，地点坐标由你手动指定；断网时保留并标记上次数据。</p>
+      <div class="message" id="productMessage">状态来自设备唯一业务状态。</div>
+    </section>
+
+    <section>
+      <h2>AI 助手</h2>
+      <div class="grid">
+        <div class="stat"><label>配对状态</label><strong id="assistantPairing">读取中</strong></div>
+        <div class="stat"><label>连接状态</label><strong id="assistantConnection">-</strong></div>
+        <div class="stat"><label>会话状态</label><strong id="assistantSession">-</strong></div>
+        <div class="stat"><label>最近错误</label><strong id="assistantError">-</strong></div>
+      </div>
+      <div class="controls" style="margin-top:12px">
+        <label><input id="assistantEnabled" type="checkbox">启用助手</label>
+        <label><input id="assistantMicrophone" type="checkbox">允许麦克风</label>
+        <button id="assistantActivate" class="secondary" type="button">重新连接助手</button>
+        <button id="assistantClear" class="secondary" type="button">暂停平台连接</button>
+      </div>
+      <div class="controls" style="margin-top:10px">
+        <input id="assistantEndpoint" type="url" maxlength="255" placeholder="https://gateway.lunaredu.cn/wire/v1/device/bootstrap" aria-label="LunarLink 启动配置端点">
+        <button id="assistantEndpointSave" class="secondary" type="button">保存服务端点</button>
+      </div>
+      <div class="controls" style="margin-top:10px">
+        <input id="assistantTestText" type="text" maxlength="64" value="你好" aria-label="AI 测试消息">
+        <button id="assistantTest" class="secondary" type="button">发送语音测试</button>
+      </div>
+      <div class="message" id="assistantMessage">状态读取中。</div>
+      <p class="hint" id="assistantPlatformHint">使用小星平台 LunarLink。请先通过设备账号绑定页绑定 Board 账号；助手复用该身份连接网关，无需另输小智配对码。默认服务可直接使用；自建服务必须实现相同的 LunarLink 协议。</p>
+    </section>
+
+    <section>
+      <h2>静态壁纸</h2>
+      <p class="hint">JPG、PNG、WebP 或 BMP 在本地裁切为 240×240 后上传；选择后在设备上保存。</p>
+      <div class="controls">
+        <input id="wallpaperFile" type="file" accept=".jpg,.jpeg,.png,.webp,.bmp,image/jpeg,image/png,image/webp,image/bmp">
+        <button id="wallpaperUpload" class="secondary" type="button">上传壁纸</button>
+        <button id="wallpaperCancel" class="secondary" type="button" disabled>取消</button>
+        <select id="wallpaperList" aria-label="已上传壁纸"></select>
+        <button id="wallpaperSelect" class="secondary" type="button">预览并应用</button>
+        <button id="wallpaperRemove" class="danger" type="button">删除</button>
+      </div>
+      <img id="wallpaperPreview" alt="壁纸预览" style="display:none; width:240px;height:240px;object-fit:cover;border:1px solid #303030">
+      <div class="message" id="wallpaperMessage">尚未读取设备壁纸。</div>
+    </section>
+
+    <section>
+      <h2>大肥鱼角色资源</h2>
+      <p class="hint">先用项目转换工具生成资源目录，再选择该目录上传。逐帧保存，取消或断连后可重新选择目录重传；设备按帧校验尺寸后原子替换。</p>
+      <div class="controls">
+        <input id="petFrameFiles" type="file" webkitdirectory directory multiple>
+        <button id="petFrameUpload" class="secondary" type="button">上传大肥鱼帧</button>
+        <button id="petFrameCancel" class="secondary" type="button" disabled>取消</button>
+      </div>
+      <progress id="petFrameProgress" max="100" value="0" style="width:100%"></progress>
+      <div class="message" id="petFrameMessage">资源写入 SD `/characters/dafeiyu/`；已显示帧在新帧保存前保持有效。</div>
+    </section>
+
+    <section>
       <h2>播放器</h2>
       <div class="grid">
         <div class="stat"><label>SD 卡</label><strong id="sd">-</strong></div>
@@ -213,6 +315,7 @@
       <div class="controls" style="margin-top:14px">
         <button id="prev">上一首</button>
         <button id="play">播放</button>
+        <button id="noise" class="secondary">白噪声</button>
         <button id="pause" class="secondary">暂停</button>
         <button id="next">下一首</button>
         <button id="stop" class="danger">停止</button>
@@ -252,6 +355,7 @@
         <input id="file" type="file" multiple accept=".mp3,.lrc,audio/mpeg">
         <button id="upload">上传文件</button>
         <input id="lyricFile" type="file" accept=".lrc" hidden>
+        <input id="coverFile" type="file" accept=".jpg,.jpeg,.png,.webp,.bmp" hidden>
         <button id="cancelUpload" class="secondary hidden" type="button">取消上传</button>
         <button id="refresh" class="secondary">刷新列表</button>
       </div>
@@ -332,7 +436,47 @@
     let latestLogSequence = 0;
     let renderedLogs = [];
     const uploadState = { active: false, xhr: null, cancelled: false };
+    const wallpaperState = { active: false, xhr: null, cancelled: false };
+    const petFrameState = { active: false, xhr: null, cancelled: false };
+    let weatherEditing = false;
+    let wallpaperRefreshedAt = 0, wallpaperRefreshPending = false;
     const otaState = { active: false, xhr: null };
+
+    // Small synchronous SHA-256 implementation: the device serves this page
+    // over local HTTP, where WebCrypto is unavailable in many browsers.
+    function sha256Hex(input) {
+      const k = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+        0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+        0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+        0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+        0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+        0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+        0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+        0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+      const h = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+      const length = input.length, padded = new Uint8Array(((length + 9 + 63) >> 6) << 6);
+      padded.set(input); padded[length] = 0x80;
+      const bits = length * 8;
+      for (let i = 0; i < 8; i++) padded[padded.length - 1 - i] = Math.floor(bits / (2 ** (8 * i))) & 255;
+      const rotr = (x, n) => (x >>> n) | (x << (32 - n));
+      for (let offset = 0; offset < padded.length; offset += 64) {
+        const w = new Uint32Array(64), view = new DataView(padded.buffer, offset, 64);
+        for (let i = 0; i < 16; i++) w[i] = view.getUint32(i * 4);
+        for (let i = 16; i < 64; i++) {
+          const a = w[i - 15], b = w[i - 2];
+          w[i] = (w[i - 16] + (rotr(a,7) ^ rotr(a,18) ^ (a >>> 3)) + w[i - 7] +
+            (rotr(b,17) ^ rotr(b,19) ^ (b >>> 10))) >>> 0;
+        }
+        let [a,b,c,d,e,f,g,hh] = h;
+        for (let i = 0; i < 64; i++) {
+          const t1 = (hh + (rotr(e,6) ^ rotr(e,11) ^ rotr(e,25)) + ((e & f) ^ (~e & g)) + k[i] + w[i]) >>> 0;
+          const t2 = ((rotr(a,2) ^ rotr(a,13) ^ rotr(a,22)) + ((a & b) ^ (a & c) ^ (b & c))) >>> 0;
+          [hh,g,f,e,d,c,b,a] = [g,f,e,(d + t1) >>> 0,c,b,a,(t1 + t2) >>> 0];
+        }
+        [a,b,c,d,e,f,g,hh].forEach((v, i) => { h[i] = (h[i] + v) >>> 0; });
+      }
+      return h.map(value => value.toString(16).padStart(8, "0")).join("");
+    }
 
     function setBusy(busy) {
       buttons.forEach((button) => {
@@ -340,6 +484,10 @@
         if (button.id === "upload" && uploadState.active) return;
         if (button.id === "cancelOta" && otaState.active) return;
         if (button.id === "uploadOta" && otaState.active) return;
+        if (button.id === "wallpaperCancel") { button.disabled = !wallpaperState.active; return; }
+        if (button.id === "wallpaperUpload" && wallpaperState.active) return;
+        if (button.id === "petFrameCancel") { button.disabled = !petFrameState.active; return; }
+        if (button.id === "petFrameUpload" && petFrameState.active) return;
         button.disabled = busy;
       });
     }
@@ -415,6 +563,7 @@
         const url = options.url ||
           `/api/v1/modules/smart_speaker/file.upload?name=${encodeURIComponent(file.name)}`;
         xhr.open("PUT", url, true);
+        xhr.timeout = options.timeoutMs || 120000;
         xhr.setRequestHeader("Content-Type", options.contentType || "application/octet-stream");
         xhr.upload.onprogress = (event) => {
           if (event.lengthComputable && options.onProgress) {
@@ -437,6 +586,7 @@
         };
         xhr.onerror = () => reject(new Error("upload_network_error"));
         xhr.onabort = () => reject(new Error("upload_cancelled"));
+        xhr.ontimeout = () => reject(new Error("upload_timeout"));
         xhr.send(file);
       });
     }
@@ -549,11 +699,248 @@
         : `配网热点 ${network.ap_ssid || network.provision_ap_name || "-"} ${network.ap_ip || ""}`;
     }
 
+    function renderProduct(product) {
+      const navigation = product.navigation || {};
+      const pomodoro = product.pomodoro || {};
+      const computer = product.computer || {};
+      const information = product.information || {};
+      const reminders = Array.isArray(product.reminders) ? product.reminders : [];
+      $("productDesktop").textContent = navigation.desktop === "wallpaper" ? "静态壁纸" : "-";
+      $("productPage").textContent = (navigation.page || "-") + " / " + (navigation.module || "-");
+      $("productPomodoro").textContent = pomodoro.active
+        ? (pomodoro.paused ? "暂停 " : "运行 ") + (pomodoro.remaining_seconds || 0) + "s"
+        : "未开始";
+      $("productComputer").textContent = computer.paired_id
+        ? computer.paired_id + " · " + (computer.cpu_status || "unknown") : "未配对";
+      renderProductCalendar(product.information || {});
+      renderProductWeather(information);
+      if (product.time_storage_ready === false || product.time_storage_error) $("productMessage").textContent = "时间记录异常：" + (product.time_storage_error || "存储未就绪") + "；原记录已保留";
+      const reminderList = $("reminderList");
+      reminderList.replaceChildren();
+      for (const reminder of reminders) {
+        const row = document.createElement("li");
+        const label = document.createElement("span");
+        const when = new Date(Number(reminder.due_epoch_seconds) * 1000);
+        label.textContent = `${reminder.title} · ${Number.isFinite(when.getTime()) ? when.toLocaleString() : "时间无效"} · ${reminder.repeat === "weekly" ? "每周" : "一次"} · ${reminder.state}`;
+        row.append(label);
+        const actions = document.createElement("span");
+        const edit = document.createElement("button");
+        edit.type = "button"; edit.className = "secondary"; edit.textContent = "编辑";
+        edit.onclick = () => {
+          const title = document.createElement("input"); title.type = "text"; title.maxLength = 64; title.value = reminder.title;
+          const dueInput = document.createElement("input"); dueInput.type = "datetime-local";
+          const local = new Date(Number(reminder.due_epoch_seconds) * 1000 - new Date().getTimezoneOffset() * 60000);
+          dueInput.value = local.toISOString().slice(0, 16);
+          const repeat = document.createElement("select");
+          repeat.innerHTML = '<option value="once">一次</option><option value="weekly">每周</option>';
+          repeat.value = reminder.repeat;
+          const save = document.createElement("button"); save.type = "button"; save.className = "secondary"; save.textContent = "保存";
+          const cancel = document.createElement("button"); cancel.type = "button"; cancel.className = "secondary"; cancel.textContent = "取消";
+          save.onclick = () => {
+            const due = new Date(dueInput.value).getTime();
+            if (!title.value.trim() || !Number.isFinite(due)) { $("productMessage").textContent = "请输入提醒内容和有效日期时间"; return; }
+            productCommand("reminder", { action: "update", id: reminder.id, title: title.value.trim(), due_epoch_seconds: Math.floor(due / 1000), repeat: repeat.value });
+          };
+          cancel.onclick = () => renderProduct(product);
+          row.replaceChildren(title, dueInput, repeat, save, cancel);
+        };
+        actions.append(edit);
+        if (reminder.state === "pending" || reminder.state === "missed") {
+          const handled = document.createElement("button");
+          handled.type = "button"; handled.className = "secondary"; handled.textContent = "已查看";
+          handled.onclick = () => productCommand("reminder", { action: "handle", id: reminder.id });
+          actions.append(handled);
+        }
+        const remove = document.createElement("button");
+        remove.type = "button"; remove.className = "secondary"; remove.textContent = "删除";
+        remove.onclick = () => productCommand("reminder", { action: "remove", id: reminder.id });
+        actions.append(remove); row.append(actions); reminderList.append(row);
+      }
+    }
+
+    function renderAssistant(status) {
+      const lunarlink = status.assistant_platform === "lunarlink";
+      $("assistantActivate").textContent = lunarlink ? "重新连接助手" : "获取小智激活码";
+      $("assistantClear").textContent = lunarlink ? "暂停平台连接" : "清除本机小智配对";
+      $("assistantEndpoint").parentElement.hidden = !lunarlink;
+      $("assistantPlatformHint").textContent = lunarlink
+        ? "使用 LunarLink，请先在设备账号页完成 Board 绑定。"
+        : "使用小智官方平台。点击获取激活码，然后登录 xiaozhi.me 控制台添加设备并输入激活码。无需绑定 Board 账号。";
+      $("assistantPairing").textContent = status.activation_ready ? (lunarlink ? "LunarLink 已就绪" : "小智已激活") :
+        status.activation_code ? `激活码：${status.activation_code}` :
+        status.activation_pending ? "正在获取配置" : "等待连接或激活";
+      $("assistantConnection").textContent = status.transport_connected ? "服务已连接" :
+        status.activation_pending ? "正在建立连接" : "未连接";
+      $("assistantSession").textContent = status.listening ? "正在聆听" : status.thinking ? "等待回答" :
+        status.speaking ? "正在播放回答" : status.failed ? "会话失败" : "待机";
+      $("assistantError").textContent = status.last_error || status.last_transport_error || "-";
+      $("assistantEnabled").checked = !!status.enabled;
+      $("assistantMicrophone").checked = !!status.microphone_enabled;
+      const endpoint = status.activation_endpoint || "";
+      if (document.activeElement !== $("assistantEndpoint")) $("assistantEndpoint").value = endpoint;
+      if (status.last_error) $("assistantMessage").textContent = `助手状态：${status.last_error}`;
+      else $("assistantMessage").textContent = status.activation_ready ? "助手配置就绪。" : lunarlink ? "请先绑定平台账号，再连接助手。" : "请获取激活码，并在小智控制台完成绑定。";
+    }
+
+    async function assistantCommand(operation, payload, acceptedText) {
+      try {
+        const status = await bus(`xiaozhi.${operation}`, payload);
+        renderAssistant(status);
+        await refreshAll();
+        if (acceptedText) $("assistantMessage").textContent = acceptedText;
+      } catch (error) {
+        $("assistantMessage").textContent = `助手操作失败：${error.message}`;
+      }
+    }
+
+    function renderProductCalendar(info) {
+      const target = $("productCalendar");
+      if (!info.clock_valid || !Array.isArray(info.days) || info.days.length !== 42) {
+        target.textContent = "设备时间未校准，日历不可用。";
+        return;
+      }
+      const table = document.createElement("table");
+      const caption = document.createElement("caption");
+      caption.textContent = `${info.year}-${String(info.month).padStart(2, "0")}`;
+      table.append(caption);
+      const head = document.createElement("tr");
+      for (const name of ["一", "二", "三", "四", "五", "六", "日"]) {
+        const th = document.createElement("th"); th.textContent = name; head.append(th);
+      }
+      const thead = document.createElement("thead"); thead.append(head); table.append(thead);
+      const body = document.createElement("tbody");
+      for (let row = 0; row < 6; row++) {
+        const tr = document.createElement("tr");
+        for (const cell of info.days.slice(row * 7, row * 7 + 7)) {
+          const td = document.createElement("td"); td.textContent = String(cell.day) + (cell.reminder ? " •" : "");
+          if (!cell.in_month) td.className = "muted";
+          if (cell.today) td.setAttribute("aria-current", "date");
+          if (cell.reminder) td.title = "有本地提醒";
+          tr.append(td);
+        }
+        body.append(tr);
+      }
+      table.append(body); target.replaceChildren(table);
+    }
+
+    function renderProductWeather(info) {
+      const target = $("productWeather");
+      if (!weatherEditing) {
+      $("weatherPlace").value = info.weather_place || "";
+      $("weatherLatitude").value =
+        Number.isFinite(Number(info.weather_latitude)) ? info.weather_latitude : "";
+      $("weatherLongitude").value =
+        Number.isFinite(Number(info.weather_longitude)) ? info.weather_longitude : "";
+      $("weatherEnabled").checked = Boolean(info.weather_enabled);
+      }
+      if (["fresh", "stale", "offline", "error", "time_untrusted"].includes(info.weather_status) &&
+          Number.isFinite(Number(info.temperature_c))) {
+        const observed = Number(info.weather_age_seconds || 0);
+        const state = info.weather_status === "fresh" ? "最新获取" : info.weather_status === "stale" ? "已过期" :
+          info.weather_status === "offline" ? "离线，显示缓存" :
+          info.weather_status === "time_untrusted" ? "时间未校准，显示缓存" : "刷新失败，显示缓存";
+        target.textContent = `${info.weather_place} · ${info.weather_label || "天气"} · ${Number(info.temperature_c).toFixed(1)}°C · 湿度 ${info.humidity_percent}% · ${state} · 数据年龄 ${Math.floor(observed / 60)} 分钟`;
+        if (info.weather_error) target.textContent += " · " + info.weather_error;
+        if (info.weather_retry_required) target.textContent += " · 已停止自动重试，请点击刷新";
+        return;
+      }
+      const labels = { not_configured: "尚未配置地点", time_untrusted: "设备时间未校准，天气请求暂停",
+        offline: "设备离线，天气不可用", loading: "正在获取天气", waiting: "等待网络连接",
+        error: "天气更新失败：" + (info.weather_error || "unknown") };
+      target.textContent = labels[info.weather_status] || "天气状态未知";
+      if (info.weather_retry_required) target.textContent += " · 已停止自动重试，请点击刷新";
+    }
+
+    async function productCommand(operation, payload = {}) {
+      try {
+        const result = await bus("smart_speaker.product." + operation, payload);
+        renderProduct(result);
+        $("productMessage").textContent = operation.startsWith("weather.") ?
+          "天气操作已接受；实时获取结果以下方状态为准" : "设备已接受并应用操作";
+        return true;
+      } catch (error) {
+        $("productMessage").textContent = error.message || "操作未完成";
+        return false;
+      }
+    }
+
+    async function refreshWallpapers(force = true) {
+      if (wallpaperState.active || wallpaperRefreshPending ||
+          (!force && Date.now() - wallpaperRefreshedAt < 30000)) return;
+      wallpaperRefreshPending = true;
+      wallpaperRefreshedAt = Date.now();
+      try {
+      const result = await bus("smart_speaker.wallpaper.get");
+      const select = $("wallpaperList");
+      const files = Array.isArray(result.files) ? result.files : [];
+      select.replaceChildren();
+      for (const name of files) {
+        const option = document.createElement("option");
+        option.value = option.textContent = name;
+        select.append(option);
+      }
+      if (result.selected && files.includes(result.selected)) select.value = result.selected;
+      $("wallpaperMessage").textContent = result.error ||
+        (result.ready ? `当前壁纸：${result.selected}` : "尚未选择壁纸");
+      if (result.selected && result.ready) showWallpaperPreview(result.selected);
+      else $("wallpaperPreview").style.display = "none";
+      } finally { wallpaperRefreshPending = false; }
+    }
+
+    function showWallpaperPreview(name) {
+      const preview = $("wallpaperPreview");
+      preview.src = `/api/v1/modules/smart_speaker/wallpaper.image?path=${encodeURIComponent(name)}&v=${Date.now()}`;
+      preview.style.display = "block";
+    }
+
+    // Canonical bottom-up Windows BMP24, shared contract with the offline
+    // converter and the device's bounded parser. Transparent pixels use black.
+    function encodeWallpaperBmp(rgba) {
+      if (rgba.length !== 240 * 240 * 4) throw new Error("invalid_wallpaper_pixels");
+      const bytes = new Uint8Array(54 + 240 * 240 * 3);
+      const view = new DataView(bytes.buffer);
+      bytes[0] = 66; bytes[1] = 77;
+      view.setUint32(2, bytes.length, true); view.setUint32(10, 54, true);
+      view.setUint32(14, 40, true); view.setUint32(18, 240, true); view.setUint32(22, 240, true);
+      view.setUint16(26, 1, true); view.setUint16(28, 24, true);
+      view.setUint32(34, bytes.length - 54, true);
+      for (let y = 0; y < 240; ++y) for (let x = 0; x < 240; ++x) {
+        const source = (y * 240 + x) * 4;
+        const target = 54 + ((239 - y) * 240 + x) * 3;
+        const alpha = rgba[source + 3] / 255;
+        bytes[target] = Math.round(rgba[source + 2] * alpha);
+        bytes[target + 1] = Math.round(rgba[source + 1] * alpha);
+        bytes[target + 2] = Math.round(rgba[source] * alpha);
+      }
+      return bytes;
+    }
+
+    async function convertWallpaper(file) {
+      if (file.size > 10 * 1024 * 1024 || !/\.(jpe?g|png|webp|bmp)$/i.test(file.name))
+        throw new Error("请选择不超过 10 MB 的 JPG、PNG、WebP 或 BMP");
+      const source = URL.createObjectURL(file);
+      const image = new Image();
+      try {
+        await new Promise((resolve, reject) => {
+          image.onload = resolve; image.onerror = () => reject(new Error("无法解码图像")); image.src = source;
+        });
+        if (!image.naturalWidth || !image.naturalHeight || image.naturalWidth > 8192 || image.naturalHeight > 8192)
+          throw new Error("图片尺寸不可用或超过 8192 像素");
+        const canvas = document.createElement("canvas"); canvas.width = canvas.height = 240;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("浏览器无法准备壁纸");
+        const side = Math.min(image.naturalWidth, image.naturalHeight);
+        ctx.drawImage(image, (image.naturalWidth - side) / 2, (image.naturalHeight - side) / 2,
+          side, side, 0, 0, 240, 240);
+        return new Blob([encodeWallpaperBmp(ctx.getImageData(0, 0, 240, 240).data)], { type: "image/bmp" });
+      } finally { URL.revokeObjectURL(source); }
+    }
+
     function escapeHtml(value) {
       const node = document.createElement("span"); node.textContent = value; return node.innerHTML;
     }
 
-    let libraryTracks = [], lyricTarget = null;
+    let libraryTracks = [], lyricTarget = null, coverTarget = null;
     async function lyricBody(file) {
       if (!file.size || file.size > 65536) throw Error('lyrics_size_invalid');
       const bytes = new Uint8Array(await file.arrayBuffer());
@@ -577,6 +964,9 @@
         <tr>
           <td>${index + 1}</td>
           <td>${escapeHtml(track.name || "-")}<br>
+            ${track.has_cover ? `<img alt="歌曲封面" width="64" height="64" loading="lazy" src="/api/v1/modules/smart_speaker/cover.image?path=${encodeURIComponent(track.path)}&v=${Date.now()}"><br>` : ''}
+            <button class="secondary" data-cover="${index}">${track.has_cover ? '替换封面' : '导入封面'}</button>
+            ${track.has_cover ? `<button class="secondary" data-cover-remove="${index}">移除封面</button>` : ''}
             <button class="secondary" data-lyric="${index}">${track.has_lyrics ? '替换歌词' : '导入歌词'}</button>
             ${track.has_lyrics ? `<button class="secondary" data-delay="${index}" data-step="-500">提前</button>
               <span>${track.lyrics_delay_ms > 0 ? '延后' : track.lyrics_delay_ms < 0 ? '提前' : ''}${track.lyrics_delay_ms ? Math.abs(track.lyrics_delay_ms)/1000 + '秒' : '原始时间'}</span>
@@ -587,10 +977,12 @@
     }
 
     async function refreshAll() {
-      const [playlist, network, audio] = await Promise.all([
+      const [playlist, network, audio, product, assistant] = await Promise.all([
         bus("smart_speaker.playlist.get").catch(() => null),
         bus("network.provision.status").catch(() => null),
-        bus("smart_speaker.audio.settings.get").catch(() => null)
+        bus("smart_speaker.audio.settings.get").catch(() => null),
+        bus("smart_speaker.product.get").catch(() => null),
+        bus("xiaozhi.status.get").catch(() => null)
       ]);
       if (playlist) { renderStatus(playlist.status || {}); renderTracks(playlist.tracks || []); }
       if (network) {
@@ -611,6 +1003,11 @@
         for (const id of ["highPass", "lowGain", "midGain", "highGain", "lowFrequency", "midFrequency", "midQ", "highFrequency"])
           $(`${id}Text`).textContent = $(id).value;
       }
+      if (product) renderProduct(product);
+      if (assistant) renderAssistant(assistant);
+      refreshWallpapers(false).catch(error => {
+        $("wallpaperMessage").textContent = `壁纸列表不可用：${error.message}`;
+      });
     }
 
     async function control(action, extra = {}) {
@@ -659,6 +1056,7 @@
 
     $("prev").onclick = () => control("prev");
     $("play").onclick = () => control("play");
+    $("noise").onclick = () => control("white_noise");
     $("pause").onclick = () => control("pause");
     $("next").onclick = () => control("next");
     $("stop").onclick = () => control("stop");
@@ -688,6 +1086,7 @@
       $("logsOutput").textContent = "";
     };
     $("uploadOta").onclick = async () => {
+      if (uploadState.active || otaState.active || wallpaperState.active) return;
       const file = $("firmwareFile").files && $("firmwareFile").files[0];
       if (!file) {
         setOtaMessage("请选择固件", true);
@@ -733,10 +1132,206 @@
       try { await bus("smart_speaker.audio.test.set", { mode: $("testMode").value }); }
       catch (error) { setMessage(error.message, true); }
     };
+    $("assistantEnabled").onchange = () => assistantCommand("enabled.set", { enabled: $("assistantEnabled").checked });
+    $("assistantMicrophone").onchange = () => assistantCommand("microphone.enabled.set", { enabled: $("assistantMicrophone").checked });
+    $("assistantEndpointSave").onclick = async () => {
+      const url = $("assistantEndpoint").value.trim();
+      if (url && (!url.startsWith("https://") || url.length > 255 || !/^https:\/\/[^\s/?#]+(?:\/[^\s?#]*)?$/.test(url))) {
+        $("assistantMessage").textContent = "请输入有效 HTTPS LunarLink 端点，不含查询参数或片段"; return;
+      }
+      if (url && !confirm("更改服务端点前需暂停平台连接。继续保存此端点？")) return;
+      await assistantCommand("activation.endpoint.set", { url }, "服务端点已保存；重新连接后获取会话配置。");
+    };
+    $("assistantActivate").onclick = () => assistantCommand("activation.start", {}, "已请求助手激活；结果和激活码见设备状态。");
+    $("assistantClear").onclick = () => {
+      if (confirm("清除本机助手凭据并暂停连接？这不会删除云端账号的绑定关系。"))
+        assistantCommand("activation.clear", {}, "本机助手连接已暂停；云端绑定关系未删除。");
+    };
+    $("assistantTest").onclick = () => {
+      const text = $("assistantTestText").value.trim();
+      if (!text || text.length > 64) { $("assistantMessage").textContent = "测试消息需为 1 到 64 个字符"; return; }
+      assistantCommand("conversation.test", { text }, "测试消息已提交；请观察设备会话和扬声器状态确认实际回答。");
+    };
+    document.querySelectorAll("[data-product-nav]").forEach((button) => {
+      button.onclick = () => productCommand("navigation", { action: button.dataset.productNav });
+    });
+    document.querySelectorAll("[data-product-pomodoro]").forEach((button) => {
+      button.onclick = () => productCommand("pomodoro", { action: button.dataset.productPomodoro });
+    });
+    for (const id of ["weatherPlace", "weatherLatitude", "weatherLongitude", "weatherEnabled"])
+      $(id).oninput = () => { weatherEditing = true; };
+    $("weatherConfigure").onclick = async () => {
+      const place = $("weatherPlace").value.trim();
+      const latitude = Number($("weatherLatitude").value);
+      const longitude = Number($("weatherLongitude").value);
+      const enabled = $("weatherEnabled").checked;
+      if (enabled && (!place || !$("weatherLatitude").value.trim() || !$("weatherLongitude").value.trim()) ||
+          !Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+          !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+        $("productMessage").textContent = "请输入地点名称及有效经纬度";
+        return;
+      }
+      if (await productCommand("weather.configure", { enabled: $("weatherEnabled").checked, place, latitude, longitude }))
+        weatherEditing = false;
+    };
+    $("weatherRefresh").onclick = () => productCommand("weather.refresh");
+    $("wallpaperUpload").onclick = async () => {
+      if (wallpaperState.active || uploadState.active || otaState.active) return;
+      const file = $("wallpaperFile").files[0];
+      if (!file) { $("wallpaperMessage").textContent = "请选择图片"; return; }
+      const stem = file.name.replace(/\.[^.]+$/, "").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 44) || "wallpaper";
+      const name = stem + ".bmp";
+      wallpaperState.active = true; wallpaperState.cancelled = false;
+      $("wallpaperUpload").disabled = true; $("wallpaperCancel").disabled = false;
+      try {
+        const bitmap = await convertWallpaper(file);
+        if (wallpaperState.cancelled) throw new Error("upload_cancelled");
+        await bulkUpload(bitmap, { url: `/api/v1/modules/smart_speaker/wallpaper.upload?name=${encodeURIComponent(name)}`,
+          contentType: "image/bmp", state: wallpaperState, timeoutMs: 30000,
+          onProgress: percent => { $("wallpaperMessage").textContent = `传输 ${Math.floor(percent)}%（设备保存完成后确认）`; } });
+        wallpaperState.active = false;
+        await refreshWallpapers();
+        $("wallpaperList").value = name;
+        showWallpaperPreview(name);
+        $("wallpaperMessage").textContent = `已上传 ${name}；选择后应用`;
+      } catch (error) { $("wallpaperMessage").textContent = `上传未完成：${error.message}；刷新列表核对设备最终结果`; }
+      finally {
+        wallpaperState.active = false; wallpaperState.xhr = null;
+        $("wallpaperUpload").disabled = false; $("wallpaperCancel").disabled = true;
+      }
+    };
+    $("petFrameUpload").onclick = async () => {
+      if (petFrameState.active || wallpaperState.active || uploadState.active || otaState.active) return;
+      const selected = Array.from($("petFrameFiles").files || []);
+      const manifestFile = selected.find(file => file.name === "bigfish-manifest.json");
+      const frameFiles = selected.filter(file => file.name.endsWith(".rgb565"));
+      if (!manifestFile || frameFiles.length === 0) {
+        $("petFrameMessage").textContent = "请选择转换工具生成的完整资源目录";
+        return;
+      }
+      const expected = new Map([["idle/00.rgb565", "idle:0"], ["happy/00.rgb565", "happy:0"],
+        ["angry/00.rgb565", "angry:0"], ["think/00.rgb565", "think:0"], ["talk/00.rgb565", "talk:0"],
+        ...Array.from({length: 6}, (_, i) => [`head_pat/${String(i).padStart(2, "0")}.rgb565`, `head_pat:${i}`]),
+        ...Array.from({length: 4}, (_, i) => [`poke_react/${String(i).padStart(2, "0")}.rgb565`, `poke_react:${i}`]),
+        ...Array.from({length: 4}, (_, i) => [`tail_react/${String(i).padStart(2, "0")}.rgb565`, `tail_react:${i}`])]);
+      let manifest;
+      try { manifest = JSON.parse(await manifestFile.text()); }
+      catch { $("petFrameMessage").textContent = "资源清单损坏，未开始上传"; return; }
+      if (manifest.sourceCommit !== "084323845ab82b68d5388d5c638bec09d8544a8a" ||
+          !Array.isArray(manifest.frames) || manifest.frames.length !== expected.size ||
+          manifest.frames.some(frame => !frame || typeof frame !== "object" ||
+            !expected.has(frame.rgb565) || frame.rgb565Bytes !== 51200 ||
+            frame.width !== 160 || frame.height !== 160 || !/^[a-f0-9]{64}$/.test(frame.rgb565Sha256 || "")) ||
+          new Set(manifest.frames.map(frame => frame.rgb565)).size !== expected.size) {
+        $("petFrameMessage").textContent = "资源清单版本或尺寸不匹配，未开始上传";
+        return;
+      }
+      const root = frameFiles[0].webkitRelativePath.split("/")[0];
+      const byPath = new Map();
+      for (const file of frameFiles) {
+        const parts = file.webkitRelativePath.split("/");
+        const relative = parts.slice(1).join("/");
+        if (!expected.has(relative) || file.size !== 51200 || byPath.has(relative) || parts[0] !== root) {
+          $("petFrameMessage").textContent = `资源文件无效：${relative || file.name}`;
+          return;
+        }
+        byPath.set(relative, file);
+      }
+      if (byPath.size !== expected.size || manifest.frames.some(frame => !byPath.has(frame.rgb565))) {
+        $("petFrameMessage").textContent = "资源帧不完整，未开始上传";
+        return;
+      }
+      for (const frame of manifest.frames) {
+        if (sha256Hex(new Uint8Array(await byPath.get(frame.rgb565).arrayBuffer())) !== frame.rgb565Sha256) {
+          $("petFrameMessage").textContent = `资源帧校验失败：${frame.rgb565}，未开始上传`;
+          return;
+        }
+      }
+      petFrameState.active = true; petFrameState.cancelled = false;
+      $("petFrameUpload").disabled = true; $("petFrameCancel").disabled = false;
+      $("petFrameProgress").value = 0;
+      let stored = 0;
+      let inFlight = "";
+      try {
+        for (const [path, identity] of expected) {
+          if (petFrameState.cancelled) throw new Error("upload_cancelled");
+          const [clip, index] = identity.split(":");
+          const file = byPath.get(path);
+          inFlight = path;
+          await bulkUpload(file, { url: `/api/v1/modules/smart_speaker/pet.frame.upload?clip=${encodeURIComponent(clip)}&frame=${index}`,
+            contentType: "application/octet-stream", state: petFrameState, timeoutMs: 30000,
+            onProgress: percent => { $("petFrameProgress").value = (stored + percent / 100) / expected.size * 100; } });
+          stored++;
+          inFlight = "";
+          $("petFrameProgress").value = stored / expected.size * 100;
+          $("petFrameMessage").textContent = `设备已保存 ${stored}/${expected.size} 帧`;
+        }
+        $("petFrameMessage").textContent = `已保存 ${stored} 帧；当前显示帧已触发重载，其余帧在对应状态切换后生效`;
+      } catch (error) {
+        const uncertain = inFlight ? `；当前帧 ${inFlight} 结果未确认，设备可能已提交` : "";
+        $("petFrameMessage").textContent = `上传中断，已确认提交 ${stored} 帧${uncertain}：${error.message}；重新选择目录可幂等重传`;
+      } finally {
+        petFrameState.active = false; petFrameState.xhr = null;
+        $("petFrameUpload").disabled = false; $("petFrameCancel").disabled = true;
+      }
+    };
+    $("petFrameCancel").onclick = () => {
+      petFrameState.cancelled = true;
+      if (petFrameState.xhr) petFrameState.xhr.abort();
+    };
+    $("wallpaperCancel").onclick = () => {
+      wallpaperState.cancelled = true;
+      if (wallpaperState.xhr) wallpaperState.xhr.abort();
+    };
+    $("wallpaperList").onchange = () => {
+      if ($("wallpaperList").value) showWallpaperPreview($("wallpaperList").value);
+    };
+    $("wallpaperPreview").onerror = () => {
+      $("wallpaperPreview").style.display = "none";
+      $("wallpaperMessage").textContent = "预览读取失败，请检查 SD 或刷新重试";
+    };
+    $("wallpaperSelect").onclick = async () => {
+      if (wallpaperState.active) return;
+      const name = $("wallpaperList").value;
+      if (!name) return;
+      try {
+        await bus("smart_speaker.wallpaper.select", { name });
+        await refreshWallpapers();
+        showWallpaperPreview(name);
+      } catch (error) { $("wallpaperMessage").textContent = `应用失败：${error.message}`; }
+    };
+    $("wallpaperRemove").onclick = async () => {
+      if (wallpaperState.active) return;
+      const name = $("wallpaperList").value;
+      if (!name) return;
+      try {
+        await bus("smart_speaker.wallpaper.remove", { name });
+        await refreshWallpapers();
+      } catch (error) { $("wallpaperMessage").textContent = `删除失败：${error.message}`; }
+    };
+    $("computerPair").onclick = () => productCommand("computer", { action: "pair", computer_id: $("computerId").value.trim() });
+      $("computerDisconnect").onclick = () => productCommand("computer", { action: "disconnect", computer_id: $("computerId").value.trim() });
+    $("reminderAdd").onclick = () => {
+      const title = $("reminderTitle").value.trim();
+      const due = new Date($("reminderDue").value).getTime();
+      if (!title || !Number.isFinite(due)) { $("productMessage").textContent = "请输入提醒内容和有效日期时间"; return; }
+      productCommand("reminder", { action: "add", title, due_epoch_seconds: Math.floor(due / 1000), repeat: $("reminderRepeat").value });
+    };
     $("tracks").onclick = async event => {
       const button = event.target.closest('button');
-      if (!button || uploadState.active || otaState.active) return;
-      if (button.dataset.lyric !== undefined) {
+      if (!button || uploadState.active || otaState.active || wallpaperState.active) return;
+      if (button.dataset.cover !== undefined) {
+        coverTarget = libraryTracks[Number(button.dataset.cover)];
+        $("coverFile").click();
+      } else if (button.dataset.coverRemove !== undefined) {
+        const track = libraryTracks[Number(button.dataset.coverRemove)];
+        setUploadActive(true);
+        try {
+          await bus('smart_speaker.cover.remove', { path: track.path });
+          setMessage('封面已移除'); await refreshAll();
+        } catch (error) { setMessage(`移除失败：${error.message}`, true); }
+        finally { setUploadActive(false); }
+      } else if (button.dataset.lyric !== undefined) {
         lyricTarget = libraryTracks[Number(button.dataset.lyric)];
         $("lyricFile").click();
       } else if (button.dataset.delay !== undefined) {
@@ -758,7 +1353,23 @@
       catch (error) { setMessage('歌词未能导入，请检查文件编码、时间轴或连接。', true); }
       finally { setUploadActive(false); }
     };
+    $("coverFile").onchange = async event => {
+      const file = event.target.files?.[0], track = coverTarget;
+      event.target.value = '';
+      if (!file || !track || uploadState.active || otaState.active || wallpaperState.active) return;
+      setUploadActive(true); setUploadProgress(0);
+      try {
+        setMessage('正在准备封面');
+        const bitmap = await convertWallpaper(file);
+        if (uploadState.cancelled) throw Error('upload_cancelled');
+        await bulkUpload(bitmap, { url: `/api/v1/modules/smart_speaker/cover.upload?path=${encodeURIComponent(track.path)}`,
+          contentType: 'image/bmp', timeoutMs: 30000, onProgress: setUploadProgress });
+        setMessage('封面已保存'); await refreshAll();
+      } catch (error) { setMessage(`封面未完成：${error.message}；请刷新列表核对最终结果`, true); }
+      finally { setUploadActive(false); }
+    };
     $("upload").onclick = async () => {
+      if (uploadState.active || otaState.active || wallpaperState.active) return;
       const selected = Array.from($("file").files || []);
       const files = [...selected.filter(f => /\.mp3$/i.test(f.name)), ...selected.filter(f => /\.lrc$/i.test(f.name))];
       if (!files.length) { setMessage('请选择 MP3 或 LRC 文件', true); return; }
@@ -790,7 +1401,7 @@
     refreshDebug().catch(() => {});
     refreshLogs().catch(() => {});
     refreshTimer = setInterval(() => {
-      if (uploadState.active || otaState.active) return;
+      if (uploadState.active || otaState.active || wallpaperState.active) return;
       refreshAll().catch(() => {});
       refreshOta();
     }, 3000);

@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <cmath>
 #include <dirent.h>
 #include <limits>
 #include <array>
@@ -27,6 +28,7 @@
 #include <esp_log.h>
 #include <esp_system.h>
 #include <esp_random.h>
+#include <esp_timer.h>
 #include <nvs.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
@@ -50,7 +52,12 @@
 
 #include "runtime_internal.h"
 #include "lyrics_api.h"
+#include "cover_api.h"
+#include "pet_frame_api.h"
 #include "transfer_internal.h"
+#include "product/product_state_runtime.h"
+#include "product/desktop_resources.h"
+#include "product/weather.h"
 namespace smart_speaker {
 using namespace detail;
 namespace {
@@ -58,6 +65,14 @@ constexpr const char *kMusicDir="/sdcard/music";
 constexpr const char *kModuleId="smart_speaker";
 constexpr size_t kAudioDebugResponseFrameCount=24;
 constexpr size_t kLogResponseMaxEntries=32;
+
+uint32_t product_now_ms() {
+  return static_cast<uint32_t>(esp_timer_get_time() / 1000);
+}
+
+uint32_t product_monotonic_seconds() {
+  return static_cast<uint32_t>(esp_timer_get_time() / 1000000);
+}
 
 void fill_status(JsonObject payload, const RuntimeStatus &status);
 void fill_settings(JsonObject payload, const dsp::Settings &settings);
@@ -67,6 +82,20 @@ DeviceOperationResult start_provision(JsonVariantConst, JsonObject);
 DeviceOperationResult connect_saved(JsonVariantConst, JsonObject);
 
 DeviceOperationResult finish_upload_batch(JsonVariantConst request, JsonObject);
+DeviceOperationResult fill_product_payload(JsonObject);
+DeviceOperationResult handle_product_navigation(JsonVariantConst, JsonObject);
+DeviceOperationResult handle_product_desktop(JsonVariantConst, JsonObject);
+DeviceOperationResult handle_product_pomodoro(JsonVariantConst, JsonObject);
+DeviceOperationResult handle_product_reminder(JsonVariantConst, JsonObject);
+DeviceOperationResult handle_product_computer(JsonVariantConst, JsonObject);
+DeviceOperationResult handle_product_game(JsonVariantConst, JsonObject);
+DeviceOperationResult handle_weather_configure(JsonVariantConst, JsonObject);
+DeviceOperationResult handle_weather_refresh(JsonVariantConst, JsonObject);
+DeviceOperationResult fill_wallpapers(JsonObject);
+DeviceOperationResult handle_wallpaper_upload(const DeviceBulkRequest &, JsonObject);
+DeviceOperationResult handle_wallpaper_select(JsonVariantConst, JsonObject);
+DeviceOperationResult handle_wallpaper_remove(JsonVariantConst, JsonObject);
+DeviceOperationResult handle_wallpaper_image(const DeviceMediaRequest &, const DeviceMediaWriter &);
 const char *reset_reason_name(esp_reset_reason_t reason);
 std::string request_arg(const DeviceBulkRequest &request, const char *name);
 int read_ota_upload_chunk(uint8_t *buffer, size_t max_size, void *context);
@@ -97,6 +126,7 @@ void fill_status(JsonObject payload, const RuntimeStatus &status) {
   payload["current_index"] = status.current_index;
   payload["current_name"] = status.current_name;
   payload["current_path"] = status.current_path;
+  payload["source"] = status.white_noise ? "white_noise" : "music";
   payload["playlist_count"] = status.playlist_count;
   payload["last_error"] = status.last_error;
   payload["eq_preset"] = status.eq_preset;
@@ -236,7 +266,25 @@ constexpr DeviceOperationDefinition kOperations[] = {
     make_device_json_command("audio.settings.set", handle_audio_settings_payload),
     make_device_json_command("audio.test.set", handle_audio_test_payload),
     make_device_json_command("audio.output.set", handle_audio_output_payload),
+    make_device_json_query("product.get", fill_product_payload),
+    make_device_json_command("product.navigation", handle_product_navigation),
+    make_device_json_command("product.desktop.set", handle_product_desktop, device_operation_on_executor(kNetworkIoServiceExecutor)),
+    make_device_json_query("wallpaper.get", fill_wallpapers, kNetworkIoServiceExecutor),
+    make_device_upload("wallpaper.upload", handle_wallpaper_upload, device_operation_on_executor(kNetworkIoServiceExecutor)),
+    make_device_upload("pet.frame.upload", handle_pet_frame_upload, device_operation_on_executor(kNetworkIoServiceExecutor)),
+    make_device_json_command("wallpaper.select", handle_wallpaper_select, device_operation_on_executor(kNetworkIoServiceExecutor)),
+    make_device_json_command("wallpaper.remove", handle_wallpaper_remove, device_operation_on_executor(kNetworkIoServiceExecutor)),
+    make_device_media("wallpaper.image", handle_wallpaper_image, kNetworkIoServiceExecutor),
+    make_device_json_command("product.pomodoro", handle_product_pomodoro, device_operation_on_executor(kNetworkServiceExecutor)),
+    make_device_json_command("product.reminder", handle_product_reminder, device_operation_on_executor(kNetworkServiceExecutor)),
+    make_device_json_command("product.computer", handle_product_computer),
+    make_device_json_command("product.game", handle_product_game),
+    make_device_json_command("product.weather.configure", handle_weather_configure, device_operation_on_executor(kNetworkServiceExecutor)),
+    make_device_json_command("product.weather.refresh", handle_weather_refresh),
     make_device_upload("lyrics.upload", handle_lyrics_upload, device_operation_on_executor(kNetworkIoServiceExecutor)),
+    make_device_upload("cover.upload", handle_cover_upload, device_operation_on_executor(kNetworkIoServiceExecutor)),
+    make_device_json_command("cover.remove", handle_cover_remove, device_operation_on_executor(kNetworkIoServiceExecutor)),
+    make_device_media("cover.image", handle_cover_image, kNetworkIoServiceExecutor),
     make_device_json_command("lyrics.remove", handle_lyrics_remove),
     make_device_json_command("lyrics.offset.set", handle_lyrics_offset),
     make_device_upload("file.upload", handle_file_upload, device_operation_on_executor(kNetworkIoServiceExecutor)),
@@ -266,6 +314,7 @@ DeviceOperationResult fill_playlist_payload(JsonObject payload) {
     item["path"] = tracks[index].path;
     item["size"] = static_cast<uint64_t>(tracks[index].size_bytes);
     item["has_lyrics"] = tracks[index].has_lyrics;
+    item["has_cover"] = tracks[index].has_cover;
     item["lyrics_delay_ms"] = tracks[index].lyrics_delay_ms;
   }
   return device_operation_ack();
@@ -474,6 +523,23 @@ DeviceOperationResult fill_display_stats_payload(JsonObject payload) {
   payload["character_over_budget_count"] = speaker_display.character_over_budget_count;
   payload["character_frame_ms"] = speaker_display.character_frame_ms;
   payload["character_visible"] = speaker_display.character_visible;
+  payload["pet_animation_visible"] = speaker_display.pet_animation_visible;
+  payload["display_stack_min_free_bytes"] = speaker_display.display_stack_min_free_bytes;
+  payload["pet_animation_unavailable"] = speaker_display.pet_animation_unavailable;
+  payload["pet_animation_frames_drawn"] = speaker_display.pet_animation_frames_drawn;
+  payload["pet_animation_clip"] = speaker_display.pet_animation_clip;
+  payload["pet_animation_frame"] = speaker_display.pet_animation_frame;
+  payload["pet_dragging"] = speaker_display.pet_dragging;
+  payload["boot_visible"] = speaker_display.boot_visible;
+  payload["boot_frame_count"] = speaker_display.boot_frame_count;
+  payload["boot_frame_mean_us"] = speaker_display.boot_frame_mean_us;
+  payload["boot_frame_p95_us"] = speaker_display.boot_frame_p95_us;
+  payload["boot_frame_max_us"] = speaker_display.boot_frame_max_us;
+  payload["boot_frames_over_50ms"] = speaker_display.boot_frames_over_50ms;
+  payload["boot_max_refresh_us"] = speaker_display.boot_max_refresh_us;
+  payload["boot_refresh_count"] = speaker_display.boot_refresh_count;
+  payload["boot_full_refresh_count"] = speaker_display.boot_full_refresh_count;
+  payload["boot_flushed_pixels"] = speaker_display.boot_flushed_pixels;
   payload["lyrics_visible"] = speaker_display.lyrics_visible;
   payload["lyrics_layout"] = speaker_display.lyrics_layout;
   payload["transfer_page"] = speaker_display.transfer_page;
@@ -496,7 +562,7 @@ DeviceOperationResult fill_display_stats_payload(JsonObject payload) {
   payload["account_unbind_confirm"] = menu.unbind_confirm;
   payload["account_unbind_pending"] = menu.unbind_pending;
   payload["account_notice"] = menu.account_notice;
-  payload["local_page"] = menu.library ? "library" : menu.network ? "network" : menu.provisioning ? "provisioning" : menu.information ? "device_info" :
+  payload["local_page"] = speaker_display.boot_visible ? "boot" : menu.product_shell ? "product_shell" : menu.library ? "library" : menu.network ? "network" : menu.provisioning ? "provisioning" : menu.information ? "device_info" :
                           menu.binding ? "account" : menu.open ? "settings" : "home";
   payload["information_page"] = menu.information_page;
   payload["library_index"] = menu.library_index;
@@ -634,27 +700,38 @@ DeviceOperationResult handle_control_payload(JsonVariantConst request,
                                                 JsonObject response) {
   if (status_snapshot().uploading) return device_operation_error("upload_in_progress", 409);
   const std::string action = request["action"] | "";
+  bool accepted = true;
   if (action == "play") {
-    play();
+    accepted = enqueue_command(CommandType::kPlay);
+  } else if (action == "white_noise") {
+    accepted = enqueue_command(CommandType::kWhiteNoise);
   } else if (action == "pause") {
-    pause();
+    accepted = enqueue_command(CommandType::kPause);
   } else if (action == "stop") {
-    stop();
+    accepted = enqueue_command(CommandType::kStop);
   } else if (action == "next") {
-    next();
+    accepted = enqueue_command(CommandType::kNext);
   } else if (action == "prev" || action == "previous") {
-    previous();
+    accepted = enqueue_command(CommandType::kPrevious);
   } else if (action == "rescan") {
     rescan();
   } else if (action == "cycle_mode") {
     if (!enqueue_command(CommandType::kCycleMode))
       return device_operation_error("command_queue_full", 503);
   } else if (action == "volume") {
-    set_volume(request["volume"] | kInitialVolume);
+    const int volume = request["volume"] | kInitialVolume;
+    if (volume < 0 || volume > kMaxVolume)
+      return device_operation_error("volume_out_of_range", 400);
+    accepted = enqueue_command(CommandType::kSetVolume, volume);
   } else {
     return device_operation_error("unknown_action", 400,
                                      "smart_speaker_control_failed");
   }
+  if (!accepted) return device_operation_error("command_queue_full", 503,
+                                                "smart_speaker_control_pending");
+  response["accepted"] = true;
+  response["execution"] = "queued";
+  response["message"] = "命令已入队，执行结果请通过状态接口确认";
   fill_status(response["status"].to<JsonObject>(), status_snapshot());
   return device_operation_ack();
 }
@@ -677,6 +754,7 @@ DeviceOperationResult handle_track_play_payload(JsonVariantConst request,
       return device_operation_error("command_queue_full", 503);
   }
   response["accepted"] = true;
+  response["execution"] = "queued";
   response["path"] = path;
   return device_operation_ack();
 }
@@ -905,5 +983,291 @@ DeviceOperationResult handle_file_upload(const DeviceBulkRequest &request,
   response["size"] = static_cast<uint64_t>(written);
   fill_status(response["status"].to<JsonObject>(), status_snapshot());
   return device_operation_ack();
+}
+
+namespace {
+DeviceOperationResult fill_product_payload(JsonObject payload) {
+  const auto state = product::product_state_snapshot(product_monotonic_seconds(), product_now_ms());
+  JsonObject navigation = payload["navigation"].to<JsonObject>();
+  navigation["desktop"] = "wallpaper";
+  navigation["page"] = product::page_name(state.navigation.page);
+  navigation["module"] = product::module_name(state.navigation.module);
+  navigation["item"] = state.navigation.item;
+  navigation["revision"] = state.navigation.revision;
+  const auto desktop_resources = product::desktop_resources_snapshot();
+  JsonObject desktop = payload["desktop_resources"].to<JsonObject>();
+  desktop["selected"] = desktop_resources.selected;
+  desktop["ready"] = desktop_resources.pixels != nullptr;
+  desktop["error"] = desktop_resources.error;
+  JsonObject pomodoro = payload["pomodoro"].to<JsonObject>();
+  pomodoro["active"] = state.pomodoro.active;
+  pomodoro["paused"] = state.pomodoro.paused;
+  pomodoro["round"] = state.pomodoro.round;
+  pomodoro["remaining_seconds"] = state.pomodoro.remaining_seconds;
+  pomodoro["revision"] = state.pomodoro.revision;
+  payload["time_storage_ready"] = state.time_storage_ready;
+  payload["time_storage_error"] = state.time_storage_error;
+  payload["time_operation_pending"] = state.time_operation_pending;
+  JsonArray reminders = payload["reminders"].to<JsonArray>();
+  for (const auto &reminder : state.reminders) {
+    JsonObject item = reminders.add<JsonObject>();
+    item["id"] = reminder.id;
+    item["due_epoch_seconds"] = reminder.due_epoch_seconds;
+    item["repeat"] = reminder.repeat == product::ReminderRepeat::Weekly ? "weekly" : "once";
+    item["state"] = reminder.state == product::ReminderState::Scheduled ? "scheduled" :
+                     reminder.state == product::ReminderState::Pending ? "pending" :
+                     reminder.state == product::ReminderState::Missed ? "missed" : "handled";
+    item["title"] = reminder.title;
+  }
+  JsonArray pending = payload["pending_reminders"].to<JsonArray>();
+  for (const auto event : state.pending_reminders) {
+    JsonObject item = pending.add<JsonObject>();
+    item["id"] = event.id;
+    item["missed"] = event.missed;
+  }
+  JsonObject computer = payload["computer"].to<JsonObject>();
+  computer["paired_id"] = state.paired_computer;
+  computer["cpu_status"] = product::telemetry_status_name(state.computer.cpu);
+  computer["gpu_status"] = product::telemetry_status_name(state.computer.gpu);
+  computer["temperature_status"] = product::telemetry_status_name(state.computer.temperature);
+  computer["fan_status"] = product::telemetry_status_name(state.computer.fan);
+  if (state.computer.cpu == product::TelemetryStatus::Fresh) computer["cpu_percent"] = state.computer.cpu_percent;
+  else computer["cpu_percent"] = nullptr;
+  if (state.computer.gpu == product::TelemetryStatus::Fresh) computer["gpu_percent"] = state.computer.gpu_percent;
+  else computer["gpu_percent"] = nullptr;
+  if (state.computer.temperature == product::TelemetryStatus::Fresh) computer["temperature_c"] = state.computer.temperature_c;
+  else computer["temperature_c"] = nullptr;
+  if (state.computer.fan == product::TelemetryStatus::Fresh) computer["fan_rpm"] = state.computer.fan_rpm;
+  else computer["fan_rpm"] = nullptr;
+  computer["sample_age_ms"] = state.computer.sample_age_ms;
+  computer["revision"] = state.computer.revision;
+  JsonObject games = payload["games"].to<JsonObject>();
+  games["wood_fish_count"] = state.wood_fish.count;
+  games["wood_fish_last_hit_ms"] = state.wood_fish.last_hit_ms;
+  games["score_2048"] = state.game_score;
+  JsonArray board = games["board_2048"].to<JsonArray>();
+  for (const auto value : state.game_board) board.add(value);
+  JsonObject information = payload["information"].to<JsonObject>();
+  const bool clock_valid = network_snapshot().clock == NetworkClockState::Valid;
+  const auto network = network_snapshot();
+  const auto weather = product::weather_snapshot(product_now_ms(), std::time(nullptr), clock_valid,
+      network.link == NetworkLinkState::Up);
+  information["clock_valid"] = clock_valid;
+  information["weather_status"] = weather.status;
+  information["weather_error"] = weather.error;
+  information["weather_place"] = weather.config.place;
+  information["weather_enabled"] = weather.config.enabled;
+  information["weather_latitude"] = weather.config.latitude;
+  information["weather_longitude"] = weather.config.longitude;
+  information["weather_age_seconds"] = weather.age_seconds;
+  information["weather_refreshing"] = weather.refreshing;
+  information["weather_retry_required"] = weather.retry_required;
+  if (weather.has_reading) {
+    information["temperature_c"] = weather.reading.temperature_c;
+    information["humidity_percent"] = weather.reading.humidity_percent;
+    information["weather_code"] = weather.reading.code;
+    information["weather_label"] = product::weather_code_label(weather.reading.code);
+    information["weather_observed_epoch"] = weather.reading.observed_epoch;
+  }
+  if (clock_valid) {
+    const std::time_t now = std::time(nullptr);
+    product::MonthlyCalendar calendar;
+    if (product::make_local_calendar(now, true, state.reminders, state.pending_reminders, calendar)) {
+        information["year"] = calendar.year; information["month"] = calendar.month; information["day"] = calendar.today;
+        JsonArray cells = information["days"].to<JsonArray>();
+        for (const auto &cell : calendar.days) {
+          JsonObject item = cells.add<JsonObject>(); item["day"] = cell.day;
+          item["in_month"] = cell.in_month; item["today"] = cell.today; item["reminder"] = cell.has_reminder;
+        }
+    }
+  }
+  return device_operation_ack();
+}
+
+DeviceOperationResult handle_product_navigation(JsonVariantConst request, JsonObject response) {
+  const std::string action = request["action"] | "";
+  const product::Input input = action == "up" ? product::Input::Up : action == "down" ? product::Input::Down :
+      action == "confirm" ? product::Input::Confirm : action == "back" ? product::Input::Back :
+      action == "home" ? product::Input::Home : action == "assistant" ? product::Input::Assistant : product::Input::Home;
+  if (action != "up" && action != "down" && action != "confirm" && action != "back" && action != "home" && action != "assistant")
+    return device_operation_error("invalid_navigation_action", 400);
+  if (!product::product_navigation_input(input)) return device_operation_error("navigation_unchanged", 409);
+  return fill_product_payload(response);
+}
+
+DeviceOperationResult handle_product_desktop(JsonVariantConst request, JsonObject response) {
+  const std::string mode = request["mode"] | "";
+  if (mode != "wallpaper") return device_operation_error("invalid_desktop_mode", 400);
+  return fill_product_payload(response);
+}
+
+DeviceOperationResult fill_wallpapers(JsonObject response) {
+  std::vector<std::string> names;
+  std::string error;
+  if (!product::wallpaper_list(names, error)) return device_operation_error(error.c_str(), 503);
+  auto items = response["files"].to<JsonArray>();
+  for (const auto &name : names) items.add(name);
+  const auto state = product::desktop_resources_snapshot();
+  response["selected"] = state.selected;
+  response["ready"] = state.pixels != nullptr;
+  response["error"] = state.error;
+  return device_operation_ack();
+}
+
+DeviceOperationResult handle_wallpaper_upload(const DeviceBulkRequest &request, JsonObject response) {
+  const auto name = request_arg(request, "name");
+  if (!product::wallpaper_name_valid(name)) return device_operation_error("invalid_wallpaper_name", 400);
+  const size_t size = std::max(request.body_size, request.content_length);
+  if (size != product::kWallpaperBmpBytes) return device_operation_error("wallpaper_size_invalid", 413);
+  product::WallpaperBmp bmp;
+  if (!bmp.resize(size)) return device_operation_error("wallpaper_memory_unavailable", 503);
+  if (request.body_data && request.body_size == size) std::memcpy(bmp.data(), request.body_data, size);
+  else if (request.read_chunk && request.content_length == size) {
+    size_t received = 0;
+    while (received < size) {
+      const size_t wanted = std::min<size_t>(2048, size - received);
+      const int got = request.read_chunk(bmp.data() + received, wanted, request.context);
+      if (got <= 0 || static_cast<size_t>(got) > wanted) return device_operation_error("wallpaper_read_failed", 400);
+      received += static_cast<size_t>(got);
+    }
+  } else return device_operation_error("wallpaper_read_failed", 400);
+  std::string error;
+  if (!product::wallpaper_upload(name, bmp, error)) return device_operation_error(error.c_str(), 409);
+  response["name"] = name;
+  response["stored"] = true;
+  response["selected"] = false;
+  return device_operation_ack();
+}
+
+DeviceOperationResult handle_wallpaper_select(JsonVariantConst request, JsonObject response) {
+  const std::string name = request["name"] | "";
+  std::string error;
+  if (!product::wallpaper_select(name, error)) return device_operation_error(error.c_str(), 409);
+  return fill_wallpapers(response);
+}
+DeviceOperationResult handle_wallpaper_remove(JsonVariantConst request, JsonObject response) {
+  const std::string name = request["name"] | "";
+  std::string error;
+  if (!product::wallpaper_remove(name, error)) return device_operation_error(error.c_str(), 409);
+  return fill_wallpapers(response);
+}
+DeviceOperationResult handle_wallpaper_image(const DeviceMediaRequest &request, const DeviceMediaWriter &writer) {
+  product::WallpaperBmp bmp;
+  std::string error;
+  if (!product::wallpaper_read(request.path, bmp, error)) return device_operation_error(error.c_str(), 404);
+  if (!writer.send_binary || !writer.send_binary(200, "image/bmp", bmp.data(), bmp.size(), writer.context))
+    return device_operation_error("wallpaper_send_failed", 500);
+  return device_operation_ack();
+}
+
+DeviceOperationResult handle_product_pomodoro(JsonVariantConst request, JsonObject response) {
+  if (!product::product_state_snapshot(product_monotonic_seconds(), product_now_ms()).time_storage_ready)
+    return device_operation_error("time_storage_unavailable", 503);
+  const std::string action = request["action"] | "";
+  bool changed = action == "start" ? product::product_pomodoro_start(product_monotonic_seconds()) :
+      action == "pause" ? product::product_pomodoro_pause(product_monotonic_seconds()) :
+      action == "resume" ? product::product_pomodoro_resume(product_monotonic_seconds()) :
+      action == "finish" ? product::product_pomodoro_finish() : false;
+  if (!changed) return device_operation_error("pomodoro_unchanged", 409);
+  return fill_product_payload(response);
+}
+
+DeviceOperationResult handle_product_reminder(JsonVariantConst request, JsonObject response) {
+  if (!product::product_state_snapshot(product_monotonic_seconds(), product_now_ms()).time_storage_ready)
+    return device_operation_error("time_storage_unavailable", 503);
+  const std::string action = request["action"] | "";
+  if (action == "add" || action == "update") {
+    if (!request["due_epoch_seconds"].is<int64_t>() || !request["title"].is<const char *>())
+      return device_operation_error("invalid_reminder", 400);
+    const std::string repeat_name = request["repeat"] | "once";
+    if (repeat_name != "once" && repeat_name != "weekly")
+      return device_operation_error("invalid_reminder_repeat", 400);
+    const auto repeat = repeat_name == "weekly" ? product::ReminderRepeat::Weekly : product::ReminderRepeat::Once;
+    const auto id = request["id"] | 0U;
+    const bool ok = action == "add" ? product::product_add_reminder(request["due_epoch_seconds"].as<int64_t>(), repeat, request["title"].as<std::string>()) != 0
+                                    : product::product_update_reminder(id, request["due_epoch_seconds"].as<int64_t>(), repeat, request["title"].as<std::string>());
+    if (!ok) return device_operation_error("reminder_write_failed", 409);
+  } else if (action == "remove") {
+    if (!product::product_remove_reminder(request["id"] | 0U)) return device_operation_error("reminder_not_found", 404);
+  } else if (action == "handle") {
+    if (!product::product_handle_reminder(request["id"] | 0U)) return device_operation_error("reminder_not_found", 404);
+  } else return device_operation_error("invalid_reminder_action", 400);
+  return fill_product_payload(response);
+}
+
+DeviceOperationResult handle_product_computer(JsonVariantConst request, JsonObject response) {
+  const std::string action = request["action"] | "";
+  const uint32_t protocol_version = request["protocol_version"] | 1U;
+  if (protocol_version != 1U)
+    return device_operation_error("unsupported_computer_protocol", 400);
+  if (action == "pair") {
+    if (!product::product_pair_computer(request["computer_id"] | "")) return device_operation_error("invalid_computer_id", 400);
+  } else if (action == "disconnect") {
+    if (!product::product_disconnect_computer(request["computer_id"] | ""))
+      return device_operation_error("computer_not_paired", 403);
+  }
+  else if (action == "clear") product::product_clear_computer();
+  else if (action == "sample") {
+    product::ComputerTelemetry sample;
+    const auto parse_status = [](JsonVariantConst value) {
+      const std::string status = value | "unavailable";
+      if (status == "fresh") return product::TelemetryStatus::Fresh;
+      if (status == "no_permission") return product::TelemetryStatus::NoPermission;
+      if (status == "offline") return product::TelemetryStatus::Offline;
+      if (status == "stale") return product::TelemetryStatus::Stale;
+      return product::TelemetryStatus::Unavailable;
+    };
+    sample.cpu = parse_status(request["cpu_status"]);
+    sample.gpu = parse_status(request["gpu_status"]);
+    sample.temperature = parse_status(request["temperature_status"]);
+    sample.fan = parse_status(request["fan_status"]);
+    const auto read_metric = [&](const char *key, product::TelemetryStatus status,
+                                 float minimum, float maximum, float &output) {
+      if (status != product::TelemetryStatus::Fresh) return true;
+      if (!request[key].is<float>()) return false;
+      output = request[key].as<float>();
+      return std::isfinite(output) && output >= minimum && output <= maximum;
+    };
+    if (!read_metric("cpu_percent", sample.cpu, 0, 100, sample.cpu_percent) ||
+        !read_metric("gpu_percent", sample.gpu, 0, 100, sample.gpu_percent) ||
+        !read_metric("temperature_c", sample.temperature, -100, 250, sample.temperature_c) ||
+        !read_metric("fan_rpm", sample.fan, 0, 100000, sample.fan_rpm))
+      return device_operation_error("invalid_telemetry_value", 400);
+    if (!product::product_update_computer(request["computer_id"] | "", sample, product_now_ms()))
+      return device_operation_error("computer_not_paired", 403);
+  } else return device_operation_error("invalid_computer_action", 400);
+  return fill_product_payload(response);
+}
+
+DeviceOperationResult handle_product_game(JsonVariantConst request, JsonObject response) {
+  const std::string game = request["game"] | "";
+  if (game == "wood_fish" && request["action"] == "hit") product::product_hit_wood_fish(product_now_ms());
+  else if (game == "2048" && request["action"] == "reset") product::product_reset_2048();
+  else if (game == "2048" && request["action"] == "move") {
+    const int dx = request["dx"] | 0;
+    const int dy = request["dy"] | 0;
+    if (!product::product_move_2048(dx, dy)) return device_operation_error("invalid_or_blocked_move", 409);
+  } else return device_operation_error("invalid_game_action", 400);
+  return fill_product_payload(response);
+}
+
+DeviceOperationResult handle_weather_configure(JsonVariantConst request, JsonObject response) {
+  if (!request["enabled"].is<bool>() || !request["place"].is<const char *>() ||
+      !request["latitude"].is<double>() || !request["longitude"].is<double>())
+    return device_operation_error("weather_config_invalid", 400);
+  product::WeatherConfig config{request["enabled"].as<bool>(), request["place"].as<std::string>(),
+      request["latitude"].as<double>(), request["longitude"].as<double>()};
+  std::string error;
+  if (!product::weather_configure(config, error)) return device_operation_error(error.c_str(), 409);
+  if (config.enabled) (void)product::weather_request_refresh(error);
+  return fill_product_payload(response);
+}
+
+DeviceOperationResult handle_weather_refresh(JsonVariantConst, JsonObject response) {
+  std::string error;
+  if (!product::weather_request_refresh(error) && error != "weather_refresh_pending")
+    return device_operation_error(error.c_str(), 409);
+  return fill_product_payload(response);
+}
 }
 }

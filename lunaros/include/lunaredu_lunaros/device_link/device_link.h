@@ -23,6 +23,8 @@ struct DeviceLinkConfig {
   // Self-enroll and remain discoverable while unbound. The first authenticated
   // Tools account that claims the device becomes the owner.
   bool open_claim = false;
+  // Legacy commandType pull contract; disable for LunarLink operation gateways.
+  bool legacy_remote_commands_enabled = true;
   std::vector<std::string> capabilities;
   // Optional product-owned protocol projection; immutable after composition.
   const DeviceLinkObserver *observer = nullptr;

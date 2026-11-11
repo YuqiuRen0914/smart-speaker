@@ -56,7 +56,7 @@ bool publish_presence() {
 
   JsonDocument response;
   int status_code = 0;
-  if (!perform_request("POST", "/api/hardware/device-runtime/presence", &body,
+  if (!perform_request("POST", "/api/link/device-runtime/presence", &body,
                        &response, &status_code)) {
     if (status_code == 401 &&
         pairing_snapshot().state != DeviceLinkBindingState::Pairing) {
@@ -65,8 +65,23 @@ bool publish_presence() {
     }
     return false;
   }
+  if (response["data"]["projectionPending"] | false) {
+    const auto binding = pairing_snapshot();
+    return (response["data"]["accepted"] | false) &&
+        response["data"]["presenceReceiptVersion"] == 1 &&
+        response["data"]["deviceStatus"] == "active" &&
+        binding.state == DeviceLinkBindingState::Bound &&
+        response["data"]["bindingEpoch"] == binding.binding_epoch;
+  }
   const int binding_epoch = response["data"]["bindingEpoch"] | 0;
   const std::string device_status = response["data"]["deviceStatus"] | "";
+  if (!response["data"]["bindingEpoch"].is<int>() || binding_epoch < 0 ||
+      state_from_server(device_status) == DeviceLinkBindingState::Error ||
+      (device_status == "active" && (binding_epoch <= 0 ||
+       (response["data"]["boundAccount"]["id"] | std::string{}).empty()))) {
+    update_pairing_snapshot(DeviceLinkBindingState::Error, {}, {}, 0, "platform_binding_response_invalid");
+    return false;
+  }
   if (device_status == "active") {
     const std::string account_id =
         response["data"]["boundAccount"]["id"] | "";
@@ -102,7 +117,7 @@ bool publish_presence() {
 bool refresh_and_apply_firmware_update() {
   JsonDocument response;
   int status_code = 0;
-  if (!perform_request("GET", "/api/hardware/device-runtime/firmware", nullptr,
+  if (!perform_request("GET", "/api/link/device-runtime/firmware", nullptr,
                        &response, &status_code)) {
     char failure[64];
     std::snprintf(failure, sizeof(failure), "ota_ticket_refresh_failed:%d",

@@ -34,6 +34,13 @@ public:
     ++count_;
     return true;
   }
+  // Playback receipts must leave before a terminal event rebuilds the session.
+  bool try_push_front(std::string message) {
+    if (message.size() > kMaximumMessageBytes || !can_accept(1, message.size())) return false;
+    head_ = (head_ + kCapacity - 1) % kCapacity;
+    bytes_ += message.size(); messages_[head_] = std::move(message); ++count_;
+    return true;
+  }
   bool empty() const { return count_ == 0; }
   size_t size() const { return count_; }
   size_t bytes() const { return bytes_; }

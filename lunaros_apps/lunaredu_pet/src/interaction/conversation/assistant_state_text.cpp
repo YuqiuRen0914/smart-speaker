@@ -186,7 +186,7 @@ std::string derive_state_detail_locked() {
       return g_runtime.vad.voice_activity_active ? "检测到说话" : "等待收句";
     case AssistantSessionState::Speaking:
       return g_runtime.diagnostics.last_message_summary.empty()
-                 ? "小智正在回复"
+                 ? "助手正在回复"
                  : g_runtime.diagnostics.last_message_summary;
     case AssistantSessionState::ReadyIdle:
       if (session_start_inflight_locked() && session_active_locked()) {

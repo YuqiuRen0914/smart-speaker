@@ -56,7 +56,7 @@ bool publish_discovery_announcement() {
   serializeJson(doc, body);
 
   int status_code = -1;
-  if (!perform_request("POST", "/api/hardware/device-runtime/discovery",
+  if (!perform_request("POST", "/api/link/device-runtime/discovery",
                        &body, nullptr, &status_code)) {
     // Discovery is an address-refresh hint, not a claim channel. The server
     // may reject an expired/invalid announcement; stop a rejected window so

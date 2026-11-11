@@ -11,3 +11,12 @@
 - 文档对照当前源码，历史证据保留当时条件与结论；版本不能为了掩盖不兼容随意改写。
 
 验证：`node test/run_host_tests.mjs`、`python -m unittest discover -s tools/tests -v`、`python tools/check-project.py --build-dir .build/firmware`。主机套件另需 Node.js 与 C++ 编译器，固件构建不需要 Node.js。
+
+## 智慧终端开发规划与 AI 准则
+
+后续功能开发在上述基线阅读之后，继续读 [开发文档入口](docs/development/README.md) 与 [AI 开发准则](docs/development/04-ai-development-rules.md)，再读当前阶段对应的产品规格、技术方案和验收项。当前源码事实与未来规划必须区分；规划不代表已实现。
+
+- 首发目标和已确认交互见 [产品规格](docs/development/01-product-spec.md)；采用 AmoledOS 的纵向条目 UI，按计划逐步演进当前产品页面，不能用更换整套 OS 或基线实现。
+- 按 [实施计划](docs/development/03-implementation-plan.md) 交付完整切片，优先查找并复用现有所有者。禁止重复建设播放器、LVGL 初始化、曲库、路由或多份可写业务状态。
+- 不做无关重构、全仓格式化或工作区清理；接口、持久化、并发与物理行为变化必须说明边界和验证证据。不要用占位页、假数据、入队即成功或编译通过宣称功能完成。
+- 验收按 [验收清单](docs/development/05-acceptance.md) 分别记录主机、构建、真机和联合负载结果。缺条件可完成独立工作，但未验证项必须明确，不虚构通过。

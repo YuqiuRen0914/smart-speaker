@@ -1,9 +1,18 @@
+if(CONFIG_LUNAREDU_ASSISTANT_LUNARLINK)
+    set(assistant_platform_sources
+        "src/interaction/transport/assistant_activation_client.cpp"
+        "src/interaction/transport/network_xiaozhi_mqtt_udp_channel.cpp")
+else()
+    set(assistant_platform_sources
+        "src/interaction/transport/xiaozhi_official_assistant_activation_client.cpp"
+        "src/interaction/transport/xiaozhi_official_network_xiaozhi_mqtt_udp_channel.cpp")
+endif()
 set(app_local_view_sources "")
 if(CONFIG_LUNAREDU_DESKTOP_LOCAL)
     list(APPEND app_local_view_sources "src/views/desktop_view.c" "src/views/subtitle_policy.cpp" "src/views/desktop_view_adapter.cpp")
 endif()
 idf_component_register(
-    SRCS ${app_local_view_sources}
+    SRCS ${app_local_view_sources} ${assistant_platform_sources}
         "src/actions/capability_client.cpp"
         "src/app/capabilities.cpp"
         "src/app/conversation_projection.cpp"
@@ -12,6 +21,7 @@ idf_component_register(
         "src/behavior/emotion.cpp"
         "src/interaction/conversation/assistant_client_id.cpp"
         "src/interaction/conversation/assistant_core.cpp"
+        "src/interaction/conversation/lunarlink_capabilities.cpp"
         "src/interaction/conversation/assistant_entry_policy.cpp"
         "src/interaction/conversation/assistant_lifecycle.cpp"
         "src/interaction/conversation/assistant_loop.cpp"
@@ -30,11 +40,10 @@ idf_component_register(
         "src/interaction/input.cpp"
         "src/interaction/tools/application_tools.cpp"
         "src/interaction/tools/assistant_mcp.cpp"
-        "src/interaction/transport/assistant_activation_client.cpp"
         "src/interaction/transport/mqtt_client_support.cc"
         "src/interaction/transport/mqtt_session.cpp"
-        "src/interaction/transport/network_xiaozhi_mqtt_udp_channel.cpp"
         "src/interaction/transport/network_xiaozhi_protocol.cpp"
+        "src/interaction/transport/lunarlink_protocol.cpp"
         "src/interaction/transport/udp_channel.cpp"
         "src/interaction/voice/assistant_audio.cpp"
         "src/interaction/voice/local_audio_app.cpp"

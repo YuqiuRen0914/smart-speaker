@@ -35,6 +35,9 @@ struct HostCallbacks {
   std::string (*last_error)(void *context) = nullptr;
   bool (*request_audio_focus)(void *context, const char *reason,
                               uint32_t timeout_ms) = nullptr;
+  // Optional paired release hook for the host resources acquired with focus.
+  // It is invoked after one-shot completion, cancellation, or terminal reset.
+  void (*release_audio_focus)(void *context, const char *reason) = nullptr;
 };
 
 struct ServiceConfig {
@@ -55,6 +58,7 @@ struct ServiceSnapshot {
   bool running = false;
   bool activation_ready = false;
   bool activation_pending = false;
+  std::string activation_endpoint;
   std::string activation_code;
   bool transport_connected = false;
   std::string session_state;
@@ -94,6 +98,8 @@ struct ServiceSnapshot {
 // Bounded, allocation-free state for cooperative realtime loops. Presentation,
 // diagnostics and protocol projections continue to use ServiceSnapshot.
 struct ServiceRuntimeSnapshot {
+  // A foreground turn, distinct from background MQTT connection/recovery.
+  bool interaction_active = false;
   bool initialized = false;
   bool enabled = false;
   bool suspended = false;
@@ -132,18 +138,24 @@ struct ToolRegistration {
 bool setup_service(const ServiceConfig &config = {});
 void tick_service();
 bool set_enabled(bool enabled);
-// Clears the locally persisted XiaoZhi activation/transport credentials and
-// blocks automatic activation until request_activation() is called. This is a
-// local de-pair operation; deleting the account-side device relationship still
-// requires the official XiaoZhi website.
+// Clears the local LunarLink session and blocks automatic bootstrap until
+// request_activation(). Platform account binding remains owned by DeviceLink.
 bool clear_activation();
 // Explicitly resumes activation after a local de-pair operation.
 bool request_activation();
+// Configures the HTTPS LunarLink bootstrap endpoint. Credentials
+// remain server-issued Pet state and are never returned in snapshots.
+bool set_activation_endpoint(const char *url);
 enum class SuspensionReason : uint8_t { AudioFocus = 1, CloudMaintenance = 2 };
 // Each owner releases only its own reason; enabled preference is independent.
 bool set_suspension(SuspensionReason reason, bool active);
 bool begin_cloud_maintenance(uint32_t timeout_ms = 3000);
 void end_cloud_maintenance();
+// Explicit single-turn controls. Start is idempotent during opening/listening;
+// during a response it aborts playback and listens again in the same session.
+// Return values acknowledge admission; snapshots report the resulting phase.
+bool request_listening();
+bool cancel_conversation();
 bool toggle_listening();
 bool finish_listening();
 bool set_standby_mode(StandbyMode mode);

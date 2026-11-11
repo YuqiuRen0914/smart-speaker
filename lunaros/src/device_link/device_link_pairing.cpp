@@ -97,7 +97,7 @@ bool create_pairing_session() {
   JsonDocument response;
   int status_code = 0;
   if (!perform_public_request(
-          "POST", "/api/hardware/device-enrollment/pairing-sessions", &body,
+          "POST", "/api/link/device-enrollment/pairing-sessions", &body,
           &response, &status_code)) {
     update_pairing_snapshot(DeviceLinkBindingState::Error, {}, {}, 0,
                             pairing_failure_code(response, status_code));
@@ -108,7 +108,8 @@ bool create_pairing_session() {
       response["data"]["pairing"]["bindPath"] | "";
   const int64_t expires_at_ms =
       response["data"]["pairing"]["expiresAtMs"] | 0LL;
-  if (code.empty() || bind_path.empty() || expires_at_ms <= 0) {
+  if (code.empty() || bind_path.empty() || bind_path.front() != '/' ||
+      bind_path.rfind("//", 0) == 0 || expires_at_ms <= 0) {
     update_pairing_snapshot(DeviceLinkBindingState::Error, {}, {}, 0,
                             "pairing_response_invalid");
     return false;
@@ -116,19 +117,26 @@ bool create_pairing_session() {
   update_pairing_snapshot(DeviceLinkBindingState::Pairing, code,
                           std::string(platform_base_url()) + bind_path,
                           expires_at_ms);
-  LOGI(kTag, "pairing session ready: code=%s", code.c_str());
+  LOGI(kTag, "pairing session ready");
   return true;
 }
 
 bool poll_pairing_session() {
   JsonDocument response;
   if (!perform_request("GET",
-                       "/api/hardware/device-runtime/pairing-sessions",
+                       "/api/link/device-runtime/pairing-sessions",
                        nullptr, &response)) {
     return false;
   }
   const std::string status = response["data"]["deviceStatus"] | "";
   const int binding_epoch = response["data"]["bindingEpoch"] | 0;
+  if (!response["data"]["bindingEpoch"].is<int>() || binding_epoch < 0 ||
+      state_from_server(status) == DeviceLinkBindingState::Error ||
+      (status == "active" && (binding_epoch <= 0 ||
+       (response["data"]["boundAccount"]["id"] | std::string{}).empty()))) {
+    update_pairing_snapshot(DeviceLinkBindingState::Error, {}, {}, 0, "platform_binding_response_invalid");
+    return false;
+  }
   if (status == "active") {
     const std::string account_id =
         response["data"]["boundAccount"]["id"] | "";
@@ -152,7 +160,7 @@ bool poll_pairing_session() {
 
 bool cancel_pairing_session() {
   if (!perform_request("DELETE",
-                       "/api/hardware/device-runtime/pairing-sessions",
+                       "/api/link/device-runtime/pairing-sessions",
                        nullptr, nullptr)) {
     return false;
   }
@@ -169,32 +177,29 @@ bool unbind_device() {
   }
   JsonDocument response;
   int status_code = 0;
-  if (!perform_request("DELETE", "/api/hardware/device-runtime/binding",
-                       nullptr, &response, &status_code)) {
-    const std::string server_code = response["code"] | "";
-    // The upper computer may have released the account first.  The server's
-    // 409/device_not_bound is then an idempotent acknowledgement, not a
-    // transport failure.  Reconcile the local projection immediately; the
-    // next presence still supplies the authoritative epoch and account data.
-    if (status_code == 409 && server_code == "device_not_bound") {
-      const int next_epoch = before.binding_epoch + 1;
-      set_private_resource_scope(static_cast<uint32_t>(std::max(0, next_epoch)),
-                                 "");
-      update_pairing_snapshot(DeviceLinkBindingState::Unbound, {}, {}, 0, {},
-                              next_epoch);
-      LOGI(kTag, "device binding already released by platform: epoch=%d",
-           next_epoch);
-      return true;
-    }
+  JsonDocument request;
+  request["expectedBindingEpoch"] = before.binding_epoch;
+  std::string body;
+  serializeJson(request, body);
+  if (!perform_request("DELETE", "/api/link/device-runtime/binding/revocation",
+                       &body, &response, &status_code)) {
     update_pairing_snapshot(DeviceLinkBindingState::Error, {}, {}, 0,
                             "unbind_request_failed", before.binding_epoch);
     return false;
   }
-  const int next_epoch = response["data"]["bindingEpoch"] | (before.binding_epoch + 1);
-  set_private_resource_scope(static_cast<uint32_t>(std::max(0, next_epoch)),
-                             "");
-  update_pairing_snapshot(DeviceLinkBindingState::Unbound, {}, {}, 0, {},
-                          next_epoch);
+  const auto data = response["data"];
+  const std::string state = data["state"] | "";
+  if (!data["bindingEpoch"].is<int>() || !data["expectedBindingEpoch"].is<int>() ||
+      data["expectedBindingEpoch"].as<int>() != before.binding_epoch ||
+      data["bindingEpoch"].as<int>() < before.binding_epoch ||
+      (state != "unbound" && state != "superseded")) {
+    update_pairing_snapshot(DeviceLinkBindingState::Error, {}, {}, 0,
+                            "unbind_response_invalid", before.binding_epoch);
+    return false;
+  }
+  const int next_epoch = data["bindingEpoch"].as<int>();
+  set_private_resource_scope(static_cast<uint32_t>(next_epoch), "");
+  update_pairing_snapshot(DeviceLinkBindingState::Unbound, {}, {}, 0, {}, next_epoch);
   LOGI(kTag, "device binding released locally: epoch=%d", next_epoch);
   return true;
 }

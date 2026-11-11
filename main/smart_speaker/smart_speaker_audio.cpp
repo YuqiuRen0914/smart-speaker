@@ -25,6 +25,7 @@
 
 #include "sdkconfig.h"
 #include "smart_speaker_i2s_sync.h"
+#include "smart_speaker_microphone_resampler.h"
 #include "smart_speaker_lyrics.h"
 
 namespace smart_speaker {
@@ -97,7 +98,12 @@ bool g_settings_dirty = false;
 uint32_t g_settings_changed_ms = 0;
 bool g_mute_target = true;
 volatile bool g_output_muted = true;
-bool g_microphone_input_enabled = false;
+std::atomic<bool> g_microphone_input_enabled{false};
+std::atomic<bool> g_microphone_input_requested{false};
+std::atomic<bool> g_voice_output_enabled{false};
+std::atomic<uint32_t> g_microphone_clock_rate{44100};
+std::atomic<uint32_t> g_music_sample_rate{44100};
+std::atomic<uint32_t> g_microphone_clock_generation{0};
 dsp::Diagnostics g_dsp_snapshot{};
 float g_expression_level = 0;
 uint32_t g_expression_updated_ms = 0;
@@ -247,6 +253,7 @@ void drain_ready_queue() {
 }
 
 esp_err_t stop_channels() {
+  g_microphone_clock_generation.fetch_add(1, std::memory_order_acq_rel);
   esp_err_t result = ESP_OK;
   if (g_channels_enabled) {
     if (g_microphone_input_enabled && g_left_rx != nullptr) {
@@ -371,6 +378,14 @@ esp_err_t configure_and_start_channels(uint32_t rate) {
   g_diagnostics.right_bclk_forced_low = right_bclk_forced_low;
   g_diagnostics.right_ws_forced_low = right_ws_forced_low;
   g_diagnostics.right_dout_forced_low = right_dout_forced_low;
+  g_microphone_clock_rate.store(rate, std::memory_order_release);
+  if (g_microphone_input_requested.load(std::memory_order_acquire) && g_left_rx != nullptr) {
+    const esp_err_t rx = i2s_channel_enable(g_left_rx);
+    if (rx != ESP_OK && rx != ESP_ERR_INVALID_STATE) return rx;
+    g_microphone_input_enabled.store(true, std::memory_order_release);
+    g_diagnostics.microphone_input_enabled = true;
+  }
+  g_microphone_clock_generation.fetch_add(1, std::memory_order_acq_rel);
   g_diagnostics.sample_rate = rate;
   g_diagnostics.synchronized = true;
   ESP_LOGI(kTag,
@@ -674,6 +689,11 @@ bool prepare_audio_pipeline() {
   return true;
 }
 void reset_audio_control() {
+  g_microphone_input_enabled = false;
+  g_microphone_input_requested = false;
+  g_voice_output_enabled = false;
+  g_microphone_clock_rate = g_music_sample_rate = 44100;
+  g_microphone_clock_generation.fetch_add(1, std::memory_order_acq_rel);
   g_channels_enabled=false;
   g_reconfigure_pending = false;
   g_recovery_pending = false;
@@ -829,6 +849,7 @@ esp_err_t dual_i2s_audio_reconfigure(uint32_t rate, uint32_t bits,
     dual_i2s_audio_emergency_mute();
     return ESP_ERR_INVALID_ARG;
   }
+  g_music_sample_rate.store(rate, std::memory_order_release);
   (void)dual_i2s_audio_fade_to_mute(100);
   g_pending_sample_rate = rate;
   g_reconfigure_pending = true;
@@ -841,34 +862,41 @@ esp_err_t dual_i2s_audio_reconfigure(uint32_t rate, uint32_t bits,
 
 bool smart_speaker_voice_audio_enable_input(bool enabled) {
   if (g_left_rx == nullptr) return false;
-  if (enabled) {
-    (void)dual_i2s_audio_fade_to_mute(80);
-    g_pending_sample_rate = kVoiceSampleRate;
-    g_reconfigure_pending = true;
-    if (g_reconfigure_done == nullptr ||
-        xSemaphoreTake(g_reconfigure_done, pdMS_TO_TICKS(250)) != pdTRUE ||
-        !g_diagnostics.synchronized) {
-      return false;
-    }
-    const esp_err_t result = i2s_channel_enable(g_left_rx);
-    if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) return false;
-    g_microphone_input_enabled = true;
-    g_diagnostics.microphone_input_enabled = true;
-    return true;
+  g_microphone_input_requested.store(enabled, std::memory_order_release);
+  // RX shares I2S0 clocks with music TX. Standby capture must not mute the
+  // player or change its sample rate; the read boundary converts to 16 kHz.
+  const esp_err_t result = enabled ? i2s_channel_enable(g_left_rx) : i2s_channel_disable(g_left_rx);
+  if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
+    g_microphone_input_requested.store(false, std::memory_order_release);
+    return false;
   }
-  const esp_err_t result = i2s_channel_disable(g_left_rx);
-  if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) return false;
-  g_microphone_input_enabled = false;
-  g_diagnostics.microphone_input_enabled = false;
+  g_microphone_input_enabled.store(enabled, std::memory_order_release);
+  g_microphone_clock_generation.fetch_add(1, std::memory_order_acq_rel);
+  g_diagnostics.microphone_input_enabled = enabled;
   return true;
 }
 
 bool smart_speaker_voice_audio_enable_output(bool enabled) {
   if (!enabled) {
+    if (!g_voice_output_enabled.exchange(false, std::memory_order_acq_rel)) return true;
     (void)dual_i2s_audio_fade_to_mute(100);
+    // The decoder may resume an already-open file without another clock
+    // callback. Restore its latest requested rate before releasing voice focus.
+    const uint32_t music_rate = g_music_sample_rate.load(std::memory_order_acquire);
+    if (g_microphone_clock_rate.load(std::memory_order_acquire) != music_rate ||
+        (g_reconfigure_pending && g_pending_sample_rate != music_rate)) {
+      g_pending_sample_rate = music_rate;
+      g_reconfigure_pending = true;
+      if (g_reconfigure_done == nullptr ||
+          xSemaphoreTake(g_reconfigure_done, pdMS_TO_TICKS(250)) != pdTRUE ||
+          !g_diagnostics.synchronized) return false;
+    }
     return true;
   }
   const bool restore_input = g_microphone_input_enabled;
+  // Own a scheduled clock change even if the acknowledgement times out; a
+  // later close must cancel/restore that pending change before music resumes.
+  g_voice_output_enabled.store(true, std::memory_order_release);
   g_pending_sample_rate = kVoiceSampleRate;
   g_reconfigure_pending = true;
   if (g_reconfigure_done == nullptr ||
@@ -894,50 +922,53 @@ bool smart_speaker_voice_audio_configure_output(uint32_t sample_rate) {
 bool smart_speaker_voice_audio_read_input(int16_t *samples, size_t sample_count,
                                           uint32_t timeout_ms) {
   if (samples == nullptr || sample_count == 0 || g_left_rx == nullptr ||
-      !g_microphone_input_enabled) {
-    return false;
+      !g_microphone_input_requested.load(std::memory_order_acquire)) return false;
+  // Only the existing Pet audio worker calls this read boundary. Keep a
+  // bounded carry buffer so DMA block boundaries never alter the sample rate.
+  static MicrophoneResampler resampler;
+  static std::array<int16_t, kFramesPerBlock * 2> converted{};
+  static size_t pending_begin = 0, pending_end = 0;
+  static uint32_t previous_generation = UINT32_MAX;
+  const uint32_t generation = g_microphone_clock_generation.load(std::memory_order_acquire);
+  const uint32_t rate = g_microphone_clock_rate.load(std::memory_order_acquire);
+  if (rate < 8000 || rate > 48000) return false;
+  if (generation != previous_generation) {
+    resampler.reset(rate);
+    pending_begin = pending_end = 0;
+    previous_generation = generation;
   }
+  const uint32_t started = now_ms();
   size_t total_read = 0;
   while (total_read < sample_count) {
-    const size_t frames = std::min(kFramesPerBlock, sample_count - total_read);
+    if (!g_microphone_input_requested.load(std::memory_order_acquire) ||
+        generation != g_microphone_clock_generation.load(std::memory_order_acquire)) return false;
+    while (pending_begin < pending_end && total_read < sample_count)
+      samples[total_read++] = converted[pending_begin++];
+    if (total_read == sample_count) break;
+    const uint32_t elapsed = now_ms() - started;
+    if (elapsed >= timeout_ms) return false;
+    const size_t frames = std::min<size_t>(kFramesPerBlock,
+        std::max<size_t>(1, ((sample_count - total_read) * rate + 15999) / 16000));
     size_t bytes_read = 0;
-    esp_err_t result = i2s_channel_read(
-        g_left_rx, g_mic_raw, frames * sizeof(int32_t) * 2, &bytes_read,
-        timeout_ms);
-    if (result == ESP_ERR_INVALID_STATE && g_microphone_input_enabled) {
-      const esp_err_t enable_result = i2s_channel_enable(g_left_rx);
-      if (enable_result == ESP_OK || enable_result == ESP_ERR_INVALID_STATE) {
-        bytes_read = 0;
-        result = i2s_channel_read(
-            g_left_rx, g_mic_raw, frames * sizeof(int32_t) * 2, &bytes_read,
-            timeout_ms);
-      }
-    }
-    if (bytes_read == 0 || result != ESP_OK) return false;
-    const size_t raw_samples = bytes_read / sizeof(int32_t);
-    const size_t raw_frames = std::min(frames, raw_samples / 2);
-    int32_t left_peak = 0;
-    int32_t right_peak = 0;
+    const esp_err_t result = i2s_channel_read(g_left_rx, g_mic_raw,
+        frames * sizeof(int32_t) * 2, &bytes_read, timeout_ms - elapsed);
+    if (result != ESP_OK || bytes_read == 0 ||
+        generation != g_microphone_clock_generation.load(std::memory_order_acquire)) return false;
+    const size_t raw_frames = std::min(frames, bytes_read / (sizeof(int32_t) * 2));
+    int32_t left_peak = 0, right_peak = 0;
     for (size_t i = 0; i < raw_frames; ++i) {
-      const int32_t left = g_mic_raw[i * 2] >> 16;
-      const int32_t right = g_mic_raw[i * 2 + 1] >> 16;
-      left_peak = std::max(left_peak, std::abs(left));
-      right_peak = std::max(right_peak, std::abs(right));
+      left_peak = std::max(left_peak, std::abs(g_mic_raw[i * 2] >> 16));
+      right_peak = std::max(right_peak, std::abs(g_mic_raw[i * 2 + 1] >> 16));
     }
-    // I2S microphones expose their mono stream on either the left or right
-    // slot depending on the module's L/R strap. Select the active slot per
-    // DMA block so both common module variants produce complete speech.
     const size_t mic_slot = right_peak > left_peak ? 1 : 0;
+    pending_begin = pending_end = 0;
     for (size_t i = 0; i < raw_frames; ++i) {
-      const int32_t raw = g_mic_raw[i * 2 + mic_slot];
-      const int32_t shifted = raw >> 16;
-      const int32_t amplified = std::clamp<int32_t>(
-          shifted * 4, std::numeric_limits<int16_t>::min(),
-          std::numeric_limits<int16_t>::max());
-      samples[total_read + i] = static_cast<int16_t>(amplified);
+      const int32_t shifted = g_mic_raw[i * 2 + mic_slot] >> 16;
+      const auto amplified = static_cast<int16_t>(std::clamp<int32_t>(shifted * 4,
+          std::numeric_limits<int16_t>::min(), std::numeric_limits<int16_t>::max()));
+      pending_end += resampler.push(amplified, converted.data() + pending_end);
     }
-    total_read += raw_frames;
-    if (raw_frames == 0) return false;
+    if (!raw_frames) return false;
   }
   return true;
 }

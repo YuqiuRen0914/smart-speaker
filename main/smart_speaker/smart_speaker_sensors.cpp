@@ -1,6 +1,9 @@
 #include "smart_speaker_sensors.h"
+#include "smart_speaker_touch_input.h"
+#include "smart_speaker_pet_shake.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <mutex>
@@ -24,9 +27,7 @@ constexpr uint32_t kTouchClockHz = 100000;
 constexpr uint32_t kMpuClockHz = 100000;
 constexpr uint8_t kMpuRegisterWhoAmI = 0x75;
 constexpr uint32_t kTouchPollMs = 20;
-constexpr uint32_t kTapMaxMs = 450;
-constexpr uint32_t kLongPressMs = 900;
-constexpr uint16_t kSwipeThreshold = 45;
+
 
 std::mutex g_mutex;
 i2c_master_bus_handle_t g_mpu_bus = nullptr;
@@ -37,6 +38,7 @@ uint32_t g_last_touch_poll_ms = 0;
 SmartSpeakerMpuSnapshot g_mpu;
 SmartSpeakerTouchSnapshot g_touch;
 SmartSpeakerMotionInput g_motion;
+PetShake g_pet_shake;
 TouchGesture g_pending_gesture = TouchGesture::None;
 bool g_motion_zero_valid = false;
 float g_motion_zero_x = 0;
@@ -44,16 +46,10 @@ float g_motion_zero_y = 0;
 float g_motion_twist_z = 0;
 uint32_t g_motion_last_pose_ms = 0;
 
-struct TouchPressState {
-  bool active = false;
-  bool long_sent = false;
-  uint32_t started_ms = 0;
-  uint16_t start_x = 0;
-  uint16_t start_y = 0;
-  uint16_t last_x = 0;
-  uint16_t last_y = 0;
-};
-TouchPressState g_press;
+TouchInput g_touch_input;
+std::atomic<uint32_t> g_pet_touch_target{0};
+std::mutex g_pet_touch_mutex;
+PetTouchFeedback g_pet_touch;
 
 uint32_t now_ms() {
   return static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
@@ -237,52 +233,12 @@ void publish_gesture_locked(TouchGesture gesture) {
   ++g_touch.gesture_count;
 }
 
-void update_touch_gesture_locked(bool pressed, uint16_t x, uint16_t y) {
-  const uint32_t now = now_ms();
-  if (pressed) {
-    if (!g_press.active) {
-      TouchPressState press;
-      press.active = true;
-      press.started_ms = now;
-      press.start_x = x;
-      press.start_y = y;
-      press.last_x = x;
-      press.last_y = y;
-      g_press = press;
-    } else {
-      g_press.last_x = x;
-      g_press.last_y = y;
-      const uint16_t dx = static_cast<uint16_t>(
-          std::abs(static_cast<int>(x) - static_cast<int>(g_press.start_x)));
-      const uint16_t dy = static_cast<uint16_t>(
-          std::abs(static_cast<int>(y) - static_cast<int>(g_press.start_y)));
-      if (!g_press.long_sent && now - g_press.started_ms >= kLongPressMs &&
-          dx < kSwipeThreshold && dy < kSwipeThreshold) {
-        g_press.long_sent = true;
-        publish_gesture_locked(TouchGesture::LongPress);
-      }
-    }
-    return;
-  }
-  if (!g_press.active) return;
-  const int dx = static_cast<int>(g_press.last_x) - g_press.start_x;
-  const int dy = static_cast<int>(g_press.last_y) - g_press.start_y;
-  const uint32_t duration = now - g_press.started_ms;
-  if (g_press.long_sent) {
-    publish_gesture_locked(TouchGesture::LongPressRelease);
-  } else {
-    if (std::abs(dx) >= kSwipeThreshold &&
-        std::abs(dx) > std::abs(dy)) {
-      publish_gesture_locked(dx > 0 ? TouchGesture::SwipeRight
-                                    : TouchGesture::SwipeLeft);
-    } else if (std::abs(dy) >= kSwipeThreshold) {
-      publish_gesture_locked(dy > 0 ? TouchGesture::SwipeDown
-                                    : TouchGesture::SwipeUp);
-    } else if (duration <= kTapMaxMs) {
-      publish_gesture_locked(TouchGesture::Tap);
-    }
-  }
-  g_press = {};
+void update_touch_gesture_locked(bool pressed, uint16_t x, uint16_t y,
+                                 bool valid = true) {
+  const auto target = PetTouchTarget::unpack(g_pet_touch_target.load(std::memory_order_acquire));
+  publish_gesture_locked(g_touch_input.update(now_ms(), pressed, x, y, target, valid));
+  std::lock_guard lock(g_pet_touch_mutex);
+  g_pet_touch = g_touch_input.feedback();
 }
 
 void sample_touch_locked() {
@@ -296,7 +252,7 @@ void sample_touch_locked() {
     g_touch.pressed = false;
     set_touch_error_locked(std::string("touch_read_failed:") +
                            esp_err_to_name(result));
-    update_touch_gesture_locked(false, g_touch.x, g_touch.y);
+    update_touch_gesture_locked(false, g_touch.x, g_touch.y, false);
     return;
   }
   const uint8_t touch_count = std::min<uint8_t>(data[2] & 0x0f, 2);
@@ -308,8 +264,8 @@ void sample_touch_locked() {
     pressed = event == 0 || event == 2;
     x = static_cast<uint16_t>(((data[3] & 0x0f) << 8) | data[4]);
     y = static_cast<uint16_t>(((data[5] & 0x0f) << 8) | data[6]);
-    x = std::min<uint16_t>(x, 239);
-    y = std::min<uint16_t>(y, 239);
+    x = screen_touch_axis(x);
+    y = screen_touch_axis(y);
   }
   g_touch.pressed = pressed;
   g_touch.x = x;
@@ -440,6 +396,13 @@ void update_mpu_snapshot_locked() {
     g_motion.twist_z *= 0.94f;
     g_motion.angular_speed_dps *= 0.94f;
   }
+  if (status.sampling && status.latest.valid) {
+    const auto &sample = status.latest;
+    g_pet_shake.sample(sample.seq, sample.t_ms, sample.accel_g_x, sample.accel_g_y, sample.accel_g_z);
+  }
+  g_motion.shake_sequence = g_pet_shake.count;
+  g_motion.shake_x = g_pet_shake.direction_x;
+  g_motion.shake_y = g_pet_shake.direction_y;
 }
 
 } // namespace
@@ -477,6 +440,21 @@ SmartSpeakerTouchSnapshot smart_speaker_touch_snapshot() {
 SmartSpeakerMotionInput smart_speaker_motion_input() {
   std::lock_guard<std::mutex> lock(g_mutex);
   return g_motion;
+}
+
+void smart_speaker_set_pet_touch_target(uint32_t packed_target) {
+  g_pet_touch_target.store(packed_target, std::memory_order_release);
+}
+
+PetTouchFeedback smart_speaker_pet_touch_feedback() {
+  std::lock_guard lock(g_pet_touch_mutex);
+  return g_pet_touch;
+}
+
+void smart_speaker_cancel_touch() {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  g_touch_input.cancel();
+  g_pending_gesture = TouchGesture::None;
 }
 
 TouchGesture smart_speaker_take_touch_gesture() {

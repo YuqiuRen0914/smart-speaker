@@ -1,0 +1,10 @@
+menu "Assistant platform"
+choice LUNAREDU_ASSISTANT_PLATFORM
+    prompt "Assistant cloud protocol"
+    default LUNAREDU_ASSISTANT_XIAOZHI
+config LUNAREDU_ASSISTANT_XIAOZHI
+    bool "XiaoZhi official platform"
+config LUNAREDU_ASSISTANT_LUNARLINK
+    bool "LunarLink (Board account required)"
+endchoice
+endmenu

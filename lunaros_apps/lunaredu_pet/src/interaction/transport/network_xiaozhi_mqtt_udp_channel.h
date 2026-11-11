@@ -8,7 +8,12 @@
 #include <string>
 #include <vector>
 
+#include "interaction/transport/assistant_provider.h"
+#if ASSISTANT_USE_LUNARLINK
+#include <psa/crypto.h>
+#else
 #include <aes/esp_aes.h>
+#endif
 
 struct XiaozhiMqttUdpConfig {
   std::string server;
@@ -53,17 +58,26 @@ public:
                                              size_t length);
 
   int last_crypto_error() const { return last_crypto_error_; }
+  uint32_t last_sent_sequence() const { return local_sequence_; }
 
 private:
-  static constexpr size_t kCryptoChunkBytes = 4096;
+
   std::string server_;
   int port_ = 0;
+#if ASSISTANT_USE_LUNARLINK
+  psa_key_id_t key_ = 0;
+#else
+  static constexpr size_t kCryptoChunkBytes = 4096;
   esp_aes_context aes_ctx_{};
+  std::array<uint8_t, kCryptoChunkBytes> crypto_buffer_{};
+#endif
+  std::string key_hex_;
+  std::string nonce_hex_;
   std::vector<uint8_t> base_nonce_;
   uint32_t local_sequence_ = 0;
   uint32_t remote_sequence_ = 0;
   bool configured_ = false;
   int last_crypto_error_ = 0;
-  std::array<uint8_t, kCryptoChunkBytes> crypto_buffer_{};
+
   mutable std::mutex crypto_mutex_;
 };

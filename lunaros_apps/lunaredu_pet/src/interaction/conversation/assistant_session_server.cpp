@@ -1,5 +1,6 @@
 #include "interaction/voice/resident_audio.h"
 #include "interaction/tools/assistant_mcp.h"
+#include "interaction/conversation/lunarlink_capabilities.h"
 #include "interaction/conversation/assistant_session_internal.h"
 #include "interaction/conversation/assistant_core.h"
 #include "interaction/conversation/assistant_loop.h"
@@ -90,16 +91,27 @@ const char *udp_decode_status_name(XiaozhiMqttUdpDecodeStatus status) {
 
 void handle_server_text_locked(const std::string &message, std::unique_lock<std::mutex> &runtime_lock) {
   g_runtime.transport.last_service_activity_at_ms = now_ms();
-  g_runtime.rx_doc.clear();
-  if (deserializeJson(g_runtime.rx_doc, message) != DeserializationError::Ok) {
-    g_runtime.diagnostics.last_error = "invalid_server_text_json";
+  if (kAssistantUsesLunarLink) {
+  if (!(g_runtime.platform_identity == lunarlink_identity())) return;
+  std::string ready_receipt;
+  if (!g_runtime.transport.wire.decode(message, g_runtime.transport.session_id,
+                                        g_runtime.rx_doc, ready_receipt)) return;
+  if (!ready_receipt.empty() && !g_runtime.pending_mcp_messages.try_push(std::move(ready_receipt))) {
+    g_runtime.diagnostics.last_error = "lunarlink_playback_ready_queue_full";
     return;
+  }
+  } else {
+    g_runtime.rx_doc.clear();
+    if (deserializeJson(g_runtime.rx_doc, message) != DeserializationError::Ok) return;
   }
 
   const std::string type = g_runtime.rx_doc["type"] | "";
   if (type == "hello") {
+      if (g_runtime.conversation.cancelled) return;
       XiaozhiUdpHelloConfig udp_config;
-      if (!xiaozhi_parse_mqtt_server_hello(message, udp_config) || !udp_config.ok) {
+      std::string normalized;
+      serializeJson(g_runtime.rx_doc, normalized);
+      if (!xiaozhi_parse_mqtt_server_hello(normalized, udp_config) || !udp_config.ok) {
         g_runtime.diagnostics.last_error =
             udp_config.error.empty() ? "invalid_mqtt_server_hello"
                                      : udp_config.error;
@@ -125,7 +137,8 @@ void handle_server_text_locked(const std::string &message, std::unique_lock<std:
           g_runtime.diagnostics.last_error = "failed_to_init_service_udp";
           return;
         }
-        g_runtime.transport.udp_channel->OnMessage([](const std::string &data) {
+        const auto *source = g_runtime.transport.udp_channel.get();
+        g_runtime.transport.udp_channel->OnMessage([source](const std::string &data) {
           std::vector<uint8_t> payload;
           XiaozhiMqttUdpDecodeStatus decode_status =
               XiaozhiMqttUdpDecodeStatus::InvalidEnvelope;
@@ -134,17 +147,24 @@ void handle_server_text_locked(const std::string &message, std::unique_lock<std:
           uint32_t timestamp_ms = 0;
           {
             std::lock_guard<std::mutex> lock(g_runtime.mutex);
+            if (g_runtime.transport.udp_channel.get() != source ||
+                (kAssistantUsesLunarLink && (!(g_runtime.platform_identity == lunarlink_identity()) ||
+                g_runtime.transport.wire.activity_id.empty()))) return;
             auto result = g_runtime.transport.mqtt_udp_channel.decrypt_payload(
                 reinterpret_cast<const uint8_t *>(data.data()), data.size());
             decode_status = result.status;
             sequence = result.sequence;
             expected_sequence = result.expected_sequence;
             timestamp_ms = result.timestamp_ms;
+            const auto &wire = g_runtime.transport.wire;
+            if (kAssistantUsesLunarLink && (!wire.first_downlink || sequence < wire.first_downlink ||
+                (wire.expected_last_downlink && sequence > wire.expected_last_downlink))) return;
             payload = std::move(result.payload);
             if (decode_status == XiaozhiMqttUdpDecodeStatus::SequenceGap) {
               g_runtime.downlink_sequence_gaps += 1;
             } else if (decode_status == XiaozhiMqttUdpDecodeStatus::StaleSequence) {
               g_runtime.downlink_stale_packets += 1;
+              return;
             }
             if (decode_status == XiaozhiMqttUdpDecodeStatus::InvalidEnvelope ||
                 decode_status == XiaozhiMqttUdpDecodeStatus::CryptoError ||
@@ -177,7 +197,7 @@ void handle_server_text_locked(const std::string &message, std::unique_lock<std:
             g_runtime.downlink_decode_failures += 1;
             return;
           }
-          (void)enqueue_downlink_audio(std::move(payload));
+          (void)enqueue_downlink_audio(std::move(payload), sequence);
         });
       }
       g_runtime.transport.session_id = udp_config.session_id;
@@ -189,9 +209,22 @@ void handle_server_text_locked(const std::string &message, std::unique_lock<std:
       return;
   }
 
-  g_runtime.diagnostics.last_message_summary = xiaozhi_summarize_message(message);
+  if (kAssistantUsesLunarLink && (type == "capability.list" || type == "activity.submit")) {
+    handle_lunarlink_capability_locked(g_runtime.rx_doc, runtime_lock);
+    return;
+  }
+  if (type == "lunarlink_failure") {
+    (void)post_assistant_event_locked({AssistantEventType::TransportError,
+        g_runtime.rx_doc["text"] | "LunarLink activity failed", {}, false});
+    return;
+  }
+  g_runtime.diagnostics.last_message_summary = type;
 
+  const std::string message_session = g_runtime.rx_doc["session_id"] | "";
+  if (!message_session.empty() && message_session != g_runtime.transport.session_id) return;
+  if (g_runtime.conversation.cancelled || g_runtime.conversation.control_pending) return;
   if (type == "tts") {
+    if (!g_runtime.conversation.accepts_response(g_runtime.session_state)) return;
     g_runtime.conversation.last_tts_state = g_runtime.rx_doc["state"] | "";
     if (g_runtime.conversation.last_tts_state == "sentence_start") {
       const std::string text = g_runtime.rx_doc["text"] | "";
@@ -218,7 +251,6 @@ void handle_server_text_locked(const std::string &message, std::unique_lock<std:
              g_runtime.incoming_audio_packets, static_cast<unsigned>(queued),
              g_runtime.conversation.downlink_audio_active);
     if (g_runtime.conversation.last_tts_state == "start") {
-      g_runtime.conversation.awaiting_response = false;
       g_runtime.conversation.tts_stop_waiting_for_playback = false;
       g_runtime.conversation.tts_stop_playback_grace_deadline_ms = 0;
       (void)post_assistant_event_locked(
@@ -293,7 +325,7 @@ void handle_server_text_locked(const std::string &message, std::unique_lock<std:
   }
 }
 
-void handle_server_binary(const std::vector<uint8_t> &frame) {
+void handle_server_binary(const std::vector<uint8_t> &frame, uint32_t generation, uint32_t sequence) {
   uint32_t sample_rate;
   uint32_t frame_duration_ms;
   void* decoder = nullptr;
@@ -302,7 +334,9 @@ void handle_server_binary(const std::vector<uint8_t> &frame) {
     // A downlink packet can already be in the decoder when a foreground
     // application acquires the audio lease.  Never let that stale packet
     // reopen or write the shared audio channel after suspension.
-    if (!g_runtime.service_enabled || g_runtime.service_suspended) {
+    if (!g_runtime.service_enabled || g_runtime.service_suspended ||
+        generation != g_runtime.conversation.generation ||
+        !g_runtime.conversation.accepts_response(g_runtime.session_state)) {
       return;
     }
     g_runtime.transport.last_service_activity_at_ms = now_ms();
@@ -353,7 +387,9 @@ void handle_server_binary(const std::vector<uint8_t> &frame) {
 
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
-    if (!g_runtime.service_enabled || g_runtime.service_suspended) {
+    if (!g_runtime.service_enabled || g_runtime.service_suspended ||
+        generation != g_runtime.conversation.generation ||
+        !g_runtime.conversation.accepts_response(g_runtime.session_state)) {
       return;
     }
   }
@@ -398,6 +434,15 @@ void handle_server_binary(const std::vector<uint8_t> &frame) {
   // enable/write made a silent speaker look like a successful TTS response.
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    if (generation != g_runtime.conversation.generation) return;
+    auto &wire = g_runtime.transport.wire;
+    ++wire.played_packets;
+    wire.last_played_sequence = sequence;
+    // Allow the final DMA tail to leave the existing output owner before a
+    // terminal event releases its audio lease or reports playback completion.
+    if (g_runtime.conversation.tts_stop_waiting_for_playback)
+      g_runtime.conversation.tts_stop_playback_grace_deadline_ms =
+          now_ms() + static_cast<int64_t>(kTtsStopPlaybackDrainGraceMs);
     g_runtime.incoming_audio_packets += 1;
     g_runtime.diagnostics.last_binary_error.clear();
   }
@@ -422,13 +467,19 @@ void handle_server_binary(const std::vector<uint8_t> &frame) {
   }
 }
 
-bool enqueue_downlink_audio(std::vector<uint8_t> frame) {
+bool enqueue_downlink_audio(std::vector<uint8_t> frame, uint32_t sequence) {
+  uint32_t generation = 0;
   QueueHandle_t queue = nullptr;
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
-    if (!g_runtime.service_enabled || g_runtime.service_suspended) {
+    if (!g_runtime.service_enabled || g_runtime.service_suspended ||
+        !g_runtime.conversation.accepts_response(g_runtime.session_state)) {
       return false;
     }
+    const auto &wire = g_runtime.transport.wire;
+    if (kAssistantUsesLunarLink && (wire.activity_id.empty() || !wire.first_downlink || sequence < wire.first_downlink ||
+        (wire.expected_last_downlink && sequence > wire.expected_last_downlink))) return false;
+    generation = g_runtime.conversation.generation;
     queue = g_runtime.downlink_audio_queue;
     if (queue == nullptr) {
       g_runtime.diagnostics.last_binary_error = "downlink_audio_queue_unavailable";
@@ -439,8 +490,19 @@ bool enqueue_downlink_audio(std::vector<uint8_t> frame) {
   }
   DownlinkAudioWorkItem *raw =
       g_runtime.downlink_audio_pool.acquire(std::move(frame));
-  const BaseType_t queued = raw == nullptr ? pdFALSE :
-      xQueueSend(queue, &raw, pdMS_TO_TICKS(kDownlinkAudioQueueWaitMs));
+  BaseType_t queued = pdFALSE;
+  {
+    std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    if (raw != nullptr && generation == g_runtime.conversation.generation &&
+        g_runtime.conversation.accepts_response(g_runtime.session_state)) {
+      raw->generation = generation;
+      raw->sequence = sequence;
+      queued = xQueueSend(queue, &raw, 0);
+    } else {
+      DownlinkAudioWorkItem::release(raw);
+      return false;
+    }
+  }
   if (queued != pdTRUE) {
     DownlinkAudioWorkItem::release(raw);
     std::lock_guard<std::mutex> lock(g_runtime.mutex);

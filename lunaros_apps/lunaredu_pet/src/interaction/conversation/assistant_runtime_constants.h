@@ -1,5 +1,6 @@
 #pragma once
 
+#include "interaction/transport/assistant_provider.h"
 #include <cstddef>
 #include <cstdint>
 
@@ -23,14 +24,16 @@ inline constexpr const char *kPersistTimeoutKey = "act_timeout";
 inline constexpr const char *kPersistServerTimeKey = "srv_time";
 inline constexpr const char *kPersistTimezoneOffsetKey = "tz_offset";
 inline constexpr const char *kPersistStandbyModeKey = "standby_mode";
+inline constexpr const char *kPersistActivationOtaUrlKey = (kAssistantUsesLunarLink ? "ll_url" : "xz_url");
 inline constexpr const char *kDefaultAssistantOtaUrl =
-    "https://api.tenclass.net/xiaozhi/ota/";
+    kAssistantUsesLunarLink ? "https://gateway.lunaredu.cn/wire/v1/device/bootstrap"
+                          : "https://api.tenclass.net/xiaozhi/ota/";
 inline constexpr const char *kRemoteBindingStillActiveError =
     "xiaozhi_remote_binding_still_active";
 
 inline constexpr uint32_t kBrowserSampleRate = 16000;
 inline constexpr uint16_t kBrowserChannels = 1;
-inline constexpr uint32_t kFrameDurationMs = 60;
+inline constexpr uint32_t kFrameDurationMs = kAssistantUsesLunarLink ? 20 : 60;
 inline constexpr uint32_t kActivationTimeoutMsDefault = 30000;
 inline constexpr uint32_t kConnectTimeoutMs = 10000;
 inline constexpr uint32_t kSystemTimeSyncTimeoutMs = 12000;

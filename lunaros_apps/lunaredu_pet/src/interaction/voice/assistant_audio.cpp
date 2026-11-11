@@ -10,6 +10,7 @@
 #include "interaction/conversation/host_events.h"
 #include "interaction/transport/assistant_transport.h"
 #include "interaction/conversation/assistant_loop.h"
+#include "interaction/conversation/assistant_turn_policy.h"
 #include "interaction/conversation/assistant_lifecycle.h"
 
 #include <cinttypes>
@@ -92,7 +93,8 @@ bool process_uplink_audio_work_item(const std::vector<int16_t> &samples) {
   int encoder_output_bytes = 0;
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
-    if (g_runtime.session_state != AssistantSessionState::Listening) {
+    if (g_runtime.conversation.cancelled || g_runtime.conversation.control_pending ||
+        g_runtime.session_state != AssistantSessionState::Listening) {
       g_runtime.vad.speech_ms = 0;
       g_runtime.vad.silence_ms = 0;
       g_runtime.vad.voice_activity_active = false;
@@ -157,7 +159,8 @@ bool process_uplink_audio_work_item(const std::vector<int16_t> &samples) {
     uint32_t sequence = 0;
     {
       std::lock_guard<std::mutex> lock(g_runtime.mutex);
-      if (!session_ready_locked()) {
+      if (g_runtime.conversation.cancelled || g_runtime.conversation.control_pending ||
+          !session_ready_locked()) {
         g_runtime.diagnostics.last_binary_error = "mqtt_udp_audio_channel_closed";
         g_runtime.diagnostics.last_error = g_runtime.diagnostics.last_binary_error;
         return false;
@@ -247,7 +250,9 @@ bool poll_local_audio_once() {
   bool should_auto_stop = false;
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
-    should_listen = g_runtime.session_state == AssistantSessionState::Listening;
+    if (g_runtime.conversation.control_pending) return false;
+    should_listen = !g_runtime.conversation.cancelled &&
+        g_runtime.session_state == AssistantSessionState::Listening;
     // WakeNet's one-microphone feed chunk is 160 samples (10 ms). Read it at
     // that cadence while idle so ESP-SR is not burst-fed six chunks at once.
     // Active conversations retain the service's 60 ms Opus frame size.
@@ -334,10 +339,12 @@ bool poll_local_audio_once() {
         observe_vad_frame_locked(s_mic_buffer.data(), s_mic_buffer.size(),
                                  kFrameDurationMs);
       }
-      if (g_runtime.conversation.listening_mode == "auto" &&
-          g_runtime.vad.utterance_started &&
-          g_runtime.vad.current_utterance_ms >= kVadMinAutoStopSpeechMs &&
-          g_runtime.vad.silence_ms >= kVadAutoStopSilenceMs) {
+      if (should_finish_single_turn_after_silence(
+              g_runtime.conversation.listening_mode.c_str(),
+              g_runtime.vad.utterance_started,
+              g_runtime.vad.current_utterance_ms,
+              g_runtime.vad.silence_ms, kVadMinAutoStopSpeechMs,
+              kVadAutoStopSilenceMs)) {
         should_auto_stop = true;
       }
     }
@@ -360,7 +367,7 @@ bool poll_local_audio_once() {
 
     {
       std::lock_guard<std::mutex> lock(g_runtime.mutex);
-      start_inflight = session_start_inflight_locked();
+      start_inflight = g_runtime.conversation.control_pending || session_start_inflight_locked();
       wake_word_enabled = g_runtime.wake_word.enabled;
       requested_wake_word = g_runtime.wake_word.requested_word;
     }
@@ -505,7 +512,11 @@ bool poll_local_audio_once() {
       conversation_emit_status("已唤醒", "正在切换到语音模式",
                              event.wake_word.c_str(), nullptr);
       if (!conversation_request_audio_focus("wake_word", 500)) {
-        ESP_LOGW(kTag, "audio focus request timed out before wake chime");
+        ESP_LOGW(kTag, "audio focus request failed before wake chime");
+        conversation_emit_status("音频忙", "音乐未能安全暂停，已取消语音启动",
+                                  event.wake_word.c_str(),
+                                  "assistant_audio_focus_unavailable");
+        return true;
       }
       lunaredu::pet::conversation::audio_io::enable_input(false);
       lunaredu::pet::conversation::audio_io::clear_output_reference();
@@ -514,17 +525,22 @@ bool poll_local_audio_once() {
         g_runtime.wake_word_frontend.reset();
       }
       local_audio_app_play_wake_chime();
-      std::lock_guard<std::mutex> lock(g_runtime.mutex);
-      (void)post_assistant_event_locked(
-          {AssistantEventType::WakeWordStartRequested, event.wake_word, "",
-           false});
+      bool queued = false;
+      {
+        std::lock_guard<std::mutex> lock(g_runtime.mutex);
+        queued = post_assistant_event_locked(
+            {AssistantEventType::WakeWordStartRequested, event.wake_word, "",
+             false});
+      }
+      if (!queued) conversation_release_audio_focus("wake_word_event_queue_full");
     }
     return true;
   }
 
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
-    if (g_runtime.session_state != AssistantSessionState::Listening ||
+    if (g_runtime.conversation.cancelled || g_runtime.conversation.control_pending ||
+        g_runtime.session_state != AssistantSessionState::Listening ||
         g_runtime.close_audio_channel_requested.load() ||
         !session_ready_locked()) {
       return false;
@@ -559,7 +575,9 @@ bool process_next_downlink_audio(TickType_t wait_ticks) {
     // runtime lock. Reject a stale packet on either signal so this worker
     // cannot disable a microphone that has just changed owners.
     if (!g_runtime.service_enabled || g_runtime.service_suspended ||
-        !audio_policy.audio_focus_owner.empty()) {
+        !audio_policy.audio_focus_owner.empty() ||
+        holder->generation != g_runtime.conversation.generation ||
+        !g_runtime.conversation.accepts_response(g_runtime.session_state)) {
       return true;
     }
     g_runtime.conversation.downlink_audio_active = true;
@@ -568,7 +586,7 @@ bool process_next_downlink_audio(TickType_t wait_ticks) {
     ESP_LOGI(kTag, "audio_task enable_input=false reason=downlink");
     (void)lunaredu::pet::conversation::audio_io::enable_input(false);
   }
-  handle_server_binary(holder->frame);
+  handle_server_binary(holder->frame, holder->generation, holder->sequence);
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
     g_runtime.conversation.downlink_audio_active = false;
@@ -619,12 +637,14 @@ void audio_task(void *argument) {
     {
       std::lock_guard<std::mutex> lock(g_runtime.mutex);
       service_enabled =
-          g_runtime.service_enabled && !g_runtime.service_suspended;
+          g_runtime.service_enabled && !g_runtime.service_suspended &&
+          !g_runtime.conversation.control_pending;
       prime_uplink_requested =
           g_runtime.conversation.prime_uplink_requested;
       g_runtime.conversation.prime_uplink_requested = false;
       session_state = g_runtime.session_state;
-      listening = session_state == AssistantSessionState::Listening;
+      listening = !g_runtime.conversation.cancelled &&
+          session_state == AssistantSessionState::Listening;
       start_inflight = session_start_inflight_locked();
       network_connected = assistant_network_connected();
       activation_ready = g_runtime.activation.ready;

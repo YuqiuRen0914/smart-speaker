@@ -25,6 +25,8 @@
 #include "interaction/voice/wake_word_frontend.h"
 #include "interaction/transport/assistant_transport.h"
 #include <ArduinoJson.h>
+#include "interaction/transport/lunarlink_protocol.h"
+#include "interaction/transport/lunarlink_identity.h"
 
 #include "interaction/conversation/assistant_session_state.h"
 #include "interaction/transport/assistant_activation_client.h"
@@ -43,13 +45,13 @@ enum class StandbyListenMode : uint8_t {
 static_assert(DownlinkAudioPool::kCapacity >= kDownlinkAudioQueueDepth + 2);
 
 struct ActivationState {
+  // Empty selects the pinned LunarLink bootstrap endpoint.
+  std::string ota_url;
   bool configured = false;
   bool ready = false;
   bool pending = false;
   bool user_blocked = false;
-  // A local unbind must not silently accept credentials that the XiaoZhi
-  // server reissues for the former account. Require evidence of a new pairing
-  // challenge before accepting a ready MQTT configuration again.
+  // Retained legacy projection fields; LunarLink authority comes from DeviceLink.
   bool fresh_pairing_required = false;
   bool fresh_pairing_observed = false;
   bool remote_binding_still_active = false;
@@ -82,8 +84,9 @@ struct TransportState {
   std::string mqtt_password;
   std::string mqtt_publish_topic;
   std::string mqtt_subscribe_topic;
+  LunarLinkProtocol wire;
   int server_output_sample_rate = 24000;
-  int server_output_frame_duration_ms = 60;
+  int server_output_frame_duration_ms = 20;
 
   std::shared_ptr<NetworkMqttSession> mqtt_session;
   std::shared_ptr<NetworkUdpChannel> udp_channel;
@@ -93,6 +96,13 @@ struct TransportState {
 struct ConversationState {
   AssistantSessionState session_state = AssistantSessionState::Inactive;
   bool start_pending = false;
+  uint32_t generation = 1;
+  bool control_pending = false;
+  bool cancelled = false;
+  bool accepts_response(AssistantSessionState state) const {
+    return !cancelled && !control_pending &&
+        (awaiting_response || state == AssistantSessionState::Speaking);
+  }
   std::string listening_mode = "manual";
   StandbyListenMode standby_mode = StandbyListenMode::WakeWord;
   int64_t idle_entered_at_ms = 0;
@@ -177,6 +187,8 @@ struct Runtime {
   int64_t started_at_ms = 0;
   std::string device_id;
   std::string client_id;
+  LunarLinkIdentity platform_identity;
+  uint32_t platform_generation = 1;
   ActivationState activation;
   TransportState transport;
   ConversationState conversation;

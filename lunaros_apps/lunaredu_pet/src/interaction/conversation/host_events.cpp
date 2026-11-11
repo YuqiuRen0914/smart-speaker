@@ -57,3 +57,10 @@ bool conversation_request_audio_focus(const char *reason, uint32_t timeout_ms) {
   }
   return callbacks.request_audio_focus(callbacks.context, reason, timeout_ms);
 }
+
+void conversation_release_audio_focus(const char *reason) {
+  const auto callbacks = host_callbacks_snapshot();
+  if (callbacks.release_audio_focus != nullptr)
+    callbacks.release_audio_focus(callbacks.context,
+                                  reason == nullptr ? "session_end" : reason);
+}

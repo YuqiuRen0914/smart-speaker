@@ -1,3 +1,4 @@
+#include "interaction/transport/assistant_provider.h"
 #include "interaction/conversation/assistant_lifecycle.h"
 #include "interaction/conversation/assistant_loop.h"
 #include "interaction/conversation/assistant_core.h"
@@ -186,6 +187,7 @@ void apply_pending_activation_result_locked() {
   g_runtime.activation.result_ok = false;
 
   if (ok) {
+#if !ASSISTANT_USE_LUNARLINK
     const bool pairing_evidence = !result.activation_code.empty() ||
                                   !result.activation_challenge.empty();
     if (g_runtime.activation.fresh_pairing_required && pairing_evidence) {
@@ -215,7 +217,9 @@ void apply_pending_activation_result_locked() {
                "rejected XiaoZhi credentials without fresh pairing proof; remote binding still active");
       return;
     }
+#endif
     apply_activation_result_locked(result);
+#if !ASSISTANT_USE_LUNARLINK
     if (g_runtime.activation.ready &&
         g_runtime.activation.fresh_pairing_required &&
         g_runtime.activation.fresh_pairing_observed) {
@@ -224,6 +228,7 @@ void apply_pending_activation_result_locked() {
       g_runtime.activation.remote_binding_still_active = false;
       persist_state_locked();
     }
+#endif
     g_runtime.diagnostics.last_transport_error = result.transport_error;
     g_runtime.diagnostics.last_error = result.error;
     if (g_runtime.activation.ready) {
@@ -262,6 +267,7 @@ void apply_pending_activation_result_locked() {
 lunaredu::lunaros::NetworkJobRunResult run_activation_job(
     lunaredu::lunaros::NetworkJobHandle, void *) {
   XiaozhiActivationRequest request;
+  uint32_t generation = 0;
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
     if (!g_runtime.service_enabled || g_runtime.service_suspended ||
@@ -275,12 +281,41 @@ lunaredu::lunaros::NetworkJobRunResult run_activation_job(
       return {false, false, "activation_no_longer_required"};
     }
     const bsp_board_info_t *board_info = bsp_board_get_info();
+#if ASSISTANT_USE_LUNARLINK
+    request.ota_url = g_runtime.activation.ota_url.empty()
+        ? kDefaultAssistantOtaUrl
+        : g_runtime.activation.ota_url;
+#else
     request.ota_url = kDefaultAssistantOtaUrl;
+#endif
     request.board_name =
         (board_info != nullptr && board_info->board_type != nullptr)
             ? board_info->board_type
             : "lunaredu_s3_n16r8_baseboard";
+#if ASSISTANT_USE_LUNARLINK
+    const auto &identity = g_runtime.platform_identity;
+    if (!identity.ready()) {
+      g_runtime.activation.request_inflight = false;
+      g_runtime.activation.pending = false;
+      return {false, false, "lunarlink_account_binding_required"};
+    }
+    if ((identity.environment == "development" || identity.environment == "DEVELOPMENT") &&
+        g_runtime.activation.ota_url.empty()) {
+      g_runtime.activation.request_inflight = false;
+      g_runtime.activation.pending = false;
+      g_runtime.activation.next_attempt_at_ms = now_ms() + kActivationFailureRetryMaxMs;
+      g_runtime.diagnostics.last_error = "lunarlink_development_endpoint_required";
+      return {false, false, "lunarlink_development_endpoint_required"};
+    }
+    generation = g_runtime.platform_generation;
+    request.device_id = identity.serial;
+    request.device_token = identity.credential;
+    request.binding_epoch = identity.epoch;
+    request.mac_address = lunaredu::system::SystemInfo::GetMacAddress();
+#else
+    generation = g_runtime.platform_generation;
     request.device_id = g_runtime.device_id;
+#endif
     request.client_id = g_runtime.client_id;
     request.activation_timeout_ms = g_runtime.activation.timeout_ms;
   }
@@ -305,6 +340,10 @@ lunaredu::lunaros::NetworkJobRunResult run_activation_job(
                                                   : result.error);
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    if (generation != g_runtime.platform_generation ||
+        (kAssistantUsesLunarLink && !(g_runtime.platform_identity == lunarlink_identity()))) {
+      return {false, false, "activation_identity_changed"};
+    }
     if (g_runtime.activation.user_blocked) {
       g_runtime.activation.request_inflight = false;
       return {false, false, "activation_cancelled_by_local_unbind"};
@@ -328,7 +367,12 @@ lunaredu::lunaros::NetworkJobRunResult run_activation_job(
 }
 
 void maybe_submit_activation_locked(int64_t now) {
+#if ASSISTANT_USE_LUNARLINK
+  if (!g_runtime.platform_identity.ready() ||
+      !assistant_network_connected() || g_runtime.activation.user_blocked ||
+#else
   if (!assistant_network_connected() || g_runtime.activation.user_blocked ||
+#endif
       g_runtime.activation.ready ||
       g_runtime.activation.request_inflight ||
       g_runtime.activation.result_available ||
@@ -571,7 +615,14 @@ void setup_assistant_minimal_app() {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
     g_runtime.boot_id = esp_random();
     g_runtime.started_at_ms = now_ms();
+#if ASSISTANT_USE_LUNARLINK
+    g_runtime.platform_identity = lunarlink_identity();
+    g_runtime.device_id = g_runtime.platform_identity.serial;
+    g_runtime.transport.wire.device_id = g_runtime.device_id;
+    g_runtime.transport.wire.binding_epoch = g_runtime.platform_identity.epoch;
+#else
     g_runtime.device_id = lunaredu::system::SystemInfo::GetMacAddress();
+#endif
     g_runtime.client_id = lunaredu::pet::conversation::assistant_client_id();
     g_runtime.activation.timeout_ms = kActivationTimeoutMsDefault;
     load_state_locked();
@@ -604,10 +655,18 @@ void setup_assistant_minimal_app() {
   }
   if (show_status) {
     if (activation_pending && !activation_code.empty()) {
+#if ASSISTANT_USE_LUNARLINK
+      conversation_emit_status("等待激活", "请先完成平台绑定",
+#else
       conversation_emit_status("等待激活", "请先完成小智激活",
+#endif
                              activation_code.c_str(), nullptr);
     } else if (!activation_ready) {
+#if ASSISTANT_USE_LUNARLINK
+      conversation_emit_status("连接中", "正在连接 LunarLink", "", nullptr);
+#else
       conversation_emit_status("连接中", "正在获取小智配置", "", nullptr);
+#endif
     } else {
       conversation_emit_status("已就绪", "板载语音待命",
                              lunaredu::audio::local_pcm_audio_bridge_ready()
@@ -620,12 +679,47 @@ void setup_assistant_minimal_app() {
 }
 
 void tick_assistant_minimal_app() {
+#if ASSISTANT_USE_LUNARLINK
+  // Binding remains owned by DeviceLink. A coherent observed identity fences
+  // both bootstrap jobs and old MQTT callbacks before another account can use audio.
+  const auto identity = lunarlink_identity();
+  std::shared_ptr<NetworkMqttSession> old_mqtt;
+  {
+    std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    if (!(identity == g_runtime.platform_identity)) {
+      ++g_runtime.platform_generation;
+      reset_session_locked(AssistantSessionState::Inactive);
+      old_mqtt = take_service_mqtt_locked();
+      g_runtime.pending_events.clear();
+      g_runtime.activation.ready = g_runtime.activation.configured = false;
+      g_runtime.activation.pending = g_runtime.activation.request_inflight = false;
+      g_runtime.activation.result_available = false;
+      g_runtime.activation.next_attempt_at_ms = 0;
+      g_runtime.transport.mqtt_endpoint.clear();
+      g_runtime.transport.mqtt_client_id.clear();
+      g_runtime.transport.mqtt_username.clear();
+      g_runtime.transport.mqtt_password.clear();
+      g_runtime.transport.mqtt_publish_topic.clear();
+      g_runtime.transport.mqtt_subscribe_topic.clear();
+      g_runtime.platform_identity = identity;
+      g_runtime.device_id = identity.serial;
+      g_runtime.transport.wire = {};
+      g_runtime.transport.wire.device_id = identity.serial;
+      g_runtime.transport.wire.binding_epoch = identity.epoch;
+    }
+  }
+  if (old_mqtt) old_mqtt->Disconnect();
+#endif
   (void)ensure_assistant_worker_tasks(false);
   {
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
     if (!g_runtime.service_enabled || g_runtime.service_suspended) {
       return;
     }
+#if ASSISTANT_USE_LUNARLINK
+    if (!g_runtime.platform_identity.ready())
+      g_runtime.diagnostics.last_error = "lunarlink_account_binding_required";
+#endif
     apply_pending_activation_result_locked();
     const int64_t now = now_ms();
     maybe_submit_activation_locked(now);

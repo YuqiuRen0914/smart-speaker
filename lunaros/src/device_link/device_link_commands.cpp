@@ -103,6 +103,7 @@ bool acknowledge_command(const std::string &command_id,
 } // namespace
 
 bool poll_commands() {
+  if (!runtime_config().legacy_remote_commands_enabled) return true;
   JsonDocument response;
   if (!perform_request("GET", "/api/hardware/device-runtime/commands", nullptr,
                        &response)) {

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
+#include <ctime>
 #include <string>
 
 #include <esp_timer.h>
@@ -26,6 +27,10 @@
 #include "sdkconfig.h"
 #include "smart_speaker_runtime.h"
 #include "smart_speaker_xiaozhi.h"
+#include "product_state_runtime.h"
+#include "desktop_resources.h"
+#include "weather.h"
+#include "lunaredu_pet_conversation.h"
 
 namespace smart_speaker::product::runtime_internal {
 namespace {
@@ -49,6 +54,23 @@ constexpr int kNetworkCore = 1;
 
 uint32_t task_network(void *) {
   static bool provisioning_reported = false;
+  const auto time_now_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000);
+  static uint32_t time_tick_ms = 0;
+  product_poll_pomodoro_request(static_cast<uint32_t>(esp_timer_get_time() / 1000000));
+  pet_animation_poll(time_now_ms);
+  pet_frame_poll_request(time_now_ms);
+  if (time_now_ms - time_tick_ms >= 1000) {
+    time_tick_ms = time_now_ms;
+    const auto weather_network = network_snapshot();
+    weather_poll(time_now_ms, static_cast<int64_t>(std::time(nullptr)),
+        weather_network.clock == NetworkClockState::Valid,
+        weather_network.link == NetworkLinkState::Up);
+    const auto assistant = lunaredu::pet::conversation::runtime_snapshot();
+    product_tick_time(static_cast<uint32_t>(esp_timer_get_time() / 1000000),
+        static_cast<int64_t>(std::time(nullptr)),
+        network_snapshot().clock == NetworkClockState::Valid,
+        assistant.interaction_active);
+  }
 
   if (lunaredu::lunaros::service_available(
           lunaredu::lunaros::kNetworkRuntimeServiceId)) {

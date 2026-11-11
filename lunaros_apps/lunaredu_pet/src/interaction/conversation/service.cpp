@@ -17,6 +17,8 @@
 #include "interaction/conversation/assistant_core.h"
 #include "interaction/conversation/assistant_lifecycle.h"
 #include "interaction/conversation/assistant_loop.h"
+#include "interaction/conversation/assistant_endpoint_policy.h"
+#include "interaction/conversation/assistant_runtime_constants.h"
 #include "interaction/conversation/assistant_session.h"
 #include "interaction/conversation/assistant_session_state.h"
 #include "interaction/transport/network_xiaozhi_protocol.h"
@@ -178,10 +180,10 @@ bool set_enabled(bool enabled) {
   }
 
   if (enabled) {
-    conversation_emit_status("已启用", "小智原生服务已开启", "等待网络连接",
+    conversation_emit_status("已启用", "助手原生服务已开启", "等待网络连接",
                            nullptr);
   } else {
-    conversation_emit_status("已关闭", "小智原生服务已暂停", "麦克风已释放",
+    conversation_emit_status("已关闭", "助手原生服务已暂停", "麦克风已释放",
                            nullptr);
   }
   ESP_LOGI(kTag, "service enabled=%d", enabled);
@@ -208,10 +210,13 @@ bool clear_activation() {
     runtime.conversation.transcript_role.clear();
     runtime.conversation.transcript_revision += 1;
 
+    const std::string activation_ota_url = runtime.activation.ota_url;
+    ++runtime.platform_generation;
     runtime.activation = {};
+    runtime.activation.ota_url = activation_ota_url;
     runtime.activation.timeout_ms = lunaredu::pet::conversation::internal::kActivationTimeoutMsDefault;
     runtime.activation.user_blocked = true;
-    runtime.activation.fresh_pairing_required = true;
+    runtime.activation.fresh_pairing_required = !kAssistantUsesLunarLink;
     runtime.activation.fresh_pairing_observed = false;
     runtime.activation.remote_binding_still_active = false;
     runtime.transport.connected = false;
@@ -234,9 +239,9 @@ bool clear_activation() {
   }
   lunaredu::pet::conversation::audio_io::enable_input(false);
   lunaredu::pet::conversation::audio_io::enable_output(false);
-  conversation_emit_status("已解除配对", "本机小智凭据已清除", "等待重新配对",
+  conversation_emit_status("已解除配对", "本机 LunarLink 会话已清除", "等待重新配对",
                          nullptr);
-  ESP_LOGI(kTag, "local XiaoZhi activation cleared");
+  ESP_LOGI(kTag, "local LunarLink bootstrap cleared");
   return true;
 }
 
@@ -246,6 +251,8 @@ bool request_activation() {
   if (!runtime.service_initialized) {
     return false;
   }
+  if (runtime.activation.request_inflight || runtime.activation.ready) return true;
+  ++runtime.platform_generation;
   runtime.activation.user_blocked = false;
   runtime.activation.pending = false;
   runtime.activation.request_inflight = false;
@@ -259,10 +266,25 @@ bool request_activation() {
   runtime.diagnostics.last_transport_error.clear();
   lunaredu::pet::conversation::internal::persist_state_locked();
   ESP_LOGI(kTag,
-           "local XiaoZhi activation explicitly requested fresh_required=%d fresh_seen=%d",
+           "local LunarLink bootstrap explicitly requested fresh_required=%d fresh_seen=%d",
            runtime.activation.fresh_pairing_required,
            runtime.activation.fresh_pairing_observed);
   return true;
+}
+
+bool set_activation_endpoint(const char *url) {
+  if (url == nullptr) return false;
+  // Official XiaoZhi credentials are scoped to its pinned endpoint.
+  if (!kAssistantUsesLunarLink) return false;
+  std::lock_guard<std::mutex> lock(lunaredu::pet::conversation::internal::g_runtime.mutex);
+  auto &runtime = lunaredu::pet::conversation::internal::g_runtime;
+  if (!runtime.service_initialized) return false;
+  const bool credentials_present = runtime.activation.configured ||
+      !runtime.transport.mqtt_endpoint.empty() || !runtime.transport.mqtt_password.empty();
+  const bool activation_pending = runtime.activation.pending || runtime.activation.request_inflight;
+  return lunaredu::pet::conversation::internal::commit_activation_endpoint(
+      url, credentials_present, activation_pending, runtime.activation.ota_url,
+      lunaredu::pet::conversation::internal::persist_string);
 }
 
 bool set_suspension(SuspensionReason owner, bool active) {
@@ -332,9 +354,9 @@ static bool apply_suspensions_locked() {
     conversation_emit_status("已暂停", "音频资源由前台应用使用", "",
                            suspension_reason.c_str());
   } else if (service_enabled) {
-    conversation_emit_status("恢复中", "小智正在恢复后台待命", "", nullptr);
+    conversation_emit_status("恢复中", "助手正在恢复后台待命", "", nullptr);
   } else {
-    conversation_emit_status("已关闭", "小智服务保持关闭", "", nullptr);
+    conversation_emit_status("已关闭", "助手服务保持关闭", "", nullptr);
   }
   ESP_LOGI(kTag, "service suspended=%d reason=%s", suspended,
            suspension_reason.empty() ? "-" : suspension_reason.c_str());
@@ -396,6 +418,14 @@ void end_cloud_maintenance() {
   if (!g_cloud_maintenance_active) return;
   (void)set_suspension(SuspensionReason::CloudMaintenance, false);
   g_cloud_maintenance_active = false;
+}
+
+bool request_listening() {
+  return internal::request_conversation_control(true);
+}
+
+bool cancel_conversation() {
+  return internal::request_conversation_control(false);
 }
 
 bool toggle_listening() {
@@ -521,7 +551,7 @@ bool send_test_message(const char *text) {
             {lunaredu::pet::conversation::internal::AssistantEventType::ConnectRequested,
              message_text, "queued_test_message", false});
       }
-      conversation_emit_status("连接中", "正在准备小智测试", message_text.c_str(),
+      conversation_emit_status("连接中", "正在准备助手测试", message_text.c_str(),
                              nullptr);
     }
   }
@@ -561,8 +591,11 @@ ServiceRuntimeSnapshot runtime_snapshot() {
     result.thinking = runtime.conversation.awaiting_response;
     result.speaking = runtime.session_state ==
                       lunaredu::pet::conversation::internal::AssistantSessionState::Speaking;
-    result.opening = runtime.session_state ==
+    result.opening = runtime.conversation.control_pending || runtime.conversation.start_pending || runtime.session_state ==
                      lunaredu::pet::conversation::internal::AssistantSessionState::Opening;
+    result.interaction_active = runtime.conversation.control_pending ||
+        runtime.conversation.start_pending || result.listening || result.thinking || result.speaking ||
+        runtime.conversation.one_shot_test_active;
     result.failed = runtime.session_state ==
                     lunaredu::pet::conversation::internal::AssistantSessionState::Failed;
   }
@@ -585,6 +618,9 @@ ServiceSnapshot snapshot() {
     result.activation_ready = runtime.activation.ready;
     result.activation_pending = runtime.activation.pending;
     result.activation_code = runtime.activation.code;
+    result.activation_endpoint = runtime.activation.ota_url.empty()
+        ? lunaredu::pet::conversation::internal::kDefaultAssistantOtaUrl
+        : runtime.activation.ota_url;
     result.transport_connected = runtime.transport.connected;
     // ReadyIdle is the transport state used while the cloud is preparing a
     // reply. Preserve that internal state machine, but expose the actionable
@@ -602,7 +638,7 @@ ServiceSnapshot snapshot() {
                        lunaredu::pet::conversation::internal::AssistantSessionState::Listening;
     result.speaking = runtime.session_state ==
                       lunaredu::pet::conversation::internal::AssistantSessionState::Speaking;
-    result.opening = runtime.session_state ==
+    result.opening = runtime.conversation.control_pending || runtime.conversation.start_pending || runtime.session_state ==
                      lunaredu::pet::conversation::internal::AssistantSessionState::Opening;
     result.failed = runtime.session_state ==
                     lunaredu::pet::conversation::internal::AssistantSessionState::Failed;

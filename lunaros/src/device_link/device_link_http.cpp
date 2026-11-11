@@ -23,9 +23,10 @@ NetworkFetchRequest build_request(const char *method, const std::string &path,
                                   const std::string *body,
                                   bool authenticated) {
   NetworkFetchRequest request;
+  request.maximum_response_bytes = 64U * 1024U;
   request.method = method;
   request.url = std::string(platform_base_url()) + path;
-  request.timeout_ms = static_cast<int>(kHttpTimeoutMs);
+  request.timeout_ms = static_cast<int>(path == "/api/link/device-runtime/presence" ? 12000 : kHttpTimeoutMs);
   request.transport_security =
       platform_is_production()
           ? NetworkTransportSecurity::RequireTls

@@ -1,6 +1,6 @@
 #pragma once
 
-// XiaoZhi-owned session transports. Wi-Fi lifecycle, clock and generic HTTP
+// Pet-owned LunarLink session transports. Wi-Fi lifecycle, clock and generic HTTP
 // remain LunarOS services.
 #include <string>
 

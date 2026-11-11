@@ -8,6 +8,7 @@ void setup_assistant_loop();
 bool post_assistant_event_locked(AssistantEvent event);
 bool post_assistant_event(AssistantEvent event);
 void apply_microphone_policy_change(bool enabled);
+bool request_conversation_control(bool listen);
 void tick_assistant_loop();
 
 } // namespace lunaredu::pet::conversation::internal

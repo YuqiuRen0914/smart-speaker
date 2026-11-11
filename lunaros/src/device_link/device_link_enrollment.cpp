@@ -35,7 +35,7 @@ bool enroll_open_claim() {
   serializeJson(request, body);
   JsonDocument response;
   int status_code = 0;
-  if (!perform_public_request("POST", "/api/hardware/device-enrollment/open",
+  if (!perform_public_request("POST", "/api/link/device-enrollment/open",
                               &body, &response, &status_code)) {
     LOGW(kTag, "open claim enrollment failed: status=%d", status_code);
     return false;
