@@ -8,7 +8,7 @@
 | [dsh-dafeiyu](https://github.com/QCYTSN/dsh-dafeiyu) | 用户选择的大肥鱼宠物 | 2026-11-11 固定提交 `084323845ab82b68d5388d5c638bec09d8544a8a`；用户确认持有 legacy 大肥鱼素材再分发授权。49 张运行帧按 Git blob SHA-1、大小、SHA-256 固定；保留上游 `ASSET_LICENSE.md`，不将用户授权表述为 MIT 或上游通用授权 | 转换工具、资源 staging、SD 帧读取已接入；四张独立社区 dragging 帧未单独确认授权范围而排除。真机运行与性能验收未完成 |
 | [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) | 用户指定的新版动态角色与桌宠互动参考 | 固定提交 `c25386848f70f6e40902e4376f6e7b1e196bc326`；[原始归档](../../components/lunaredu_character_assets/third_party/dsh-pet/README.md) 含全部 114 个 WebM、109 个 GIF 和交互参考 | 代码 MIT；直接来源 README 标明角色 CC BY-NC-SA 4.0。原件已核验，设备派生与播放待实现 |
 
-当前产品实现的导航、时间、游戏和电脑状态在 `main/product/product_state.*`，没有引入上游 OS、第二套显示初始化、动态应用 ABI 或第二套播放器。早期记录中的“等待用户选择当前形象／排除 legacy”已被用户明确选择和授权更新。
+当前产品实现的导航、时间和游戏状态在 `main/product/product_state.*`，没有引入上游 OS、第二套显示初始化、动态应用 ABI 或第二套播放器。早期记录中的“等待用户选择当前形象／排除 legacy”已被用户明确选择和授权更新。
 
 ### 白噪声音频切片（2026-11-11）
 
@@ -79,3 +79,17 @@
 ### Open-Meteo 天气服务（2026-11-11）
 
 只读核对公开 `/v1/forecast` 端点的 `current` 字段：`temperature_2m`（°C）、`relative_humidity_2m`（%）、`weather_code`（WMO code）和 `time`（unixtime）。服务条款允许个人非商业使用，免费 API 受每 IP 10,000 次／日、5,000 次／小时、600 次／分钟限制，并要求 CC-BY 4.0。固件固定 HTTPS 公开端点，不发送凭据；地点由用户输入经纬度，保存来源、数据年龄和离线/过期状态。商业发布前必须重新核对服务条款或替换有授权的服务。
+
+## 电子木鱼交互参考（2026-11-12）
+
+参考 `IvanHanloth/wooden-fish` 的 `main.js`、`index.css` 中点击缩放回弹和上浮计数的交互，以及 `Ares-Chang/wooden-fish` 的输入反馈。两仓库首页标注 MIT；本次未复制其源码、SVG 或音频。最终浅色剪影依据用户提供的界面参考重新绘制于 `main/assets/wood_fish.svg`；此前试画及生成的立体木鱼均未采用。音效为本工程原创的有限时长模态合成，无外部音频素材或新固件依赖。
+
+## 音乐唱片页参考（2026-11-12）
+
+- 用户选定圆形旋转封面、细密环形频谱、顶部歌名、单句歌词及黑／暖黄配色。视觉参考为本工程锁定 LVGL 9.5.0 的 `demos/music/`（MIT）；其官方演示使用预生成频谱，本产品改用当前歌曲 PCM 的实时分析。
+- 动态规则参考 CAVA 的对数频段、平滑与回落理念（https://github.com/karlstav/cava/blob/master/CAVACORE.md），未复制其代码或链接 FFTW。项目内独立实现 Hann 窗、1024 点 FFT、16 个对数频带与 64 条镜像环形短线，无新增第三方依赖或演示音乐／封面素材。
+- 默认黑胶为产品代码生成的几何纹理；主机预览的渐变封面与合成 PCM 仅作显式测试夹具，不进入固件。
+
+### MP3 内嵌封面与歌词提取
+
+网页端独立实现有界 ID3v2.3／2.4 APIC、USLT 读取，格式依据 [ID3v2.3](https://id3.org/id3v2.3.0)、[ID3v2.4 结构](https://id3.org/id3v2.4.0-structure) 与 [帧定义](https://id3.org/id3v2.4.0-frames)。没有引入解析库或复制第三方实现。封面继续使用原浏览器 Canvas → 240×240 BMP 和设备封面存储；歌词继续使用原 UTF-8 LRC 接口。不支持的标签明确提示。
