@@ -58,7 +58,7 @@ ST7789 初始化时先保持显示关闭，写完整黑帧并等待传输完成�
 
 电子木鱼使用浅色剪影与独立木槌，敲击时回弹并浮出功德增量，短促木鱼声沿用现有音频输出与系统音量。功德总数位于底部，不显示操作提示；每次敲击独立冒出“+1”，仅在木鱼和木槌上方上浮、淡出；本次动画及音效已通过主机和构建验证，真机音画同步与听感待验。
 
-当前按用户要求临时使用小智官方平台（`CONFIG_LUNAREDU_ASSISTANT_XIAOZHI=y`）：在网页助手区获取激活码，到小智控制台添加设备，不需要 Board 账号绑定。LunarLink 接入代码保留，可通过 `CONFIG_LUNAREDU_ASSISTANT_LUNARLINK` 构建选择。本地唤醒词仍为“你好小智”。协议、数据迁移、远控边界和验收状态见 [平台接入](docs/development/07-lunarlink-platform.md)。源码与构建验证不代表云端声音已通过真机验收。
+源码默认配置保留小智官方平台（`CONFIG_LUNAREDU_ASSISTANT_XIAOZHI=y`）：在网页助手区获取激活码，到小智控制台添加设备，不需要 Board 账号绑定。当前本机实装使用独立 Mac profile：本地 SenseVoice、DeepSeek 与 Cute F6。Mac 服务源码和运行说明见 [tools/mac-assistant](tools/mac-assistant/README.md)，实机证据见 [Mac 助手](docs/development/08-mac-feiyu-assistant.md)。LunarLink 接入代码保留，可通过 `CONFIG_LUNAREDU_ASSISTANT_LUNARLINK` 构建选择；协议与历史验收见 [平台接入](docs/development/07-lunarlink-platform.md)。
 
 助手从任意页面接受左键长按或本地唤醒词“你好小智”，松键不结束录音；自动判断说话结束，单轮回答后恢复原页面。回答中左键长按打断并沿用会话重新聆听；连接、聆听、思考和回答中右键短按取消，右键长按取消并回首页。对话期间暂停页面输入与音乐，按仍然有效的播放意图恢复；静音／停用策略继续有效。待机使用本地唤醒检测，触摸长按只服务宠物交互，不发起语音。
 

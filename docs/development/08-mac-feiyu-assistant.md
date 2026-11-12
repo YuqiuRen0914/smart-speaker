@@ -40,9 +40,13 @@ Mac 模型预热期间到达的 hello 保留到就绪后处理。
 
 ## Mac 运行与恢复
 
+源码统一维护在仓库的 [`tools/mac-assistant/`](../../tools/mac-assistant/README.md)，
+从原 `声屿STUDIO/voice-lab` 本地仓库迁入，不导入原仓库历史或运行资源。
+原本机入口保留为兼容链接；后续源码更新与提交均在 smart-speaker 中完成。
+
 后台服务安装在 `~/Library/Application Support/ShengyuVoice/`，用户级 launchd label
 为 `local.shengyu.feiyu-voice`。登录启动，崩溃后受监督重启；不注册系统级 daemon。
-启动、停止、重启、状态入口由 Mac 项目提供。停止服务一并关闭 MQTT、UDP、模型进程。
+启动、停止、重启、状态入口由该目录中的 `.command` 提供。停止服务一并关闭 MQTT、UDP、模型进程。
 只有接电且服务运行时才持有 `caffeinate -i`，拔电检测周期 2 秒；屏幕可休眠，
 手动休眠和合盖不被阻止。睡眠/时钟间隔超过 5 秒使会话失效并重建整个传输。
 
