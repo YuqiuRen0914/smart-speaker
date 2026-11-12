@@ -55,6 +55,15 @@ struct DesktopResourcesSnapshot {
   bool pet_frame_pending = false;
 };
 
+struct AmbientWallpaper {
+  std::string selected, error;
+  std::shared_ptr<const WallpaperPixels> pixels;
+};
+AmbientWallpaper ambient_wallpaper_snapshot(unsigned scene);
+bool ambient_wallpapers_load();
+bool ambient_wallpaper_select(unsigned scene, const std::string &name, std::string &error);
+bool ambient_wallpaper_in_use(const std::string &name);
+
 struct PetAnimationFrame {
   std::shared_ptr<const WallpaperPixels> pixels;
   PetClip clip = PetClip::Count;

@@ -6,6 +6,9 @@
 namespace smart_speaker {
 
 struct SmartSpeakerDisplayStats {
+  uint32_t last_music_transfer_us = 0, music_presented_frames = 0, music_transfer_failures = 0;
+  uint32_t music_frame_count = 0, last_music_prepare_us = 0;
+  uint32_t last_music_fft_us = 0, last_music_frame_interval_us = 0;
   uint32_t spectrum_render_count = 0;
   uint32_t spectrum_render_fail_count = 0;
   uint32_t last_spectrum_render_us = 0;

@@ -56,18 +56,41 @@ int main() {
   assert(!navigation.handle(Input::Up));
   assert(navigation.snapshot().revision == edge_revision);
   for (int i = 0; i < 20; ++i) navigation.handle(Input::Down);
-  assert(navigation.snapshot().item == 6);
+  assert(navigation.snapshot().item == 5);
   assert(!navigation.handle(Input::Down));
   assert(navigation.handle(Input::Confirm));
   assert(navigation.snapshot().page == Page::Settings);
   assert(navigation.handle(Input::Back));
-  assert(navigation.snapshot().page == Page::ModuleList && navigation.snapshot().item == 6);
+  assert(navigation.snapshot().page == Page::ModuleList && navigation.snapshot().item == 5);
   assert(navigation.handle(Input::Home));
-  assert(navigation.handle(Input::Confirm) && navigation.snapshot().item == 6);
+  assert(navigation.handle(Input::Confirm) && navigation.snapshot().item == 5);
   Navigation reboot;
   assert(reboot.handle(Input::Confirm) && reboot.snapshot().item == 0);
 
   Navigation music_navigation;
+  // Every icon menu stops at both ends, and returns to its parent selection.
+  for (unsigned module = 0; module < 6; ++module) {
+    Navigation pages;
+    pages.handle(Input::Confirm);
+    for (unsigned i=0; i<module; ++i) pages.handle(Input::Down);
+    pages.handle(Input::Confirm);
+    const auto first_revision = pages.snapshot().revision;
+    assert(!pages.handle(Input::Up));
+    assert(pages.snapshot().revision == first_revision);
+    const unsigned last = module == 5 ? 2 : 1;
+    for (unsigned i=0; i<last; ++i) assert(pages.handle(Input::Down));
+    assert(pages.snapshot().item == last);
+    const auto last_revision = pages.snapshot().revision;
+    assert(!pages.handle(Input::Down));
+    assert(pages.snapshot().revision == last_revision);
+    if (module != 5) {
+      assert(pages.handle(Input::Confirm));
+      assert(pages.handle(Input::Back));
+      assert(pages.snapshot().page == Page::ModuleMenu && pages.snapshot().item == last);
+    }
+    assert(pages.handle(Input::Back));
+    assert(pages.snapshot().page == Page::ModuleList && pages.snapshot().item == module);
+  }
   assert(music_navigation.handle(Input::Confirm));
   assert(music_navigation.snapshot().page == Page::ModuleList);
   assert(music_navigation.snapshot().module == Module::Music);
@@ -158,21 +181,6 @@ int main() {
   assert(product_state.tick_time(11, 5000, true, false) == 1);
   assert(product_state.snapshot(11, 0).pending_reminders.size() == 1);
   assert(product_state.time.handle_reminder(deferred));
-
-  ComputerPairing pairing;
-  ComputerTelemetry sample;
-  sample.cpu = TelemetryStatus::Fresh;
-  sample.cpu_percent = 42;
-  assert(pairing.pair("macbook"));
-  pairing.update("other", sample, 10);
-  assert(!pairing.update("other", sample, 10));
-  assert(pairing.snapshot(10).cpu == TelemetryStatus::Offline);
-  assert(pairing.update("macbook", sample, 10));
-  assert(pairing.snapshot(20).cpu == TelemetryStatus::Fresh);
-  assert(pairing.snapshot(10020).cpu == TelemetryStatus::Stale);
-  assert(!pairing.disconnect("other"));
-  assert(pairing.disconnect("macbook"));
-  assert(pairing.snapshot(20).cpu == TelemetryStatus::Offline);
 
   Game2048 game;
   Game2048 merge(std::array<uint16_t, 16>{2, 2, 2, 2});

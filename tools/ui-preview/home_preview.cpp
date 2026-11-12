@@ -1,5 +1,8 @@
 #include "smart_speaker_home_pet.h"
 #include "smart_speaker_launcher.h"
+#include "smart_speaker_wood_fish.h"
+#include "smart_speaker_music_view.h"
+#include "smart_speaker_ambient_view.h"
 // Explicit fixtures for host visual QA, never linked into the firmware.
 #include "smart_speaker_home.h"
 #include "smart_speaker_boot.h"
@@ -8,6 +11,7 @@
 #include "lunaredu_lunaros/network/network_jobs.h"
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cassert>
 #include <cstdio>
 #include <cstdint>
@@ -33,6 +37,7 @@ std::array<uint16_t, 240 * 240> framebuffer{};
 alignas(8) std::array<uint16_t, 240 * 16> draw_buffer{};
 uint64_t flushed_pixels = 0;
 uint32_t flush_calls = 0;
+lv_obj_t *music_lyric_label = nullptr;
 void flush(lv_display_t *display, const lv_area_t *area, uint8_t *bytes) {
   flushed_pixels += lv_area_get_width(area) * lv_area_get_height(area);
   ++flush_calls;
@@ -46,10 +51,16 @@ void bounds(lv_obj_t *object) {
   if (lv_obj_has_flag(object, LV_OBJ_FLAG_HIDDEN)) return;
   lv_area_t box;
   lv_obj_get_coords(object, &box);
-  if (box.x1 < 0 || box.y1 < 0 || box.x2 >= 240 || box.y2 >= 240)
+  if (object != music_lyric_label && (box.x1 < 0 || box.y1 < 0 || box.x2 >= 240 || box.y2 >= 240))
     std::cerr << "Out of bounds: " << box.x1 << ',' << box.y1 << ' ' << box.x2 << ',' << box.y2
               << (lv_obj_check_type(object, &lv_label_class) ? lv_label_get_text(object) : " object") << '\n';
-  assert(box.x1 >= 0 && box.y1 >= 0 && box.x2 < 240 && box.y2 < 240);
+  if (object == music_lyric_label) {
+    // The marquee's content is wider than its fixed, non-overflowing viewport.
+    auto *clip = lv_obj_get_parent(object); lv_area_t viewport; lv_obj_get_coords(clip, &viewport);
+    assert(!lv_obj_has_flag(clip, LV_OBJ_FLAG_OVERFLOW_VISIBLE));
+    assert(viewport.x1 == 12 && viewport.x2 == 227 && viewport.y1 == 212 && viewport.y2 == 239);
+    assert(box.y1 >= viewport.y1 && box.y2 <= viewport.y2);
+  } else assert(box.x1 >= 0 && box.y1 >= 0 && box.x2 < 240 && box.y2 < 240);
   if (lv_obj_check_type(object, &lv_label_class)) {
     const auto *font = lv_obj_get_style_text_font(object, LV_PART_MAIN);
     const char *value = lv_label_get_text(object);
@@ -395,6 +406,7 @@ int main(int argc, char **argv) {
   std::cout << "Wallpaper entry and overlapping content: " << background_only_pixels << " pixels\n";
   std::cout.flush();
   assert(background_only_pixels < 600000 && "Background entry must not redraw the entire wallpaper per poll");
+  AppLauncher launcher; // Keep its draw callback owner alive for later overlay checks.
   if (argc == 5) {
     using namespace smart_speaker;
     lv_obj_clean(lv_screen_active());
@@ -452,9 +464,8 @@ int main(int argc, char **argv) {
     pet.hide();
     lv_refr_now(display);
     assert(framebuffer == wallpaper_with_home);
-    AppLauncher launcher;
     launcher.create(lv_screen_active(), fonts[5], fonts[4]);
-    for (unsigned i = 0; i < 7; ++i) {
+    for (unsigned i = 0; i < 6; ++i) {
       launcher.show(i);
       save(output / ("app-" + std::to_string(i + 1) + ".ppm"));
     }
@@ -464,16 +475,247 @@ int main(int argc, char **argv) {
     lv_refr_now(display);
     const auto source_app = framebuffer;
     for (const char *caption : {"小智连接中", "小智正在听", "小智思考中", "这是一次来自大肥鱼的回答，结束后会回到原来的页面。"}) {
-      pet.show({80, 48, 80, 80}, nullptr, -1, idle.data());
+      pet.show(HomePetView::kConversationRect, nullptr, -1, idle.data());
       pet.set_conversation(true, caption);
       lv_refr_now(display);
       assert(framebuffer != source_app);
+      if (std::strcmp(caption, "小智正在听") == 0)
+        save(output / "assistant-listening.ppm");
     }
     save(output / "assistant-response.ppm");
     pet.hide();
     pet.set_conversation(false, "");
     lv_refr_now(display);
     assert(framebuffer == source_app);
+  }
+  {
+    AppLauncher menus;
+    menus.create(lv_screen_active(), fonts[5], fonts[4]);
+    auto *menu_root = lv_obj_get_child(lv_screen_active(), -1);
+    const auto children = lv_obj_get_child_count(menu_root);
+    for (unsigned group=0; group<6; ++group) {
+      for (unsigned item=0; item<(group==5?3U:2U); ++item) {
+        menus.show_secondary(static_cast<product::Module>(group), item);
+        save(output / ("secondary-"+std::to_string(group)+"-"+std::to_string(item)+".ppm"));
+        const auto expected = framebuffer;
+        const auto work = flushed_pixels;
+        menus.show_secondary(static_cast<product::Module>(group), item);
+        lv_refr_now(display);
+        assert(flushed_pixels == work); // Stable menu must not redraw each tick.
+        menus.show(group);
+        lv_refr_now(display);
+        menus.show_secondary(static_cast<product::Module>(group), item);
+        lv_refr_now(display);
+        assert(framebuffer == expected); // Includes circular -> square pagination.
+        for (unsigned repeat=0; repeat<100; ++repeat) {
+          menus.hide();
+          menus.show_secondary(static_cast<product::Module>(group), item);
+        }
+        assert(lv_obj_get_child_count(menu_root) == children);
+        lv_obj_invalidate(lv_screen_active());
+        lv_refr_now(display);
+        assert(framebuffer == expected);
+      }
+    }
+    menus.hide();
+    lv_obj_delete(menu_root);
+    lv_refr_now(display);
+  }
+  {
+    AmbientView view; view.create(lv_screen_active(), fonts[2], fonts[4]);
+    auto *root=lv_obj_get_child(lv_screen_active(),-1);
+    ambient::Session s;
+    for(int scene=0;scene<4;++scene) {
+      s.preview=scene;s.choosing=true;
+      view.show(s,false,false,20,"",{},1000);
+      save(output/("ambient-select-"+std::to_string(scene)+".ppm"));
+      s.scene=scene;s.choosing=false;s.overlay=false;
+      view.show(s,true,false,20,"",{},1100);
+      view.show(s,true,false,20,"",{},5000);
+      save(output/("ambient-pure-"+std::to_string(scene)+".ppm"));
+      const auto pixels=framebuffer;
+      const auto work=flushed_pixels;
+      view.show(s,true,false,20,"",{},5100); lv_refr_now(display);
+      assert(flushed_pixels==work);
+      s.reveal(5200);view.show(s,true,false,20,"",{},5200);
+      save(output/("ambient-controls-"+std::to_string(scene)+".ppm"));
+      s.timer_menu=true;view.show(s,true,false,20,"",{},5300);
+      save(output/("ambient-timer-"+std::to_string(scene)+".ppm"));
+      s.timer_menu=false;view.show(s,true,false,20,"",{},10000);lv_refr_now(display);
+      assert(framebuffer==pixels);
+    }
+    lv_obj_delete(root);
+  }
+  {
+    WoodFishView fish;
+    fish.create(lv_screen_active(), fonts[5], fonts[4]);
+    fish.show(0, 1000);
+    save(output / "wood-fish-idle.ppm");
+    const auto objects = lv_obj_get_child_count(lv_screen_active());
+    auto *fish_root = lv_obj_get_child(lv_screen_active(), -1);
+    const auto fish_children = lv_obj_get_child_count(fish_root);
+    auto *gain_layer = lv_obj_get_child(fish_root, -1);
+    const auto particle_count = lv_obj_get_child_count(gain_layer);
+    fish.show(1, 1010);
+    fish.show(1, 1075);
+    save(output / "wood-fish-hit.ppm");
+    const auto hit = framebuffer;
+    fish.show(1, 1330);
+    save(output / "wood-fish-float.ppm");
+    assert(framebuffer != hit);
+    fish.show(1, 1800);
+    save(output / "wood-fish-settled.ppm");
+    const auto settled = framebuffer;
+    fish.hide();
+    fish.show(1, 2000);
+    lv_refr_now(display);
+    assert(framebuffer == settled); // Re-entry does not replay a hit.
+    fish.show(2, 2100);
+    fish.show(3, 2250);
+    fish.show(4, 2400);
+    fish.show(4, 2450);
+    unsigned floating = 0;
+    for (uint32_t i = 0; i < lv_obj_get_child_count(gain_layer); ++i) {
+      auto *child = lv_obj_get_child(gain_layer, i);
+      if (lv_obj_check_type(child, &lv_label_class) &&
+          !lv_obj_has_flag(child, LV_OBJ_FLAG_HIDDEN) &&
+          std::strcmp(lv_label_get_text(child), "+1") == 0) {
+        ++floating;
+        lv_obj_update_layout(child);
+        lv_area_t box;
+        lv_obj_get_coords(child, &box);
+        assert(box.y1 >= 40 && box.y2 < 91); // Never overlaps wood fish or mallet.
+      }
+    }
+    assert(floating == 3); // Earlier +1 particles survive subsequent taps.
+    save(output / "wood-fish-continuous.ppm");
+    fish.show(4, 3300);
+    for (uint32_t i = 0; i < lv_obj_get_child_count(gain_layer); ++i) {
+      auto *child = lv_obj_get_child(gain_layer, i);
+      if (lv_obj_check_type(child, &lv_label_class) &&
+          std::strcmp(lv_label_get_text(child), "+1") == 0)
+        assert(lv_obj_has_flag(child, LV_OBJ_FLAG_HIDDEN));
+    }
+    for (uint32_t i = 5; i < 105; ++i) {
+      fish.show(i, 3400 + i * 10);
+      lv_refr_now(display);
+    }
+    assert(lv_obj_get_child_count(lv_screen_active()) == objects);
+    assert(lv_obj_get_child_count(fish_root) == fish_children);
+    assert(lv_obj_get_child_count(gain_layer) == particle_count);
+    fish.hide();
+    fish.show(102, UINT32_MAX - 20);
+    fish.show(103, UINT32_MAX - 10);
+    fish.show(103, 1000); // Millisecond wrap must finish the effect.
+    save(output / "wood-fish-wrap.ppm");
+    const auto wrapped = framebuffer;
+    fish.hide();
+    fish.show(103, 2000);
+    lv_refr_now(display);
+    assert(framebuffer == wrapped);
+    fish.show(UINT32_MAX, 2100);
+    save(output / "wood-fish-max-count.ppm");
+    fish.hide();
+  }
+  {
+    lv_refr_now(display);
+    const auto underlying = framebuffer;
+    MusicView music_view;
+    music_view.create(lv_screen_active(), fonts[2], fonts[4]);
+    auto *music_root = lv_obj_get_child(lv_screen_active(), -1);
+    music_lyric_label = lv_obj_get_child(lv_obj_get_child(music_root, 2), 0);
+    assert(lv_obj_check_type(music_lyric_label, &lv_label_class));
+    const auto object_count = lv_obj_get_child_count(lv_screen_active());
+    music::PcmWindow pcm;
+    pcm.rate = 44100;
+    music::SpectrumAnalyzer analyzer;
+    music::Bands spectrum{};
+    std::ofstream music_perf(output / "music-render-work.csv");
+    music_perf << "frame,pixels,host_us\n";
+    for (uint32_t frame = 0; frame < 80; ++frame) {
+      // Explicit synthesized host PCM fixture through the production FFT.
+      for (size_t i = 0; i < music::kSamples; ++i) {
+        pcm.left[i] = static_cast<int16_t>(16000 * std::sin(i * 6.283185307 * 250 / pcm.rate) *
+            (.3 + .7 * std::abs(std::sin(frame * .17))) +
+            7000 * std::sin(i * 6.283185307 * 1800 / pcm.rate));
+        pcm.right[i] = -pcm.left[i];
+      }
+      const auto start = std::chrono::steady_clock::now();
+      const auto before = flushed_pixels;
+      spectrum = analyzer.analyze(pcm);
+      music_view.show("晚风", "晚风轻轻，陪你听一首歌", nullptr, true, spectrum, 1000 + frame * 40, 50);
+      lv_refr_now(display);
+      const auto us = std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::steady_clock::now() - start).count();
+      music_perf << frame << ',' << flushed_pixels - before << ',' << us << '\n';
+      char name[64]; std::snprintf(name, sizeof(name), "music-frame-%03lu.ppm", static_cast<unsigned long>(frame));
+      save(output / name);
+      if (frame > 0) assert(flushed_pixels - before < 240 * 240);
+    }
+    save(output / "music-vinyl.ppm");
+    for (uint32_t now = 4200; now < 7200; now += 40) {
+      music_view.show("晚风", "已暂停", nullptr, false, {}, now, 50);
+      lv_refr_now(display);
+    }
+    save(output / "music-paused.ppm");
+    auto before = flushed_pixels;
+    music_view.show("晚风", "已暂停", nullptr, false, {}, 7240, 50);
+    lv_refr_now(display);
+    assert(flushed_pixels == before);
+    auto artwork = std::make_shared<cover::Image>();
+    artwork->pixels.reset(static_cast<uint16_t *>(std::malloc(cover::kSide * cover::kSide * 2)));
+    assert(artwork->pixels);
+    for (size_t y = 0; y < cover::kSide; ++y) for (size_t x = 0; x < cover::kSide; ++x)
+      artwork->pixels.get()[y * cover::kSide + x] = static_cast<uint16_t>(
+          ((x * 31 / 240) << 11) | ((y * 63 / 240) << 5) | 15);
+    music_view.show("很长很长的歌曲名字，用于检查滚动", "让晚风陪你慢慢听完这一首，沿着海岸走向远方", artwork, true, spectrum, 7280, 63);
+    save(output / "music-cover-long-text.ppm");
+    const auto stationary_title = framebuffer;
+    lv_tick_inc(1000); lv_timer_handler();
+    music_view.show("很长很长的歌曲名字，用于检查滚动", "让晚风陪你慢慢听完这一首，沿着海岸走向远方", artwork, true, spectrum, 8280, 63);
+    save(output / "music-scroll.ppm");
+    assert(std::equal(framebuffer.begin(), framebuffer.begin() + 240 * 32, stationary_title.begin()) && "Song title must remain stationary while lyrics scroll");
+    const auto lyric_y = lv_obj_get_y(music_lyric_label);
+    const auto lyric_x = lv_obj_get_x(music_lyric_label);
+    music_view.show("很长很长的歌曲名字，用于检查滚动", "让晚风陪你慢慢听完这一首，沿着海岸走向远方", artwork, true, spectrum, 8800, 63);
+    save(output / "music-lyrics-horizontal.ppm");
+    assert(lv_obj_get_y(music_lyric_label) == lyric_y && lv_obj_get_x(music_lyric_label) < lyric_x);
+    music_view.show("固定歌名", "第一句\n第二句", artwork, true, spectrum, 8840, 63);
+    save(output / "music-lyrics-single-baseline.ppm");
+    assert(std::strchr(lv_label_get_text(music_lyric_label), '\n') == nullptr);
+    assert(lv_obj_get_y(music_lyric_label) == lyric_y);
+    // A full repaint must match the incremental image, including circle edges.
+    const auto partial = framebuffer;
+    lv_obj_invalidate(lv_screen_active()); lv_refr_now(display);
+    assert(framebuffer == partial);
+    music_view.hide(); lv_refr_now(display); assert(framebuffer == underlying);
+    for (int i = 0; i < 100; ++i) {
+      music_view.show("本地音乐", "存储卡未就绪", nullptr, false, {}, 9000 + i, 50);
+      lv_refr_now(display); music_view.hide();
+    }
+    assert(lv_obj_get_child_count(lv_screen_active()) == object_count);
+    lv_refr_now(display); assert(framebuffer == underlying);
+    // The production direct-LCD path must match the LVGL bitmap exactly.
+    music_view.show("固定歌名", "固定歌词", artwork, true, spectrum, 12000, 50);
+    lv_refr_now(display); const auto lvgl_reference = framebuffer;
+    music_view.hide(); lv_refr_now(display);
+    MusicView direct_music;
+    direct_music.create(lv_screen_active(), fonts[2], fonts[4], true);
+    direct_music.show("固定歌名", "固定歌词", artwork, true, spectrum, 12000, 50);
+    lv_refr_now(display);
+    const auto *frame = direct_music.direct_frame();
+    assert(frame && direct_music.needs_flush());
+    auto present = [&]() {
+      for (int y = 0; y < 176; ++y) for (int x = 0; x < 176; ++x)
+        framebuffer[(y + 32) * 240 + x + 32] = frame[y * 176 + x];
+      direct_music.flushed();
+    };
+    present(); assert(framebuffer == lvgl_reference && !direct_music.needs_flush());
+    assert(direct_music.frame_wait_ms(12034) == 6);
+    lv_obj_invalidate(lv_screen_active()); lv_refr_now(display);
+    present(); assert(framebuffer == lvgl_reference); // Repair an overlapping LVGL repaint.
+    direct_music.hide(); assert(!direct_music.direct_frame() && !direct_music.needs_flush());
+    lv_refr_now(display); assert(framebuffer == underlying);
   }
   // Delete the screen before releasing its fonts, as on the production owner.
   lv_obj_clean(lv_screen_active());

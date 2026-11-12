@@ -7,6 +7,7 @@
 #include <esp_err.h>
 
 #include "smart_speaker_dsp.h"
+#include "smart_speaker_music_spectrum.h"
 
 namespace smart_speaker {
 
@@ -50,6 +51,8 @@ struct DualI2sDiagnostics {
 };
 
 bool setup_dual_i2s_audio();
+// Wait for the decoded tail before the player mutes a naturally completed MP3.
+bool dual_i2s_audio_drain(uint32_t timeout_ms);
 // Decoder must be stopped before shutdown. Failure retains live resources.
 bool stop_dual_i2s_audio();
 esp_err_t dual_i2s_audio_write(void *audio_buffer, size_t len,
@@ -68,10 +71,15 @@ void dual_i2s_audio_set_channel_mode(dsp::ChannelMode mode);
 dsp::ChannelMode dual_i2s_audio_channel_mode();
 dsp::Diagnostics dual_i2s_dsp_diagnostics();
 float dual_i2s_expression_level();
+// Display owner enables capture only for the foreground song view.
+void dual_i2s_music_spectrum_enable(bool enabled);
+bool dual_i2s_music_spectrum_take(music::PcmWindow &out, uint32_t now);
 void dual_i2s_track_clock_reset();
 uint32_t dual_i2s_track_position_ms();
 DualI2sDiagnostics dual_i2s_diagnostics();
 void dual_i2s_audio_tick();
+// Product focus gate and authoritative hit counter; consumed by audio owner.
+void dual_i2s_wood_fish_update(bool enabled, uint32_t count);
 void dual_i2s_audio_emergency_mute();
 bool dual_i2s_audio_set_output_enabled(bool enabled,
                                        uint32_t timeout_ms = 500);

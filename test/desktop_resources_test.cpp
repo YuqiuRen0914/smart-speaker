@@ -272,6 +272,24 @@ int main() {
   assert(!desktop_resources_load() && !desktop_resources_snapshot().pixels);
   // The UI's old shared image remains valid until it releases its reference.
   assert((*held)[0] == 0xf800 && (*previous)[0] == 0xf800);
+  // Per-scene wallpaper selection shares the resource store, preserves the
+  // previous immutable image on save failure, and protects referenced files.
+  record.clear(); assert(ambient_wallpapers_load());
+  assert(wallpaper_upload("ambient.bmp",bmp,error));
+  assert(ambient_wallpaper_select(0,"ambient.bmp",error));
+  auto ambient_image=ambient_wallpaper_snapshot(0).pixels;
+  assert(ambient_image && (*ambient_image)[0]==0xf800);
+  assert(!wallpaper_remove("ambient.bmp",error) && error=="wallpaper_in_use");
+  fail_write=true;
+  assert(!ambient_wallpaper_select(0,"",error));
+  assert(ambient_wallpaper_snapshot(0).pixels==ambient_image);
+  fail_write=false;
+  assert(ambient_wallpapers_load() && ambient_wallpaper_snapshot(0).selected=="ambient.bmp");
+  assert(ambient_wallpaper_select(0,"",error));
+  assert(!ambient_wallpaper_snapshot(0).pixels && (*ambient_image)[0]==0xf800);
+  assert(wallpaper_remove("ambient.bmp",error));
+  record="broken";assert(!ambient_wallpapers_load());
+  assert(!ambient_wallpaper_select(1,"",error) && record=="broken");
   std::filesystem::remove_all(root);
   std::cout << "Wallpaper: BMP orientation/colour, path/size validation, SD faults, duplicate rejection, write rollback, reboot and buffer lifetime passed\n";
 }

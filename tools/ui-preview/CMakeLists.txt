@@ -12,10 +12,16 @@ target_link_libraries(export_clock_font PRIVATE lvgl)
 target_compile_options(export_clock_font PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 add_executable(home_preview home_preview.cpp
     "${SPEAKER_ROOT}/main/assets/home_clock_font.c"
+    "${SPEAKER_ROOT}/main/assets/wood_fish_mask.c"
+    "${SPEAKER_ROOT}/main/assets/secondary_menu_icons.c"
+    "${SPEAKER_ROOT}/main/assets/ambient/wallpapers.c"
+    "${SPEAKER_ROOT}/main/smart_speaker/smart_speaker_ambient_view.cpp"
     "${SPEAKER_ROOT}/main/smart_speaker/smart_speaker_boot.cpp"
     "${SPEAKER_ROOT}/main/smart_speaker/smart_speaker_home.cpp"
     "${SPEAKER_ROOT}/main/smart_speaker/smart_speaker_home_pet.cpp"
     "${SPEAKER_ROOT}/main/smart_speaker/smart_speaker_launcher.cpp"
+    "${SPEAKER_ROOT}/main/smart_speaker/smart_speaker_wood_fish.cpp"
+    "${SPEAKER_ROOT}/main/smart_speaker/smart_speaker_music_view.cpp"
     "${SPEAKER_ROOT}/main/product/weather.cpp"
     "${SPEAKER_ROOT}/test/host/product_time_storage.cpp")
 target_include_directories(home_preview PRIVATE

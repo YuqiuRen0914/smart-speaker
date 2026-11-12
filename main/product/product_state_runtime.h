@@ -23,11 +23,8 @@ uint32_t product_add_reminder(int64_t due_epoch_seconds, ReminderRepeat repeat, 
 bool product_update_reminder(uint32_t id, int64_t due_epoch_seconds, ReminderRepeat repeat, std::string title);
 bool product_remove_reminder(uint32_t id);
 bool product_handle_reminder(uint32_t id);
-bool product_pair_computer(std::string computer_id);
-bool product_disconnect_computer(const std::string &computer_id);
-void product_clear_computer();
-bool product_update_computer(const std::string &computer_id, const ComputerTelemetry &sample, uint32_t now_ms);
 void product_hit_wood_fish(uint32_t now_ms);
+WoodFish product_wood_fish_snapshot();
 bool product_move_2048(int dx, int dy);
 void product_reset_2048();
 

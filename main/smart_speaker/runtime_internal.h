@@ -3,6 +3,7 @@
 #include "smart_speaker_lyrics_store.h"
 #include "smart_speaker_cover.h"
 #include "sdkconfig.h"
+#include "smart_speaker_ambient.h"
 #include <array>
 #include <mutex>
 #include <memory>
@@ -26,6 +27,8 @@ enum class CommandType : uint8_t {
   kSkipFailed,
   kCycleMode,
   kWhiteNoise,
+  kAmbientSelect,
+  kAmbientTimer,
   kAssistantPause,
   kAssistantResume,
 };
@@ -39,6 +42,8 @@ struct Command {
 };
 
 struct Runtime {
+  ambient::Session ambient;
+  bool ambient_stop_pending = false;
   std::shared_ptr<const cover::Image> cover_image;
   std::string cover_error;
   std::shared_ptr<const lyrics::Document> lyrics;

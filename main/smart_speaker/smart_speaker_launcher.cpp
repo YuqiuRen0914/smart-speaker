@@ -3,19 +3,20 @@
 #include <array>
 #include <initializer_list>
 
+extern "C" const lv_image_dsc_t speaker_secondary_icons[13];
+
 namespace smart_speaker {
 namespace {
 struct App {
   const char *title;
   uint32_t accent, surface;
 };
-constexpr std::array<App, 7> apps{{
+constexpr std::array<App, 6> apps{{
     {"音乐", 0x66EDBB, 0x19352F},
     {"助手", 0xC8ACFF, 0x32254D},
     {"时间管理", 0xFBD47A, 0x3B3020},
     {"信息看板", 0x7ACDFF, 0x21324B},
     {"游戏娱乐", 0xFF9DB7, 0x412638},
-    {"电脑协同", 0x91E5E9, 0x203A42},
     {"设置", 0xD1D9ED, 0x303644},
 }};
 
@@ -37,7 +38,8 @@ void AppLauncher::create(lv_obj_t *parent, const lv_font_t *heading, const lv_fo
   lv_obj_set_size(root_, 240, 240);
   lv_obj_set_style_bg_color(root_, lv_color_hex(0x11151E), 0);
   lv_obj_set_style_bg_opa(root_, LV_OPA_COVER, 0);
-  lv_label_set_text(centered_label(root_, small, 15, 0xA6B2C9), "应用");
+  section_ = centered_label(root_, small, 15, 0xA6B2C9);
+  lv_label_set_text(section_, "应用");
   icon_ = lv_obj_create(root_);
   lv_obj_remove_style_all(icon_);
   lv_obj_remove_flag(icon_, static_cast<lv_obj_flag_t>(LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE));
@@ -47,12 +49,16 @@ void AppLauncher::create(lv_obj_t *parent, const lv_font_t *heading, const lv_fo
   lv_obj_set_style_bg_opa(icon_, LV_OPA_COVER, 0);
   lv_obj_add_event_cb(icon_, draw_icon, LV_EVENT_DRAW_MAIN, this);
   title_ = centered_label(root_, heading, 177, 0xF3F6FF);
+  secondary_icon_ = lv_image_create(root_);
+  lv_obj_set_pos(secondary_icon_, 60, 48);
+  lv_obj_add_flag(secondary_icon_, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_remove_flag(secondary_icon_, LV_OBJ_FLAG_CLICKABLE);
   for (unsigned i = 0; i < apps.size(); ++i) {
     dots_[i] = lv_obj_create(root_);
     lv_obj_remove_style_all(dots_[i]);
     lv_obj_remove_flag(dots_[i], static_cast<lv_obj_flag_t>(LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE));
     lv_obj_set_size(dots_[i], 5, 5);
-    lv_obj_set_pos(dots_[i], 87 + i * 10, 218);
+    lv_obj_set_pos(dots_[i], 92 + i * 10, 218);
     lv_obj_set_style_radius(dots_[i], LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_opa(dots_[i], LV_OPA_COVER, 0);
   }
@@ -65,14 +71,60 @@ void AppLauncher::show(unsigned index) {
     lv_obj_move_foreground(root_);
     lv_obj_remove_flag(root_, LV_OBJ_FLAG_HIDDEN);
   }
-  if (index_ == index) return;
+  if (!secondary_ && index_ == index) return;
+  secondary_ = false;
   index_ = index;
+  lv_obj_remove_flag(section_, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_remove_flag(icon_, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(secondary_icon_, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_set_y(title_, 177);
   const auto &app = apps[index];
   lv_label_set_text(title_, app.title);
   lv_obj_set_style_bg_color(icon_, lv_color_hex(app.surface), 0);
   lv_obj_invalidate(icon_);
-  for (unsigned i = 0; i < apps.size(); ++i)
+  for (unsigned i = 0; i < apps.size(); ++i) {
+    lv_obj_remove_flag(dots_[i], LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_size(dots_[i], 5, 5);
+    lv_obj_set_pos(dots_[i], 92 + i * 10, 218);
+    lv_obj_set_style_radius(dots_[i], LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_border_width(dots_[i], 0, 0);
+    lv_obj_set_style_bg_opa(dots_[i], LV_OPA_COVER, 0);
     lv_obj_set_style_bg_color(dots_[i], lv_color_hex(i == index ? app.accent : 0x4A566D), 0);
+  }
+}
+
+void AppLauncher::show_secondary(product::Module module, unsigned item) {
+  static constexpr const char *names[] = {"本地音乐", "环境声", "语音对话", "宠物动作",
+      "时钟", "番茄钟与提醒", "日历", "天气", "电子木鱼", "2048", "无线网络", "设备信息", "绑定账号"};
+  const unsigned group = static_cast<unsigned>(module);
+  const unsigned count = module == product::Module::Settings ? 3 : 2;
+  if (group >= apps.size() || item >= count) return;
+  const unsigned key = group * 2 + item;
+  if (lv_obj_has_flag(root_, LV_OBJ_FLAG_HIDDEN)) {
+    lv_obj_move_foreground(root_);
+    lv_obj_remove_flag(root_, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (secondary_ && index_ == key) return;
+  secondary_ = true;
+  index_ = key;
+  lv_obj_add_flag(section_, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(icon_, LV_OBJ_FLAG_HIDDEN);
+  lv_image_set_src(secondary_icon_, &speaker_secondary_icons[key]);
+  lv_obj_remove_flag(secondary_icon_, LV_OBJ_FLAG_HIDDEN);
+  lv_label_set_text(title_, names[key]);
+  lv_obj_set_y(title_, 190);
+  const int start = (240 - static_cast<int>(count * 7 + (count - 1) * 7)) / 2;
+  for (unsigned i = 0; i < apps.size(); ++i) {
+    if (i >= count) { lv_obj_add_flag(dots_[i], LV_OBJ_FLAG_HIDDEN); continue; }
+    lv_obj_remove_flag(dots_[i], LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_size(dots_[i], 7, 7);
+    lv_obj_set_pos(dots_[i], start + i * 14, 226);
+    lv_obj_set_style_radius(dots_[i], 1, 0);
+    lv_obj_set_style_border_width(dots_[i], 1, 0);
+    lv_obj_set_style_border_color(dots_[i], lv_color_hex(i == item ? apps[group].accent : 0x8490A6), 0);
+    lv_obj_set_style_bg_color(dots_[i], lv_color_hex(apps[group].accent), 0);
+    lv_obj_set_style_bg_opa(dots_[i], i == item ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+  }
 }
 
 void AppLauncher::hide() {
@@ -80,7 +132,9 @@ void AppLauncher::hide() {
 }
 
 void AppLauncher::draw_icon(lv_event_t *event) {
-  const auto index = static_cast<AppLauncher *>(lv_event_get_user_data(event))->index_;
+  const auto *view = static_cast<AppLauncher *>(lv_event_get_user_data(event));
+  if (view->secondary_) return;
+  const auto index = view->index_;
   if (index >= apps.size()) return;
   lv_area_t box;
   lv_obj_get_coords(static_cast<lv_obj_t *>(lv_event_get_target(event)), &box);
@@ -133,10 +187,6 @@ void AppLauncher::draw_icon(lv_event_t *event) {
       stroke({{8,8},{20,8},{24,11},{27,21},{25,24},{22,24},{18,20},{10,20},{6,24},{3,24},{1,21},{4,11},{8,8}});
       stroke({{8,11},{8,17}}); stroke({{5,14},{11,14}});
       rect(17,14,19,16,4,true); rect(21,11,23,13,4,true);
-      break;
-    case 5:
-      rect(2,4,26,21,6); stroke({{9,25},{19,25}}); stroke({{14,21},{14,25}});
-      stroke({{6,14},{10,14},{12,10},{15,17},{18,12},{22,12}});
       break;
     default:
       stroke({{11,2},{17,2},{18,6},{22,7},{25,10},{23,14},{25,18},

@@ -13,7 +13,7 @@ namespace storage = lunaredu::lunaros;
 namespace {
 ProductState g_state;
 std::mutex g_mutex;
-// Only time writers take this lock. Display/telemetry/navigation readers never
+// Only time writers take this lock. Display/navigation readers never
 // wait on flash I/O while holding the product snapshot lock.
 std::mutex g_time_io_mutex;
 constexpr const char *kTimePath = "/user/product_time.json";
@@ -261,10 +261,7 @@ bool product_handle_reminder(uint32_t id) {
     return true;
   });
 }
-bool product_pair_computer(std::string id) { std::lock_guard lock(g_mutex); return g_state.computer.pair(std::move(id)); }
-bool product_disconnect_computer(const std::string &id) { std::lock_guard lock(g_mutex); return g_state.computer.disconnect(id); }
-void product_clear_computer() { std::lock_guard lock(g_mutex); g_state.computer.clear(); }
-bool product_update_computer(const std::string &id, const ComputerTelemetry &sample, uint32_t now) { std::lock_guard lock(g_mutex); return g_state.computer.update(id, sample, now); }
+WoodFish product_wood_fish_snapshot() { std::lock_guard lock(g_mutex); return g_state.wood_fish; }
 void product_hit_wood_fish(uint32_t now) { std::lock_guard lock(g_mutex); g_state.wood_fish.hit(now); }
 bool product_move_2048(int dx, int dy) { std::lock_guard lock(g_mutex); return g_state.game.move(dx, dy); }
 void product_reset_2048() { std::lock_guard lock(g_mutex); g_state.game.reset(); }

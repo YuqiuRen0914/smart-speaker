@@ -87,10 +87,12 @@ DeviceOperationResult handle_product_navigation(JsonVariantConst, JsonObject);
 DeviceOperationResult handle_product_desktop(JsonVariantConst, JsonObject);
 DeviceOperationResult handle_product_pomodoro(JsonVariantConst, JsonObject);
 DeviceOperationResult handle_product_reminder(JsonVariantConst, JsonObject);
-DeviceOperationResult handle_product_computer(JsonVariantConst, JsonObject);
 DeviceOperationResult handle_product_game(JsonVariantConst, JsonObject);
 DeviceOperationResult handle_weather_configure(JsonVariantConst, JsonObject);
 DeviceOperationResult handle_weather_refresh(JsonVariantConst, JsonObject);
+DeviceOperationResult fill_ambient(JsonObject);
+DeviceOperationResult handle_ambient_wallpaper(JsonVariantConst, JsonObject);
+DeviceOperationResult handle_ambient_upload(const DeviceBulkRequest &, JsonObject);
 DeviceOperationResult fill_wallpapers(JsonObject);
 DeviceOperationResult handle_wallpaper_upload(const DeviceBulkRequest &, JsonObject);
 DeviceOperationResult handle_wallpaper_select(JsonVariantConst, JsonObject);
@@ -126,7 +128,11 @@ void fill_status(JsonObject payload, const RuntimeStatus &status) {
   payload["current_index"] = status.current_index;
   payload["current_name"] = status.current_name;
   payload["current_path"] = status.current_path;
-  payload["source"] = status.white_noise ? "white_noise" : "music";
+  payload["source"] = status.white_noise ? "ambient" : "music";
+  auto ambient_state = payload["ambient"].to<JsonObject>();
+  ambient_state["scene"] = status.ambient.scene;
+  ambient_state["remaining_seconds"] = (status.ambient.remaining(now_ms())+999)/1000;
+  ambient_state["timer_minutes"] = status.ambient.timer_duration/60000;
   payload["playlist_count"] = status.playlist_count;
   payload["last_error"] = status.last_error;
   payload["eq_preset"] = status.eq_preset;
@@ -269,6 +275,9 @@ constexpr DeviceOperationDefinition kOperations[] = {
     make_device_json_query("product.get", fill_product_payload),
     make_device_json_command("product.navigation", handle_product_navigation),
     make_device_json_command("product.desktop.set", handle_product_desktop, device_operation_on_executor(kNetworkIoServiceExecutor)),
+    make_device_json_query("ambient.get", fill_ambient, kNetworkIoServiceExecutor),
+    make_device_json_command("ambient.wallpaper", handle_ambient_wallpaper, device_operation_on_executor(kNetworkIoServiceExecutor)),
+    make_device_upload("ambient.upload", handle_ambient_upload, device_operation_on_executor(kNetworkIoServiceExecutor)),
     make_device_json_query("wallpaper.get", fill_wallpapers, kNetworkIoServiceExecutor),
     make_device_upload("wallpaper.upload", handle_wallpaper_upload, device_operation_on_executor(kNetworkIoServiceExecutor)),
     make_device_upload("pet.frame.upload", handle_pet_frame_upload, device_operation_on_executor(kNetworkIoServiceExecutor)),
@@ -277,7 +286,6 @@ constexpr DeviceOperationDefinition kOperations[] = {
     make_device_media("wallpaper.image", handle_wallpaper_image, kNetworkIoServiceExecutor),
     make_device_json_command("product.pomodoro", handle_product_pomodoro, device_operation_on_executor(kNetworkServiceExecutor)),
     make_device_json_command("product.reminder", handle_product_reminder, device_operation_on_executor(kNetworkServiceExecutor)),
-    make_device_json_command("product.computer", handle_product_computer),
     make_device_json_command("product.game", handle_product_game),
     make_device_json_command("product.weather.configure", handle_weather_configure, device_operation_on_executor(kNetworkServiceExecutor)),
     make_device_json_command("product.weather.refresh", handle_weather_refresh),
@@ -502,6 +510,13 @@ DeviceOperationResult fill_display_stats_payload(JsonObject payload) {
   payload["last_region_y"] = display.last_refresh_y;
   payload["last_region_width"] = display.last_refresh_width;
   payload["last_region_height"] = display.last_refresh_height;
+  payload["last_music_transfer_us"] = speaker_display.last_music_transfer_us;
+  payload["music_presented_frames"] = speaker_display.music_presented_frames;
+  payload["music_transfer_failures"] = speaker_display.music_transfer_failures;
+  payload["music_frame_count"] = speaker_display.music_frame_count;
+  payload["last_music_prepare_us"] = speaker_display.last_music_prepare_us;
+  payload["last_music_fft_us"] = speaker_display.last_music_fft_us;
+  payload["last_music_frame_interval_us"] = speaker_display.last_music_frame_interval_us;
   payload["spectrum_render_count"] = speaker_display.spectrum_render_count;
   payload["spectrum_render_fail_count"] =
       speaker_display.spectrum_render_fail_count;
@@ -703,6 +718,14 @@ DeviceOperationResult handle_control_payload(JsonVariantConst request,
   bool accepted = true;
   if (action == "play") {
     accepted = enqueue_command(CommandType::kPlay);
+  } else if (action == "ambient") {
+    if (!request["scene"].is<int>() || !ambient::valid_scene(request["scene"].as<int>()))
+      return device_operation_error("invalid_ambient_scene",400);
+    accepted = enqueue_command(CommandType::kAmbientSelect, request["scene"].as<int>());
+  } else if (action == "ambient_timer") {
+    if (!request["minutes"].is<int>() || !ambient::valid_minutes(request["minutes"].as<int>()))
+      return device_operation_error("invalid_ambient_timer",400);
+    accepted = enqueue_command(CommandType::kAmbientTimer, request["minutes"].as<int>());
   } else if (action == "white_noise") {
     accepted = enqueue_command(CommandType::kWhiteNoise);
   } else if (action == "pause") {
@@ -1025,22 +1048,6 @@ DeviceOperationResult fill_product_payload(JsonObject payload) {
     item["id"] = event.id;
     item["missed"] = event.missed;
   }
-  JsonObject computer = payload["computer"].to<JsonObject>();
-  computer["paired_id"] = state.paired_computer;
-  computer["cpu_status"] = product::telemetry_status_name(state.computer.cpu);
-  computer["gpu_status"] = product::telemetry_status_name(state.computer.gpu);
-  computer["temperature_status"] = product::telemetry_status_name(state.computer.temperature);
-  computer["fan_status"] = product::telemetry_status_name(state.computer.fan);
-  if (state.computer.cpu == product::TelemetryStatus::Fresh) computer["cpu_percent"] = state.computer.cpu_percent;
-  else computer["cpu_percent"] = nullptr;
-  if (state.computer.gpu == product::TelemetryStatus::Fresh) computer["gpu_percent"] = state.computer.gpu_percent;
-  else computer["gpu_percent"] = nullptr;
-  if (state.computer.temperature == product::TelemetryStatus::Fresh) computer["temperature_c"] = state.computer.temperature_c;
-  else computer["temperature_c"] = nullptr;
-  if (state.computer.fan == product::TelemetryStatus::Fresh) computer["fan_rpm"] = state.computer.fan_rpm;
-  else computer["fan_rpm"] = nullptr;
-  computer["sample_age_ms"] = state.computer.sample_age_ms;
-  computer["revision"] = state.computer.revision;
   JsonObject games = payload["games"].to<JsonObject>();
   games["wood_fish_count"] = state.wood_fish.count;
   games["wood_fish_last_hit_ms"] = state.wood_fish.last_hit_ms;
@@ -1099,6 +1106,81 @@ DeviceOperationResult handle_product_desktop(JsonVariantConst request, JsonObjec
   const std::string mode = request["mode"] | "";
   if (mode != "wallpaper") return device_operation_error("invalid_desktop_mode", 400);
   return fill_product_payload(response);
+}
+
+DeviceOperationResult fill_ambient(JsonObject response) {
+  const auto status=status_snapshot();
+  response["selected"]=status.ambient.scene;
+  response["active"]=status.white_noise;
+  response["playing"]=status.white_noise && status.playing;
+  response["remaining_seconds"]=(status.ambient.remaining(now_ms())+999)/1000;
+  auto scenes=response["scenes"].to<JsonArray>();
+  for (int i=0;i<ambient::kSceneCount;++i) {
+    auto scene=scenes.add<JsonObject>(); scene["id"]=i; scene["name"]=ambient::kNames[i];
+    const auto wallpaper=product::ambient_wallpaper_snapshot(i);
+    scene["wallpaper"]=wallpaper.selected; scene["wallpaper_error"]=wallpaper.error;
+    std::string path;
+    scene["installed"]=lunaredu::device::tfcard_resolve_path((std::string("/ambient/")+ambient::kIds[i]+".wav").c_str(),path) && ambient::validate_loop_file(path);
+  }
+  return device_operation_ack();
+}
+DeviceOperationResult handle_ambient_wallpaper(JsonVariantConst request, JsonObject response) {
+  if (!request["scene"].is<int>() || !ambient::valid_scene(request["scene"].as<int>()) || !request["name"].is<const char*>())
+    return device_operation_error("invalid_ambient_wallpaper",400);
+  std::string error;
+  if (!product::ambient_wallpaper_select(request["scene"].as<int>(),request["name"].as<std::string>(),error))
+    return device_operation_error(error.c_str(),409);
+  response["stored"]=true; return fill_ambient(response);
+}
+DeviceOperationResult handle_ambient_upload(const DeviceBulkRequest &request, JsonObject response) {
+  const auto id=request_arg(request,"scene");
+  int scene=-1; for(int i=0;i<ambient::kSceneCount;++i) if(id==ambient::kIds[i]) scene=i;
+  if(scene<0) return device_operation_error("invalid_ambient_scene",400);
+  const size_t size=std::max(request.body_size,request.content_length);
+  if(size<88244 || size>64*1024*1024+44) return device_operation_error("ambient_size_invalid",413);
+  std::unique_lock operation(g_player_operation_mutex,std::try_to_lock);
+  if(!operation.owns_lock()) return device_operation_error("speaker_busy",409);
+  if (audio_player_get_state()!=AUDIO_PLAYER_STATE_IDLE) return device_operation_error("stop_playback_before_install",409);
+  {
+    std::lock_guard lock(g_runtime.mutex);
+    if(g_runtime.playing || g_runtime.paused || g_runtime.uploading || g_runtime.assistant_focus_active || g_runtime.game_focus_active)
+      return device_operation_error("stop_playback_before_install",409);
+    g_runtime.uploading=true;
+  }
+  struct UploadGuard { ~UploadGuard(){ std::lock_guard lock(g_runtime.mutex); g_runtime.uploading=false; } } guard;
+  std::string base;
+  if(!lunaredu::device::tfcard_resolve_path("/ambient",base)) return device_operation_error("sdcard_not_ready",503);
+  if(mkdir(base.c_str(),0775)!=0 && errno!=EEXIST) return device_operation_error("ambient_directory_failed",503);
+  const auto path=base+"/"+ambient::kIds[scene]+".wav";
+  const auto temp=path+".part";
+  const auto backup=path+".bak";
+  struct stat previous{};
+  if (stat(path.c_str(),&previous)!=0 && stat(backup.c_str(),&previous)==0 &&
+      rename(backup.c_str(),path.c_str())!=0) return device_operation_error("ambient_recovery_failed",409);
+  FILE *file=fopen(temp.c_str(),"wb");
+  if(!file) return device_operation_error("ambient_write_failed",503);
+  bool ok=true; size_t received=0; uint8_t buffer[2048];
+  while(received<size) {
+    const size_t want=std::min(sizeof(buffer),size-received);
+    int got=0;
+    if(request.body_data && request.body_size==size) {
+      memcpy(buffer,static_cast<const uint8_t*>(request.body_data)+received,want); got=int(want);
+    } else if(request.read_chunk && request.content_length==size) got=request.read_chunk(buffer,want,request.context);
+    if(got<=0 || size_t(got)>want || fwrite(buffer,1,got,file)!=size_t(got)) {ok=false;break;}
+    received+=size_t(got);
+  }
+  if(fflush(file)!=0) ok=false;
+  if(fclose(file)!=0) ok=false;
+  if(ok) ok=ambient::validate_loop_file(temp);
+  // FAT rename cannot overwrite. Keep a rollback file until publication succeeds.
+  struct stat info{}; bool had_old=stat(path.c_str(),&info)==0;
+  if(ok && had_old) { (void)remove(backup.c_str()); ok=rename(path.c_str(),backup.c_str())==0; }
+  if(ok && rename(temp.c_str(),path.c_str())!=0) {
+    ok=false; if(had_old) (void)rename(backup.c_str(),path.c_str());
+  }
+  if(!ok) { remove(temp.c_str()); return device_operation_error("ambient_install_failed",409); }
+  if(had_old) remove(backup.c_str());
+  response["stored"]=true; return device_operation_ack();
 }
 
 DeviceOperationResult fill_wallpapers(JsonObject response) {
@@ -1192,50 +1274,6 @@ DeviceOperationResult handle_product_reminder(JsonVariantConst request, JsonObje
   } else if (action == "handle") {
     if (!product::product_handle_reminder(request["id"] | 0U)) return device_operation_error("reminder_not_found", 404);
   } else return device_operation_error("invalid_reminder_action", 400);
-  return fill_product_payload(response);
-}
-
-DeviceOperationResult handle_product_computer(JsonVariantConst request, JsonObject response) {
-  const std::string action = request["action"] | "";
-  const uint32_t protocol_version = request["protocol_version"] | 1U;
-  if (protocol_version != 1U)
-    return device_operation_error("unsupported_computer_protocol", 400);
-  if (action == "pair") {
-    if (!product::product_pair_computer(request["computer_id"] | "")) return device_operation_error("invalid_computer_id", 400);
-  } else if (action == "disconnect") {
-    if (!product::product_disconnect_computer(request["computer_id"] | ""))
-      return device_operation_error("computer_not_paired", 403);
-  }
-  else if (action == "clear") product::product_clear_computer();
-  else if (action == "sample") {
-    product::ComputerTelemetry sample;
-    const auto parse_status = [](JsonVariantConst value) {
-      const std::string status = value | "unavailable";
-      if (status == "fresh") return product::TelemetryStatus::Fresh;
-      if (status == "no_permission") return product::TelemetryStatus::NoPermission;
-      if (status == "offline") return product::TelemetryStatus::Offline;
-      if (status == "stale") return product::TelemetryStatus::Stale;
-      return product::TelemetryStatus::Unavailable;
-    };
-    sample.cpu = parse_status(request["cpu_status"]);
-    sample.gpu = parse_status(request["gpu_status"]);
-    sample.temperature = parse_status(request["temperature_status"]);
-    sample.fan = parse_status(request["fan_status"]);
-    const auto read_metric = [&](const char *key, product::TelemetryStatus status,
-                                 float minimum, float maximum, float &output) {
-      if (status != product::TelemetryStatus::Fresh) return true;
-      if (!request[key].is<float>()) return false;
-      output = request[key].as<float>();
-      return std::isfinite(output) && output >= minimum && output <= maximum;
-    };
-    if (!read_metric("cpu_percent", sample.cpu, 0, 100, sample.cpu_percent) ||
-        !read_metric("gpu_percent", sample.gpu, 0, 100, sample.gpu_percent) ||
-        !read_metric("temperature_c", sample.temperature, -100, 250, sample.temperature_c) ||
-        !read_metric("fan_rpm", sample.fan, 0, 100000, sample.fan_rpm))
-      return device_operation_error("invalid_telemetry_value", 400);
-    if (!product::product_update_computer(request["computer_id"] | "", sample, product_now_ms()))
-      return device_operation_error("computer_not_paired", 403);
-  } else return device_operation_error("invalid_computer_action", 400);
   return fill_product_payload(response);
 }
 

@@ -96,7 +96,8 @@ public:
                       float &output_right, float &pre_volume_mono,
                       bool apply_volume = true);
   void process_linked_limiter(float &left, float &right);
-  void finalize_output(float &left, float &right);
+  // Finite UI effects may bypass the paused music fade, never volume/protection.
+  void finalize_output(float &left, float &right, bool apply_fade = true);
   int16_t quantize(float sample) const;
 
   void reset();

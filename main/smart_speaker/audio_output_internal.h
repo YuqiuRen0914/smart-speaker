@@ -6,7 +6,10 @@
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 namespace smart_speaker::audio_internal {
-inline constexpr size_t kBlockCount=8;
+// 64 * 128 frames gives ~186 ms of decoder/SD jitter headroom at 44.1 kHz.
+// PCM storage lives in PSRAM; queue entries remain one-byte ownership tokens.
+inline constexpr size_t kBlockCount=64;
+static_assert(kBlockCount < 256);
 extern QueueHandle_t g_free_queue;
 extern QueueHandle_t g_ready_queue;
 extern SemaphoreHandle_t g_reconfigure_done;

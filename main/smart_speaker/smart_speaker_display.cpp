@@ -35,6 +35,7 @@
 #include "smart_speaker_track_caption.h"
 #include "smart_speaker_avatar.h"
 #include "smart_speaker_ui_status.h"
+#include "smart_speaker_ambient_view.h"
 #include "smart_speaker_sensors.h"
 #include "smart_speaker_touch_input.h"
 #include "smart_speaker_pet_animation.h"
@@ -43,6 +44,8 @@
 #include "smart_speaker_home.h"
 #include "smart_speaker_home_pet.h"
 #include "smart_speaker_launcher.h"
+#include "smart_speaker_wood_fish.h"
+#include "smart_speaker_music_view.h"
 #include "assets/home_clock_font.h"
 #include "smart_speaker_boot.h"
 #include "product/product_state_runtime.h"
@@ -61,6 +64,14 @@ const lv_font_t *g_heading_font = nullptr;
 constexpr uint32_t kDisplayFrameMs = 20;
 HomePetView g_home_pet;
 AppLauncher g_launcher;
+WoodFishView g_wood_fish;
+MusicView g_music_view;
+AmbientView g_ambient_view;
+EXT_RAM_BSS_ATTR music::SpectrumAnalyzer g_music_analyzer;
+EXT_RAM_BSS_ATTR music::PcmWindow g_music_window;
+music::Bands g_music_bands{};
+uint32_t g_music_analysis_ms = 0, g_music_sample_ms = 0;
+std::string g_music_track;
 extern const uint8_t kHomePetIdle[] asm("_binary_home_pet_idle_bin_start");
 SpeakerHome g_home;
 SpeakerBootScreen g_boot;
@@ -89,12 +100,15 @@ character::Feedback g_network_feedback = character::Feedback::None;
 lv_obj_t *g_character_hint = nullptr;
 bool g_force_character_redraw = false;
 std::atomic<bool> g_character_damaged{false};
+std::atomic<bool> g_music_damaged{false};
 std::atomic<uint8_t> g_assistant_emotion{
     static_cast<uint8_t>(AssistantVisualState::Inactive)};
 std::atomic<uint32_t> g_assistant_emotion_until_ms{0};
 std::atomic<int> g_character_damage_top{50};
 std::atomic<int> g_character_damage_height{character::kSize};
 void notify_character_flush(uint16_t x, uint16_t y, uint16_t width, uint16_t height) {
+  if (x < 208 && x + width > 32 && y < 208 && y + height > 32)
+    g_music_damaged.store(true, std::memory_order_release);
   const int top = g_character_damage_top.load(std::memory_order_relaxed);
   if (x < 200 && x + width > 40 && y < top + g_character_damage_height.load(std::memory_order_relaxed) && y + height > top)
     g_character_damaged.store(true, std::memory_order_release);
@@ -348,28 +362,6 @@ lv_obj_t *g_info_labels[3] = {};
 lv_obj_t *g_info_values[3] = {};
 lv_obj_t *g_calendar_panel = nullptr;
 lv_obj_t *g_calendar_days[42] = {};
-lv_obj_t *g_cover_view = nullptr;
-lv_image_dsc_t g_cover_descriptor{};
-std::shared_ptr<const cover::Image> g_display_cover;
-void update_cover_view(bool visible) {
-  const auto current = visible ? current_cover_snapshot().image : nullptr;
-  if (current != g_display_cover) {
-    lv_image_set_src(g_cover_view, nullptr);
-    lv_image_cache_drop(&g_cover_descriptor);
-    g_display_cover = current;
-    if (current) {
-      g_cover_descriptor.header.magic = LV_IMAGE_HEADER_MAGIC;
-      g_cover_descriptor.header.cf = LV_COLOR_FORMAT_RGB565;
-      g_cover_descriptor.header.w = g_cover_descriptor.header.h = cover::kSide;
-      g_cover_descriptor.header.stride = cover::kSide * 2;
-      g_cover_descriptor.data_size = cover::kSide * cover::kSide * 2;
-      g_cover_descriptor.data = reinterpret_cast<const uint8_t *>(current->pixels.get());
-      lv_image_set_src(g_cover_view, &g_cover_descriptor);
-    }
-  }
-  if (current) lv_obj_remove_flag(g_cover_view, LV_OBJ_FLAG_HIDDEN);
-  else lv_obj_add_flag(g_cover_view, LV_OBJ_FLAG_HIDDEN);
-}
 void set_label_text(lv_obj_t *label, const std::string &text) {
   if (text != lv_label_get_text(label)) lv_label_set_text(label, text.c_str());
 }
@@ -422,11 +414,9 @@ void update_local_menu() {
     }
     g_product_list.create(g_menu_panel, g_body_font);
     g_launcher.create(g_menu_panel, g_heading_font, lunaros_font_runtime_12());
-    g_cover_view = lv_image_create(g_menu_panel);
-    lv_obj_set_pos(g_cover_view, 152, 60);
-    lv_image_set_pivot(g_cover_view, 0, 0);
-    lv_image_set_scale(g_cover_view, 77); // 240px source -> 72px preview
-    lv_obj_add_flag(g_cover_view, LV_OBJ_FLAG_HIDDEN);
+    g_wood_fish.create(g_menu_panel, g_heading_font, lunaros_font_runtime_12());
+    g_music_view.create(g_menu_panel, g_body_font, lunaros_font_runtime_12(), true);
+    g_ambient_view.create(g_menu_panel, g_body_font, lunaros_font_runtime_12());
     auto hint = lv_label_create(g_menu_panel);
     g_menu_hint = hint;
     lv_label_set_text(hint, "");
@@ -515,8 +505,24 @@ void update_local_menu() {
   }
   const auto menu = local_menu_snapshot();
   const auto current_navigation = product::product_navigation_snapshot();
-  update_cover_view(menu.product_shell && current_navigation.page == product::Page::Feature &&
-      current_navigation.module == product::Module::Music);
+  const bool wood_fish_visible = menu.product_shell &&
+      current_navigation.page == product::Page::Feature &&
+      current_navigation.module == product::Module::Games && current_navigation.item == 0 &&
+      !lunaredu::pet::conversation::runtime_snapshot().interaction_active;
+  if (!wood_fish_visible) g_wood_fish.hide();
+  const bool song_page = menu.product_shell && current_navigation.page == product::Page::Feature &&
+      current_navigation.module == product::Module::Music && current_navigation.item == 0;
+  const auto song = song_page ? status_snapshot() : RuntimeStatus{};
+  const bool music_visible = song_page && !song.white_noise &&
+      !lunaredu::pet::conversation::runtime_snapshot().interaction_active;
+  const bool music_playing = music_visible && song.playing && !song.paused && song.audio_ready;
+  if (!music_visible) g_music_view.hide();
+  if (!music_playing || song.current_path != g_music_track) {
+    dual_i2s_music_spectrum_enable(false);
+    g_music_bands = {};
+  }
+  g_music_track = song.current_path;
+  dual_i2s_music_spectrum_enable(music_playing);
   if (!menu.product_shell || current_navigation.page != product::Page::Feature ||
       current_navigation.module != product::Module::Information)
     lv_obj_add_flag(g_calendar_panel, LV_OBJ_FLAG_HIDDEN);
@@ -525,24 +531,81 @@ void update_local_menu() {
     lv_obj_add_flag(g_game2048_panel, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(g_game2048_score, LV_OBJ_FLAG_HIDDEN);
   }
+  const bool ambient_visible = menu.product_shell && current_navigation.page == product::Page::Feature &&
+      current_navigation.module == product::Module::Music && current_navigation.item == 1 &&
+      !lunaredu::pet::conversation::runtime_snapshot().interaction_active;
+  if (!ambient_visible) g_ambient_view.hide();
+  if (ambient_visible) {
+    g_product_list.hide(); g_launcher.hide();
+    const auto speaker = status_snapshot();
+    const auto wallpaper = product::ambient_wallpaper_snapshot(speaker.ambient.shown_scene());
+    g_ambient_view.show(speaker.ambient, speaker.white_noise && speaker.playing, speaker.white_noise && speaker.paused,
+        speaker.volume, !speaker.sd_ready ? "请检查存储卡" : !speaker.audio_ready ? "音频未就绪" :
+        speaker.last_error.empty() ? "" : speaker_error_hint(speaker.last_error), wallpaper,
+        static_cast<uint32_t>(esp_timer_get_time()/1000));
+    lv_obj_remove_flag(g_menu_panel, LV_OBJ_FLAG_HIDDEN); lv_obj_move_foreground(g_menu_panel);
+    g_local_overlay = true; return;
+  }
+  if (music_visible) {
+    g_product_list.hide();
+    g_launcher.hide();
+    const uint64_t music_started = esp_timer_get_time();
+    const auto now = static_cast<uint32_t>(music_started / 1000);
+    if (music_playing && uint32_t(now - g_music_analysis_ms) >= 40) {
+      g_music_analysis_ms = now;
+      if (dual_i2s_music_spectrum_take(g_music_window, now)) {
+        const auto fft_started = esp_timer_get_time();
+        g_music_bands = g_music_analyzer.analyze(g_music_window);
+        portENTER_CRITICAL(&g_display_stats_lock);
+        g_display_stats.last_music_fft_us = esp_timer_get_time() - fft_started;
+        portEXIT_CRITICAL(&g_display_stats_lock);
+        g_music_sample_ms = g_music_window.updated_ms;
+      }
+    }
+    if (uint32_t(now - g_music_sample_ms) > 180) g_music_bands = {};
+    const auto artwork = current_cover_snapshot();
+    std::string footer = !song.audio_ready ? "音频未就绪" :
+        !song.sd_ready ? "存储卡未就绪" :
+        !song.last_error.empty() ? speaker_error_hint(song.last_error) :
+        song.current_name.empty() ? "请通过网页添加歌曲" :
+        song.paused ? "已暂停" : !song.playing ? "已停止" :
+        !song.lyric_line.empty() ? song.lyric_line :
+        !artwork.error.empty() ? "封面读取失败" : "正在播放";
+    const bool music_rendered = g_music_view.show(song.current_name.empty() ? "本地音乐" : song.current_name,
+        footer, artwork.image, music_playing, g_music_bands, now, song.volume);
+    if (music_rendered) {
+      static uint64_t last_music_frame = 0;
+      const auto elapsed = esp_timer_get_time() - music_started;
+      portENTER_CRITICAL(&g_display_stats_lock);
+      ++g_display_stats.music_frame_count;
+      g_display_stats.last_music_prepare_us = elapsed;
+      g_display_stats.last_music_frame_interval_us = last_music_frame ? music_started - last_music_frame : 0;
+      portEXIT_CRITICAL(&g_display_stats_lock);
+      last_music_frame = music_started;
+    }
+    lv_obj_remove_flag(g_menu_panel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(g_menu_panel);
+    g_local_overlay = true;
+    return;
+  }
   if (menu.product_shell) {
     const auto product_state = product::product_state_snapshot(
         static_cast<uint32_t>(esp_timer_get_time() / 1000000),
         static_cast<uint32_t>(esp_timer_get_time() / 1000));
     const auto nav = product_state.navigation;
-    if (nav.page == product::Page::ModuleList) {
+    if (nav.page == product::Page::ModuleList || nav.page == product::Page::ModuleMenu ||
+        nav.page == product::Page::Settings) {
       g_product_list.hide();
-      g_launcher.show(nav.item);
+      if (nav.page == product::Page::ModuleList) g_launcher.show(nav.item);
+      else g_launcher.show_secondary(nav.module, nav.item);
       lv_obj_remove_flag(g_menu_panel, LV_OBJ_FLAG_HIDDEN);
       lv_obj_move_foreground(g_menu_panel);
       g_local_overlay = true;
       return;
     }
     g_launcher.hide();
-    const char *module_titles[] = {"音乐", "助手", "时间管理", "信息看板", "游戏娱乐", "电脑协同", "设置"};
-    const char *title = nav.page == product::Page::ModuleMenu ? module_titles[static_cast<int>(nav.module)] :
-        nav.page == product::Page::PetActions ? "宠物动作" :
-        nav.page == product::Page::Settings ? "设置" : "功能";
+    const char *module_titles[] = {"音乐", "助手", "时间管理", "信息看板", "游戏娱乐", "设置"};
+    const char *title = nav.page == product::Page::PetActions ? "宠物动作" : "功能";
     set_label_text(g_menu_text, title);
     lv_obj_add_flag(g_binding_code, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(g_binding_info, LV_OBJ_FLAG_HIDDEN);
@@ -558,19 +621,7 @@ void update_local_menu() {
     int selected = nav.item;
     const bool catalog_ready = nav.page == product::Page::PetActions &&
         product::pet_animation_catalog_ready();
-    if (nav.page == product::Page::ModuleMenu) {
-      if (nav.module == product::Module::Music) labels = {"本地音乐", "白噪声", "", ""};
-      else if (nav.module == product::Module::Assistant) labels = {"语音对话", "宠物动作", "", ""};
-      else if (nav.module == product::Module::Games) labels = {"电子木鱼", "2048", "", ""};
-      else if (nav.module == product::Module::Time) labels = {"时钟", "番茄钟与提醒", "", ""};
-      else if (nav.module == product::Module::Information) labels = {"日历", "天气", "", ""};
-      else labels = {"打开", "", "", ""};
-      count = labels[1].empty() ? 1 : 2;
-    } else if (nav.page == product::Page::Settings) {
-      labels = {"无线网络", "设备信息", "绑定账号", ""};
-      icons = {LV_SYMBOL_WIFI, LV_SYMBOL_LIST, LV_SYMBOL_SETTINGS};
-      count = 3;
-    } else if (nav.page == product::Page::PetActions && catalog_ready) {
+    if (nav.page == product::Page::PetActions && catalog_ready) {
       const int first = std::clamp(int(nav.item) - 3, 0,
           int(product::kPetActionRows - AmoledList::kMaxItems));
       count = AmoledList::kMaxItems;
@@ -586,24 +637,20 @@ void update_local_menu() {
       std::string detail;
       if (nav.module == product::Module::Music) {
         const auto speaker = status_snapshot();
-        set_label_text(g_menu_text, nav.item == 1 ? "白噪声" : "音乐");
-        detail = !speaker.audio_ready ? "音频未就绪" : speaker.white_noise ? "白噪声 · 循环" : !speaker.sd_ready ? "存储卡未就绪" :
-            speaker.current_name.empty() ? "还没有歌曲" : speaker.current_name;
+        set_label_text(g_menu_text, nav.item == 1 ? "环境声" : "音乐");
+        detail = !speaker.audio_ready ? "音频未就绪" : speaker.white_noise ? "环境声 · 循环" :
+            !speaker.sd_ready ? "存储卡未就绪" : speaker.current_name.empty() ? "还没有歌曲" : speaker.current_name;
         detail += speaker.playing ? "\n正在播放" : speaker.paused ? "\n已暂停" : "\n已停止";
         detail += " · 音量 " + std::to_string(speaker.volume);
-        if (!speaker.lyric_line.empty()) detail += "\n" + speaker.lyric_line;
         if (!speaker.last_error.empty()) detail += "\n" + std::string(speaker_error_hint(speaker.last_error));
-        const auto artwork = current_cover_snapshot();
-        if (!speaker.white_noise) {
-          if (!artwork.error.empty()) detail += "\n封面读取失败";
-          else if (!artwork.image) detail += "\n暂无封面";
-        }
         detail += "\n确认播放/暂停";
       } else if (nav.module == product::Module::Assistant) {
         set_label_text(g_menu_text, "助手");
         detail = xiaozhi_status_label() + "\n确认开始对话";
       } else if (nav.module == product::Module::Games && nav.item == 0) {
-        detail = "电子木鱼\n功德 " + std::to_string(product_state.wood_fish.count);
+        if (wood_fish_visible) g_wood_fish.show(product_state.wood_fish.count,
+            static_cast<uint32_t>(esp_timer_get_time() / 1000));
+        detail.clear();
       } else if (nav.module == product::Module::Games) {
         set_label_text(g_menu_text, "2048");
         set_label_text(g_game2048_score, "分数 " + std::to_string(product_state.game_score) +
@@ -643,23 +690,6 @@ void update_local_menu() {
             if (reminder != product_state.reminders.end()) detail += "\n待查看：" + reminder->title;
             if (pending.missed) detail += "（已错过）";
           }
-        }
-      } else if (nav.module == product::Module::Computer) {
-        set_label_text(g_menu_text, "电脑协同");
-        if (product_state.paired_computer.empty()) detail = "未配对电脑\n请通过网页配对采集端";
-        else {
-          auto metric = [](product::TelemetryStatus status, float value, const char *unit) {
-            if (status != product::TelemetryStatus::Fresh) return std::string(product::telemetry_status_name(status));
-            char number[32] = {};
-            std::snprintf(number, sizeof(number), "%.1f%s", static_cast<double>(value), unit);
-            return std::string(number);
-          };
-          const auto &sample = product_state.computer;
-          detail = "CPU " + metric(sample.cpu, sample.cpu_percent, "%") +
-              "\nGPU " + metric(sample.gpu, sample.gpu_percent, "%") +
-              "\n温度 " + metric(sample.temperature, sample.temperature_c, "°C") +
-              "\n风扇 " + metric(sample.fan, sample.fan_rpm, " rpm") +
-              "\n" + std::to_string(sample.sample_age_ms / 1000) + " 秒前";
         }
       } else if (nav.module == product::Module::Information) {
         const std::time_t epoch = std::time(nullptr);
@@ -711,7 +741,7 @@ void update_local_menu() {
       lv_label_set_long_mode(g_menu_hint, LV_LABEL_LONG_WRAP);
       if (nav.module == product::Module::Information && !lv_obj_has_flag(g_calendar_panel, LV_OBJ_FLAG_HIDDEN))
         lv_obj_set_y(g_menu_hint, 216);
-      if (nav.module == product::Module::Games && nav.item == 1)
+      if (nav.module == product::Module::Games)
         lv_obj_add_flag(g_menu_hint, LV_OBJ_FLAG_HIDDEN);
       else
         lv_obj_remove_flag(g_menu_hint, LV_OBJ_FLAG_HIDDEN);
@@ -1231,6 +1261,11 @@ void display_task(void *) {
     const auto assistant = lunaredu::pet::conversation::runtime_snapshot();
     const bool voice_busy = assistant.interaction_active;
     const auto local_menu = local_menu_snapshot();
+    const auto navigation = product::product_navigation_snapshot();
+    const bool assistant_page = local_menu.product_shell &&
+        navigation.page == product::Page::Feature &&
+        navigation.module == product::Module::Assistant;
+    const bool assistant_closeup = voice_busy || assistant_page;
     const bool menu_page = local_menu.open || local_menu.product_shell || local_menu.binding || local_menu.information || local_menu.network || local_menu.library;
     const bool home_visible = !menu_page && !g_setup_visible;
     const bool home_face_visible = home_visible;
@@ -1283,7 +1318,7 @@ void display_task(void *) {
     }
     const bool holding = !menu_page && !g_setup_visible && local_menu.hold_percent > 0;
     const bool setup_character = !menu_page && g_setup_visible && g_setup_character;
-    const bool character_allowed = home_visible || setup_character || voice_busy;
+    const bool character_allowed = home_visible || setup_character || assistant_closeup;
     const uint32_t now = static_cast<uint32_t>(esp_timer_get_time() / 1000);
     const uint32_t activity = visual_activity_snapshot();
     const auto motion = smart_speaker_motion_input();
@@ -1333,7 +1368,7 @@ void display_task(void *) {
         assistant_visual = static_cast<AssistantVisualState>(
             g_assistant_emotion.load(std::memory_order_acquire));
     }
-    const bool animation_visible = (home_visible || voice_busy) && pet_buffer && pose.visible;
+    const bool animation_visible = (home_visible || assistant_closeup) && pet_buffer && pose.visible;
     const auto animated_frame = product::pet_animation_snapshot();
     const bool animation_ready = animation_visible && animated_frame.pixels;
     static bool previous_radar = false;
@@ -1396,7 +1431,7 @@ void display_task(void *) {
       case AssistantVisualState::Failed: conversation_clip = product::pet_action_named("被吓一跳"); break;
       default: break;
     }
-    const bool pet_interactive = animation_visible && !voice_busy && !holding;
+    const bool pet_interactive = animation_visible && !assistant_closeup && !holding;
     if (animation_visible && animated_frame.unavailable) g_pending_pet_action.store(-1);
     const auto animation = pet_animation.update(now, animation_visible, pet_interactive,
         conversation_clip, touch, animated_frame.clip, animated_frame.index,
@@ -1418,7 +1453,7 @@ void display_task(void *) {
     }
     const bool show_indicator = indicator_visible && hint.empty();
     update_playback_indicator(show_indicator, indicator_opacity, volume_level);
-    set_visible(g_character_hint, !voice_busy && !hint.empty());
+    set_visible(g_character_hint, !assistant_closeup && !hint.empty());
     set_visible(g_track_panel, home_visible && transfer_page);
     portENTER_CRITICAL(&g_display_stats_lock);
     g_display_stats.character_visible = pose.visible;
@@ -1449,12 +1484,14 @@ void display_task(void *) {
     if (animation_visible) {
       const int frame_key = animation_ready ?
           (static_cast<int>(animated_frame.clip) << 8) | animated_frame.index : -1;
-      g_home_pet.show(voice_busy ? PetSpriteRect{80, 48, 80, 80} : animation.sprite, animation_ready ? animated_frame.pixels->data() : nullptr,
+      g_home_pet.show(assistant_closeup ? HomePetView::kConversationRect : animation.sprite, animation_ready ? animated_frame.pixels->data() : nullptr,
                       frame_key, kHomePetIdle);
     } else {
       g_home_pet.hide();
     }
-    g_home_pet.set_conversation(voice_busy, voice_busy ? xiaozhi_status_label(true).c_str() : "");
+    g_home_pet.set_conversation(assistant_closeup,
+        assistant_page && !voice_busy && assistant.activation_ready && !assistant.failed
+            ? "轻点开始对话" : xiaozhi_status_label(true).c_str());
     if (pet_interactive) {
       const auto r = animation.sprite;
       // Exclude most of the transparent margin in the 80px default sprite.
@@ -1493,6 +1530,28 @@ void display_task(void *) {
         portEXIT_CRITICAL(&g_display_stats_lock);
       }
     }
+    // Reuse the existing display owner and LCD fence for the opaque art region.
+    // Text and navigation remain LVGL-owned; redraw art after any overlapping
+    // LVGL damage, only once the single LVGL buffer has finished flushing.
+    const auto *music_pixels = g_music_view.direct_frame();
+    const bool music_damaged = g_music_damaged.exchange(false, std::memory_order_acq_rel);
+    if (music_pixels && (g_music_view.needs_flush() || music_damaged)) {
+      if (lvgl_status.flush_pending) g_music_damaged.store(true, std::memory_order_release);
+      else {
+        const auto started = esp_timer_get_time();
+        std::string error;
+        const bool ok = lunaredu::device::device_spi_lcd_surface_draw_rgb565_bitmap(
+            32, 32, 176, 176, music_pixels, false, &error,
+            lunaredu::device::DeviceSpiLcdTransferMode::kWaitForCompletion);
+        if (ok) g_music_view.flushed();
+        else g_music_damaged.store(true, std::memory_order_release);
+        portENTER_CRITICAL(&g_display_stats_lock);
+        g_display_stats.last_music_transfer_us = esp_timer_get_time() - started;
+        if (ok) ++g_display_stats.music_presented_frames;
+        else ++g_display_stats.music_transfer_failures;
+        portEXIT_CRITICAL(&g_display_stats_lock);
+      }
+    }
     // Account for every flushed rectangle, not just the final tile. A scrolling
     // caption above the character no longer forces a full character upload.
     if (g_character_damaged.exchange(false, std::memory_order_acq_rel)) g_force_character_redraw = true;
@@ -1515,6 +1574,8 @@ void display_task(void *) {
     // input poll or frame, rather than adding 20 ms after every slow draw.
     uint32_t wait_ms = display_frame_wait_ms(
         static_cast<uint32_t>(esp_timer_get_time() - poll_us), kDisplayFrameMs);
+    if (g_music_view.direct_frame()) wait_ms = std::min(wait_ms,
+        g_music_view.frame_wait_ms(static_cast<uint32_t>(esp_timer_get_time() / 1000)));
     if (setup_character && pose.visible) {
       const uint32_t since_frame = static_cast<uint32_t>(esp_timer_get_time() / 1000) - last_character_ms;
       wait_ms = std::min(wait_ms, since_frame >= character::kFrameMs ? 1U : character::kFrameMs - since_frame);

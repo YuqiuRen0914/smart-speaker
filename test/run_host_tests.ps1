@@ -17,6 +17,11 @@ $playbackToolStatusBinary = Join-Path $testRoot 'playback_tool_status_test.exe'
 if ($LASTEXITCODE -ne 0) { throw 'playback tool status test compilation failed' }
 & $playbackToolStatusBinary
 if ($LASTEXITCODE -ne 0) { throw 'playback tool status test failed' }
+$musicSpectrumBinary = Join-Path $testRoot 'music_spectrum_test.exe'
+& $Cxx -std=c++17 -Wall -Wextra -Werror -O2 -pthread "-I$include" (Join-Path $PSScriptRoot 'music_spectrum_test.cpp') -o $musicSpectrumBinary
+if ($LASTEXITCODE -ne 0) { throw 'music spectrum test compilation failed' }
+& $musicSpectrumBinary
+if ($LASTEXITCODE -ne 0) { throw 'music spectrum test failed' }
 $noiseBinary = Join-Path $testRoot 'noise_test.exe'
 & $Cxx -std=c++17 -Wall -Wextra -Werror -O2 "-I$include" (Join-Path $PSScriptRoot 'noise_test.cpp') (Join-Path $include 'smart_speaker_noise.cpp') -o $noiseBinary
 if ($LASTEXITCODE -ne 0) { throw 'noise test compilation failed' }
@@ -89,7 +94,19 @@ if ($LASTEXITCODE -ne 0) { throw 'cover test compilation failed' }
 & $coverBinary
 if ($LASTEXITCODE -ne 0) { throw 'cover test failed' }
 
-foreach ($name in @('xiaozhi_activation', 'lunarlink_protocol', 'lunarlink_bootstrap', 'lunarlink_binding', 'lunarlink_generation', 'lunarlink_capabilities', 'audio_lifecycle', 'transfer', 'lyrics_api', 'cover_api', 'pet_frame_api', 'track_remove', 'local_menu_display', 'local_menu', 'playback_mode', 'mp3_guard', 'audio_focus_state', 'assistant_control', 'wake_model', 'microphone_capture')) {
+foreach ($name in @('xiaozhi_activation', 'music_voice_queue', 'lunarlink_protocol', 'lunarlink_bootstrap', 'lunarlink_binding', 'lunarlink_generation', 'lunarlink_capabilities', 'audio_lifecycle', 'transfer', 'lyrics_api', 'cover_api', 'pet_frame_api', 'track_remove', 'local_menu_display', 'local_menu', 'playback_mode', 'mp3_guard', 'sd_dma', 'lcd_strip', 'audio_drain', 'music_damage', 'audio_read_guard', 'audio_focus_state', 'assistant_control', 'wake_model', 'microphone_capture')) {
     & python (Join-Path $PSScriptRoot ($name + '_test.py'))
     if ($LASTEXITCODE -ne 0) { throw "$name production regression failed" }
 }
+
+$woodFishBinary = Join-Path $testRoot 'wood_fish_sound_test.exe'
+& $Cxx -std=c++17 -Wall -Wextra -Werror -O2 "-I$include" (Join-Path $PSScriptRoot 'wood_fish_sound_test.cpp') (Join-Path $include 'smart_speaker_dsp.cpp') -o $woodFishBinary
+if ($LASTEXITCODE -ne 0) { throw 'wood fish sound test compilation failed' }
+& $woodFishBinary
+if ($LASTEXITCODE -ne 0) { throw 'wood fish sound test failed' }
+
+node "$appRoot/test/music_metadata_test.mjs"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+node "$appRoot/test/library_refresh_test.mjs"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

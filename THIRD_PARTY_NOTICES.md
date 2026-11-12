@@ -17,3 +17,10 @@ The SmallTV weather-clock screenshot is a visual reference supplied by the user.
 The [dsh-pet archive](components/lunaredu_character_assets/third_party/dsh-pet/README.md) preserves all 114 original WebM animations, all 109 GIF previews, and selected reference files from [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) commit `c25386848f70f6e40902e4376f6e7b1e196bc326`. The upstream code is MIT; its README identifies the community character as CC BY-NC-SA 4.0, credits @上善无形 and @ZipZipPipe, and requires derivatives to link the original project in public channels. Original license and attribution are preserved with the archive. The original archives and reference code are not compiled into firmware. The firmware includes one 80×80 derivative of the first idle frame (CC BY-NC-SA 4.0), stored as RGB565 and alpha in `main/assets/home_pet_idle.bin`.
 
 Factory wake resources use `wn9s_nihaoxiaozhi` from the already locked Espressif ESP-SR component (`model/wakenet_model/wn9s_nihaoxiaozhi`). The model is packaged unchanged into the ESP-SR model container by `tools/assets/seed-storage.py`; its original component LICENSE is copied to `managed/model.LICENSE.txt` in the storage seed. No custom wake model is included.
+
+## 环境声录音（2026-11-12）
+
+四个候选录音的作者、原始发布页与 CC0-1.0 授权链接见
+[资源清单](resources/ambient/manifest.json)。派生音频经音量处理、重采样和循环接缝交叉淡化；
+Freesound 输入为公开高质量预听 MP3。四张默认壁纸为本项目通过内置 image_gen 新生成，
+提示词记录于 main/assets/ambient/prompts.json。原有第三方声明保持不变。

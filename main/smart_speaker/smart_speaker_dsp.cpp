@@ -487,8 +487,8 @@ float AudioProcessor::next_fade_gain() {
   return fade_gain_;
 }
 
-void AudioProcessor::finalize_output(float &left, float &right) {
-  const float fade = next_fade_gain();
+void AudioProcessor::finalize_output(float &left, float &right, bool apply_fade) {
+  const float fade = apply_fade ? next_fade_gain() : 1.0f;
   left *= fade;
   right *= fade;
   const float mono = 0.25f * (left + right); // -6 dB mono sum.

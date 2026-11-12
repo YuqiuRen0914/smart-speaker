@@ -52,6 +52,36 @@ python -c 'from PIL import Image; Image.open(".local/ui-preview/renders/home-sno
 ```
 
 
-命令末尾可加 `main/assets/home_pet_idle.bin`，渲染实际壁纸首页视图和七个应用入口。输出 `wallpaper-home.ppm`、`app-1.ppm` 至 `app-7.ppm`，并检查在显式测试壁纸上拖动或隐藏宠物后，旧位置会完整恢复，SD 帧的透明区域仍显示壁纸。
+命令末尾可加 `main/assets/home_pet_idle.bin`，渲染实际壁纸首页视图和六个应用入口。输出 `wallpaper-home.ppm`、`app-1.ppm` 至 `app-6.ppm`，并检查在显式测试壁纸上拖动或隐藏宠物后，旧位置会完整恢复，SD 帧的透明区域仍显示壁纸。
 
 宠物帧更新只刷新实际精灵尺寸：默认帧的损伤面积由 96×96（9,216 像素）缩至 80×80（6,400 像素），画面逐像素一致。96／73／80 像素尺寸切换后的局部刷新与整屏重绘结果相同，移动和隐藏后恢复背景。这些像素数量不等同于真机帧率。
+
+## 电子木鱼
+
+同一 `home_preview` 也编译生产 `WoodFishView`，输出 `wood-fish-*.ppm`，覆盖静止、落槌、飘字、动画结束、页面重入、连续 100 次敲击和毫秒回绕。`wood-fish-continuous.ppm` 显示三次敲击的独立 +1；断言检查其同时存活、结束后全部隐藏及始终位于 y=40–88 的上方区域，不与 y≥91 的木鱼／木槌重叠。断言检查 240×240 边界、字体覆盖、动画结束后的像素恢复及对象数量稳定。主机图使用显式计数夹具，不访问设备；不能替代真机帧率、音画同步与人耳验收。
+
+主体源图为 `main/assets/wood_fish.svg`，按用户提供的浅色剪影参考重新绘制；`wood_fish_mask.c` 是其 160×124 A8 掩码（19,840 字节），固件无需 SVG 解码器或 SD 素材。离线转换使用 `@resvg/resvg-js` 2.6.2 渲染透明 PNG，再以 Pillow 读取 alpha 通道逐行输出 C 数组；工具仅在本地资源准备环境使用，不加入固件依赖。木槌由 LVGL 绘制，所有控件复用，无每次敲击创建的对象或定时器。
+
+### 音乐唱片页
+
+预览同时编译生产 `smart_speaker_music_view.cpp` 和频谱分析器。输出 `music-frame-000.ppm` 至 `music-frame-079.ppm`、默认黑胶、暂停、长歌名／长歌词与封面切换画面。频谱来自主机显式合成的 250 Hz／1800 Hz PCM，经生产 FFT 计算；封面是测试渐变图，均不进入产品默认数据。检查动画局部刷新、暂停稳定后零刷新、全量与增量重绘一致、100 次进入退出与背景恢复。主机渲染不是实屏帧率或声音连续性证明。
+
+音乐页同时输出 `music-render-work.csv`，统计每帧生产 FFT、视图更新与 LVGL 刷新的总主机耗时（不含 PPM 文件写入）。2026-11-12 修复将逐段绘制的 64 条频谱线与唱片合成一个 176×176 RGB565 图像，用定点坐标旋转，并缓存 FFT Hann 窗。相同 80 帧夹具，排除首次创建帧，平均约 120 → 47 µs；每帧刷新区域仍为 30,976 像素。这个主机对比不能换算为 ESP32 帧率。局部／全量重绘等价、暂停稳定后零刷新和 100 次进出检查通过。
+
+2026-11-12 后续：顶部歌名按用户反馈固定、省略超长内容；歌词采用 216×28 的固定裁切区，短句居中，换句直接替换，长句停留 1.2 秒后按 24 px/s 水平移动。文字节点只允许在裁切区内横向溢出，测试单独检查其可见边界、固定 Y 坐标和换行归一；其他控件仍严格检查 240×240 对象边界。新增 `music-lyrics-horizontal.ppm` 与 `music-lyrics-single-baseline.ppm`。
+
+直接 LCD 提交路径与 LVGL 图像输出在主机上逐像素比较；覆盖全屏重绘后的图像补画和隐藏后背景恢复。产品复用原显示所有者与 LCD 完成屏障，不由主机耗时推断实机 FPS；实机应读取 `music_presented_frames`，其提交耗时由 `last_music_transfer_us` 单独记录。
+
+### 二级图标菜单（2026-11-12）
+
+图形定义为本工程原创，不含第三方图标；数字使用路径绘制，不依赖主机字体。重建命令：`python3 tools/resource-tools/prepare_menu_icons.py --resvg-module .local/wood-fish-tools/node_modules/@resvg/resvg-js`。
+
+同一生产 AppLauncher 输出 `secondary-0-0.ppm` 至 `secondary-5-2.ppm`（各模块按实际 2／3 项，共 13 页）。检查全部文字／对象边界、同页重复显示零刷新、一级圆点与二级方格切换后的像素一致性、100 次隐藏／显示对象复用。
+
+二级菜单使用本工程原创 SVG 派生的 120×120 RGB565 静态资源，共 374,400 字节 Flash；显示时不缩放、不运行 SVG 解码，也不依赖 SD。原始图形定义及可重复转换在 `tools/resource-tools/prepare_menu_icons.py`，输出 `main/assets/secondary_menu_icons.svg` 和 `.c`。离线依赖沿用 Pillow 与 resvg 2.6.2；固件无新增第三方依赖。主机预览不能代替实体屏幕颜色、触摸与负载验收。
+
+## 环境声
+
+预览链接生产 AmbientView 和四张默认 RGB565 插画，输出 ambient-select/pure/controls/timer-0..3.ppm。
+验证 240×240 边界、字体覆盖、浮层隐藏后逐像素恢复，以及纯壁纸静止轮询不重绘。
+不包含设备 I/O、真实触摸、声音或硬件性能验收。

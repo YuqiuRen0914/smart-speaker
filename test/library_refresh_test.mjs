@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+const html=readFileSync(new URL('../main/web/home.html',import.meta.url),'utf8');
+let writes=0,value='';const table={set innerHTML(v){writes++;value=v;},get innerHTML(){return value;}};
+const context=vm.createContext({$:()=>table,escapeHtml:s=>s,formatBytes:n=>String(n),encodeURIComponent,Date});
+vm.runInContext('let libraryTracks=[], librarySignature="", coverRevision=0;'+html.slice(html.indexOf('    function renderTracks('),html.indexOf('    async function refreshAll(')),context);
+const tracks=[{name:'Let Go.mp3',path:'/sdcard/music/Let Go.mp3',size:7935999,has_cover:true,has_lyrics:true,lyrics_delay_ms:0}];
+context.renderTracks(tracks);const first=value;
+for(let i=0;i<30;i++)context.renderTracks(structuredClone(tracks));
+assert.equal(writes,1,'Unchanged polling must preserve existing image nodes');
+assert.equal(value,first);
+context.renderTracks(tracks,true);assert.equal(writes,2);assert.notEqual(value,first,'A confirmed cover replacement must refresh the image');
+context.renderTracks(tracks);assert.equal(writes,2);
+context.renderTracks([]);assert.equal(writes,3);assert(!value.includes('<img'));
+console.log('Library polling preserves cover nodes; explicit replacement and removal update once');

@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "sample_rate": 22050,
+  "channels": 2,
+  "bits": 16,
+  "processing": "high-pass 50 Hz, low-pass 8 kHz, loudnorm -26 LUFS / -8 dBTP / LRA 7, 1.5 s linear seam crossfade",
+  "sources": [
+    {
+      "scene": "rain",
+      "title": "Soft rain.WAV",
+      "author": "barkenov",
+      "url": "https://freesound.org/people/barkenov/sounds/640655/",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "input_variant": "public high-quality MP3 preview",
+      "source_sha256": "f5e4d1958e192762dc35e535e79afd30755986e18e7edabade998d84d446e6b9",
+      "file": "ambient/rain.wav",
+      "sha256": "d260432695e95fcf6af9f4b9a5ba4933c06bd80da99eaadcb57cf02825c7296c",
+      "bytes": 5256472,
+      "seconds": 59.59668934240363,
+      "peak_pcm": 14208,
+      "seam_delta_pcm": 48
+    },
+    {
+      "scene": "shore",
+      "title": "Gentle small waves lapping on shore.wav",
+      "author": "Alex_hears_things",
+      "url": "https://freesound.org/people/Alex_hears_things/sounds/352356/",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "input_variant": "public high-quality MP3 preview",
+      "source_sha256": "768a4f8b84223ee73fb9435e19e48ee6653413b836393327136b9334258ed006",
+      "file": "ambient/shore.wav",
+      "sha256": "84bf0f88cd6e043a8851ee7a2335e2ac4f9e8ea6f8080c76c9e068ba160832bf",
+      "bytes": 14387940,
+      "seconds": 163.12807256235828,
+      "peak_pcm": 13534,
+      "seam_delta_pcm": 303
+    },
+    {
+      "scene": "forest",
+      "title": "Ambiance_Natural_Forest_Birds_Wind_Loop_Stereo.wav",
+      "author": "Nox_Sound",
+      "url": "https://freesound.org/people/Nox_Sound/sounds/570492/",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "input_variant": "public high-quality MP3 preview",
+      "source_sha256": "37acac93eb34061005ee39d9bd0bd438ed7946937e039a2562dc8b6172dcb7bb",
+      "file": "ambient/forest.wav",
+      "sha256": "bdf0e771bd307e820ede86af9e09b0761e8834ffefd2979bdabaf458e9cb40e8",
+      "bytes": 2506848,
+      "seconds": 28.421814058956915,
+      "peak_pcm": 7945,
+      "seam_delta_pcm": 555
+    },
+    {
+      "scene": "cafe",
+      "title": "Coffee Shop at the Capucins",
+      "author": "Joseph SARDIN",
+      "url": "https://bigsoundbank.com/coffee-shop-at-the-capucins-s2561.html",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "input_variant": "public MP3 download",
+      "source_sha256": "9bce43a63733eac383657334bad7dfe596c59de0528aa0c22d28f35bdddf97b3",
+      "file": "ambient/cafe.wav",
+      "sha256": "7d4de863d69fb7b63ee6ad4cbbe3ade6ccf6425aab22b2777d0519dcf025860d",
+      "bytes": 21285528,
+      "seconds": 241.33201814058958,
+      "peak_pcm": 13076,
+      "seam_delta_pcm": 406
+    }
+  ],
+  "ffmpeg_version": "ffmpeg version 8.1.1 Copyright (c) 2000-2026 the FFmpeg developers",
+  "downloads": {
+    "rain": "https://cdn.freesound.org/previews/640/640655_2414299-hq.mp3",
+    "shore": "https://cdn.freesound.org/previews/352/352356_2309965-hq.mp3",
+    "forest": "https://cdn.freesound.org/previews/570/570492_9250976-hq.mp3",
+    "cafe": "https://bigsoundbank.com/UPLOAD/mp3/2561.mp3"
+  }
+}

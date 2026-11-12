@@ -10,7 +10,7 @@ commands = h[h.index('enum class CommandType'):h.index('\nstruct Runtime')]
 intent_policy = s[s.index('bool changes_playback_intent('):s.index('\nbool enqueue_command(')]
 enqueue = s[s.index('bool enqueue_command('):s.index('\nvoid retry_assistant_focus_resume()')]
 tick = s[s.index('void tick_runtime()'):s.index('\nRuntimeStatus status_snapshot()')]
-dispatch = tick[tick.index('  Command command;'):tick.rindex('}')]
+dispatch = s[s.index('void drain_playback_commands()'):s.index('void IRAM_ATTR encoder_isr(')]
 fixture = r'''
 #include <algorithm>
 #include <atomic>
@@ -26,16 +26,19 @@ void *g_command_queue=&queue;
 std::atomic<int> g_pending_volume_delta{0};
 std::atomic<uint32_t> g_visual_activity{0};
 std::atomic<uint32_t> g_playback_intent_revision{0};
-std::mutex g_command_admission_mutex;
+std::mutex g_command_admission_mutex, g_player_operation_mutex;
+struct {std::mutex mutex;bool assistant_focus_active=false;} g_runtime;
 namespace character {enum class Action {None,Volume,Previous,Next,Play,Pause,Stop};}
 int xQueueSend(void *,const Command *c,int){if(queue.size()>=12)return 0;queue.push_back(*c);return 1;}
+int xQueueSendToFront(void *,const Command *c,int){if(queue.size()>=12)return 0;queue.push_front(*c);return 1;}
+int xQueuePeek(void *,Command *c,int){if(queue.empty())return 0;*c=queue.front();return 1;}
 int xQueueReceive(void *,Command *c,int){if(queue.empty())return 0;*c=queue.front();queue.pop_front();return 1;}
 int processed=0, volume_delta=0;
 void process_command(Command c){++processed;if(c.type==CommandType::kAdjustVolume)volume_delta+=c.value;}
 bool enqueue_command(CommandType type, int value=0, uint32_t playlist_revision=0,
                      uint32_t focus_generation=0, uint32_t intent_revision=0);
-''' + intent_policy + enqueue + '\nvoid tick(){\n' + dispatch + r'''
-}
+''' + intent_policy + enqueue + dispatch + r'''
+void tick(){drain_playback_commands();}
 int main(){
  for(int i=0;i<10000;++i)assert(enqueue_command(CommandType::kAdjustVolume,1,0));
  assert(queue.empty()&&g_pending_volume_delta==70&&g_playback_intent_revision==0);
@@ -53,6 +56,13 @@ int main(){
  assert(enqueue_command(CommandType::kAdjustVolume,INT_MAX,0));
  tick();assert(queue.size()==10&&volume_delta==0);
  tick();assert(queue.size()==9&&processed==5);
+ queue.clear();processed=0;g_runtime.assistant_focus_active=true;
+ assert(enqueue_command(CommandType::kPlayTrack));
+ assert(enqueue_command(CommandType::kAssistantPause));
+ assert(queue.front().type==CommandType::kAssistantPause);
+ tick();assert(processed==1&&queue.size()==1);
+ tick();assert(processed==1&&queue.size()==1);
+ g_runtime.assistant_focus_active=false;tick();assert(processed==2&&queue.empty());
  g_command_queue=nullptr;assert(!enqueue_command(CommandType::kAdjustVolume,1,0));
 }
 '''

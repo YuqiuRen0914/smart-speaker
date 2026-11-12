@@ -10,7 +10,8 @@ declarations = (app/'main/smart_speaker/runtime_internal.h').read_text(encoding=
 source = (app/'main/smart_speaker/smart_speaker_runtime.cpp').read_text(encoding='utf-8')
 def declaration(name):
     return re.search(r'(?:enum class|struct) '+name+r'\b.*?\n\};',declarations,re.S).group()
-completion = source[source.index('void queue_track_completion('):source.index('void IRAM_ATTR encoder_isr(')]
+completion = source[source.index('void queue_track_completion('):source.index('void drain_playback_commands()')]
+timer = source[source.index('void tick_ambient_timer()'):source.index('void queue_track_completion(')]
 play_state = source[source.index('void update_play_state('):source.index('bool play_index(')]
 code = r'''
 #include <algorithm>
@@ -22,6 +23,7 @@ code = r'''
 #include "smart_speaker_lyrics.h"
 #include "smart_speaker_cover.h"
 #include "smart_speaker_focus_policy.h"
+#include "smart_speaker_ambient.h"
 #include <string>
 #include <vector>
 #include "smart_speaker_playback_mode.h"
@@ -31,10 +33,14 @@ using namespace smart_speaker;
 constexpr int kInitialVolume=10, ESP_OK=0, NVS_READWRITE=1;
 using esp_err_t=int;using nvs_handle_t=int;
 int storage_error=0,saved_mode=-1;
+namespace smart_speaker::ambient { unsigned test_gain=1000; void set_gain(unsigned value){test_gain=value;} bool take_read_error(){return false;} }
+bool read_error=false;
+void speaker_audio_read_error_reset(){read_error=false;}
+bool speaker_audio_read_error_take(){bool result=read_error;read_error=false;return result;}
 int nvs_open(const char*,int,int* h){*h=1;return storage_error;}
 int nvs_set_u8(int,const char*,uint8_t v){saved_mode=v;return storage_error;}
 int nvs_commit(int){return storage_error;}void nvs_close(int){}
-uint32_t now_ms(){return 1000;} uint32_t esp_random(){return 3;}
+uint32_t clock_ms=1000; uint32_t now_ms(){return clock_ms;} uint32_t esp_random(){return 3;}
 struct TrackInfo {std::string path;};
 ''' + declaration('CommandType') + declaration('Command') + declaration('Runtime') + r'''
 Runtime g_runtime;std::mutex g_player_operation_mutex;
@@ -44,13 +50,14 @@ std::vector<Command> queued;
 std::vector<int> played;
 bool enqueue_command(CommandType t,int v=0,uint32_t r=0){queued.push_back({t,v,r});return true;}
 void set_error_locked(const char* e){g_runtime.last_error=e;}
+void clear_error_locked(){g_runtime.last_error.clear();}
 ''' + play_state + r'''
 bool play_index(int index){played.push_back(index);g_runtime.current_index=index;g_runtime.playing=true;g_runtime.paused=false;
   g_runtime.white_noise=false;
   g_runtime.first_frame_seen=true;g_runtime.auto_advance=true;g_runtime.advance_queued=false;++g_runtime.playback_generation;return true;}
 int dual_i2s_audio_fade_to_mute(int){return 0;}void dual_i2s_audio_fade_up(){}
 int noise_plays=0;
-bool play_white_noise(){++noise_plays;g_runtime.white_noise=true;g_runtime.playing=true;g_runtime.paused=false;
+bool play_white_noise(int = -1){++noise_plays;g_runtime.white_noise=true;g_runtime.playing=true;g_runtime.paused=false;
   g_runtime.first_frame_seen=true;g_runtime.auto_advance=true;g_runtime.advance_queued=false;++g_runtime.playback_generation;return true;}
 int pause_calls=0,resume_calls=0,pause_error=0,resume_error=0;
 int audio_player_resume(){++resume_calls;return resume_error;}int audio_player_pause(){++pause_calls;return pause_error;}int audio_player_stop(){return 0;}
@@ -60,7 +67,7 @@ namespace product {bool desktop_resources_load(){return true;}}
 enum Event {AUDIO_PLAYER_CALLBACK_EVENT_PLAYING,AUDIO_PLAYER_CALLBACK_EVENT_COMPLETED_PLAYING_NEXT,
  AUDIO_PLAYER_CALLBACK_EVENT_PAUSE,AUDIO_PLAYER_CALLBACK_EVENT_IDLE,AUDIO_PLAYER_CALLBACK_EVENT_UNKNOWN_FILE_TYPE};
 struct audio_player_cb_ctx_t {Event audio_event;};
-''' + completion + r'''
+''' + timer + completion + r'''
 void reset(int count=3,int index=0,PlaybackMode mode=PlaybackMode::Sequential){
   g_runtime.playlist.resize(count);g_runtime.current_index=index;g_runtime.playback_mode=mode;
   g_runtime.playback_generation=1;g_runtime.playlist_revision=1;g_runtime.playing=true;g_runtime.paused=false;
@@ -73,6 +80,19 @@ void reset(int count=3,int index=0,PlaybackMode mode=PlaybackMode::Sequential){
 void event(Event e){audio_player_cb_ctx_t context{e};handle_audio_event(&context);}
 void drain(){auto pending=queued;queued.clear();for(const auto& c:pending)process_command(c);}
 int main(){
+  reset(0);process_command({CommandType::kWhiteNoise});
+  process_command({CommandType::kAmbientTimer,30});
+  assert(g_runtime.ambient.remaining(clock_ms)==1800000);
+  clock_ms+=1797500;tick_ambient_timer();assert(ambient::test_gain==500);
+  g_runtime.assistant_focus_active=true;g_runtime.assistant_focus_was_playing=true;
+  g_runtime.assistant_focus_resume_pending=true;g_runtime.paused=true;
+  clock_ms+=2500;tick_ambient_timer();
+  assert(!g_runtime.playing && !g_runtime.paused && !g_runtime.auto_advance);
+  assert(!g_runtime.assistant_focus_was_playing && !g_runtime.assistant_focus_resume_pending);
+  assert(g_runtime.ambient_stop_pending && ambient::test_gain==0);
+  g_runtime.assistant_focus_active=false;tick_ambient_timer();assert(!g_runtime.ambient_stop_pending);
+  clock_ms=1000;
+
   reset(0);process_command({CommandType::kWhiteNoise});assert(noise_plays==1 && g_runtime.white_noise);
   event(AUDIO_PLAYER_CALLBACK_EVENT_IDLE);drain();assert(noise_plays==2 && played.empty());
   process_command({CommandType::kPause});assert(g_runtime.paused);
@@ -90,6 +110,8 @@ int main(){
     assert(advance_track(PlaybackMode::RepeatOne,TrackAdvance::Finished,current,count,random)==current);
   }
   assert(advance_track(PlaybackMode::Shuffle,TrackAdvance::Next,0,0,0)==-1);
+  reset();read_error=true;event(AUDIO_PLAYER_CALLBACK_EVENT_IDLE);
+  assert(queued.empty() && !g_runtime.auto_advance && !g_runtime.playing && g_runtime.last_error=="track_read_failed");
   reset();event(AUDIO_PLAYER_CALLBACK_EVENT_IDLE);assert(queued.size()==1);drain();assert(played.back()==1);
   reset(3,2);event(AUDIO_PLAYER_CALLBACK_EVENT_IDLE);drain();assert(played.empty() && !g_runtime.playing && !g_runtime.auto_advance);
   reset(1,0,PlaybackMode::RepeatOne);event(AUDIO_PLAYER_CALLBACK_EVENT_IDLE);drain();assert(played.back()==0);

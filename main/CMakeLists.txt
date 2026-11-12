@@ -11,12 +11,17 @@ set(smart_speaker_sources
     "smart_speaker/smart_speaker_home.cpp"
     "smart_speaker/smart_speaker_home_pet.cpp"
     "smart_speaker/smart_speaker_launcher.cpp"
+    "smart_speaker/smart_speaker_wood_fish.cpp"
+    "smart_speaker/smart_speaker_music_view.cpp"
     "smart_speaker/smart_speaker_dsp.cpp"
     "smart_speaker/smart_speaker_library_commands.cpp"
     "smart_speaker/smart_speaker_log_buffer.cpp"
     "smart_speaker/smart_speaker_lyrics_api.cpp"
     "smart_speaker/smart_speaker_mp3_guard.cpp"
+    "smart_speaker/smart_speaker_audio_read_guard.cpp"
     "smart_speaker/smart_speaker_noise.cpp"
+    "smart_speaker/smart_speaker_ambient.cpp"
+    "smart_speaker/smart_speaker_ambient_view.cpp"
     "smart_speaker/smart_speaker_pet_frame_api.cpp"
     "smart_speaker/smart_speaker_projection.cpp"
     "smart_speaker/smart_speaker_runtime.cpp"
@@ -31,6 +36,9 @@ idf_component_register(
     SRCS
         "app_main.cpp"
         "assets/home_clock_font.c"
+        "assets/wood_fish_mask.c"
+        "assets/secondary_menu_icons.c"
+        "assets/ambient/wallpapers.c"
         "product/runtime_tasks.cpp"
         "product/service_drivers.cpp"
     "product/product_state.cpp"
@@ -82,6 +90,7 @@ set_source_files_properties(smart_speaker/smart_speaker_character.cpp
     smart_speaker/smart_speaker_display.cpp
     smart_speaker/smart_speaker_dsp.cpp
     smart_speaker/smart_speaker_audio.cpp
+    smart_speaker/smart_speaker_music_view.cpp
     PROPERTIES COMPILE_OPTIONS "-O2")
 
 # Audio has per-sample hot loops on both cores. Debug -Og makes them dominate
@@ -90,12 +99,23 @@ idf_component_get_property(speaker_mp3_lib chmorgan__esp-libhelix-mp3 COMPONENT_
 target_compile_options(${speaker_mp3_lib} PRIVATE -O2)
 idf_component_get_property(speaker_player_lib chmorgan__esp-audio-player COMPONENT_LIB)
 target_compile_options(${speaker_player_lib} PRIVATE -O2)
+# Preserve read errors before the upstream player closes FILE and reports IDLE.
+idf_component_get_property(speaker_player_dir chmorgan__esp-audio-player COMPONENT_DIR)
+target_include_directories(${COMPONENT_LIB} PRIVATE "${speaker_player_dir}")
+set_source_files_properties("${speaker_player_dir}/audio_mp3.cpp"
+    TARGET_DIRECTORY ${speaker_player_lib}
+    PROPERTIES COMPILE_DEFINITIONS "decode_mp3=speaker_decode_mp3_unchecked")
 
 # Keep UI/glyph storage out of scarce internal RAM needed by TLS and DMA.
 # LVGL's default 64 KiB static pool occupied DRAM and constrained both the
 # expanded settings UI and cloud-avatar delivery. The board has 8 MiB PSRAM.
 idf_component_get_property(speaker_lvgl_lib lvgl__lvgl COMPONENT_LIB)
 idf_component_get_property(speaker_lvgl_dir lvgl__lvgl COMPONENT_DIR)
+# Software raster/blend loops and RGB565 packing share CPU time with MP3.
+# Keep symbols/assertions, but do not ship the renderer with debug -Og loops.
+target_compile_options(${speaker_lvgl_lib} PRIVATE -O2)
+idf_component_get_property(speaker_lcd_lib lunaredu_device_spi_lcd COMPONENT_LIB)
+target_compile_options(${speaker_lcd_lib} PRIVATE -O2)
 set_source_files_properties(
     "${speaker_lvgl_dir}/src/stdlib/builtin/lv_mem_core_builtin.c"
     TARGET_DIRECTORY ${speaker_lvgl_lib}

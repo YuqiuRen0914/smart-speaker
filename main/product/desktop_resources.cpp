@@ -27,6 +27,9 @@ constexpr const char *kConfig = "/user/product_desktop.json";
 constexpr size_t kMaxWallpapers = 32;
 std::mutex g_io_mutex, g_snapshot_mutex;
 DesktopResourcesSnapshot g_snapshot;
+std::array<AmbientWallpaper, 4> g_ambient;
+bool g_ambient_config_valid = true;
+constexpr const char *kAmbientConfig = "/user/ambient_wallpapers.json";
 std::atomic<int> g_requested_pet_frame{-1};
 std::atomic<uint32_t> g_pet_frame_retry_generation{0};
 int g_tracked_pet_frame = -1;
@@ -458,6 +461,70 @@ bool pet_frame_upload(PetFrame frame, const uint8_t *bytes, size_t size,
   return true;
 }
 
+AmbientWallpaper ambient_wallpaper_snapshot(unsigned scene) {
+  std::lock_guard lock(g_snapshot_mutex);
+  return scene < g_ambient.size() ? g_ambient[scene] : AmbientWallpaper{};
+}
+bool ambient_wallpaper_in_use(const std::string &name) {
+  std::lock_guard lock(g_snapshot_mutex);
+  for (const auto &item : g_ambient) if (item.selected == name) return true;
+  return false;
+}
+bool ambient_wallpapers_load() {
+  std::lock_guard io(g_io_mutex);
+  if (!lunaredu::lunaros::storage_ready()) { g_ambient_config_valid=false; return false; }
+  if (!lunaredu::lunaros::storage_path_exists(kAmbientConfig)) { g_ambient_config_valid=true; return true; }
+  std::string body;
+  bool valid = lunaredu::lunaros::storage_stream_file(kAmbientConfig,
+      [](const uint8_t *data, size_t size, void *context) {
+        auto &text = *static_cast<std::string*>(context);
+        if (text.size() + size > 1024) return false;
+        text.append(reinterpret_cast<const char*>(data), size); return true;
+      }, &body);
+  JsonDocument config;
+  valid = valid && !deserializeJson(config, body, DeserializationOption::NestingLimit(3)) &&
+      config["schema"] == 1 && config["wallpapers"].is<JsonArray>() && config["wallpapers"].size() == 4;
+  std::array<AmbientWallpaper,4> next;
+  for (unsigned i=0; valid && i<4; ++i) {
+    if (!config["wallpapers"][i].is<const char*>()) { valid=false; break; }
+    next[i].selected=config["wallpapers"][i].as<std::string>();
+    if (!next[i].selected.empty() && !wallpaper_name_valid(next[i].selected)) { valid=false; break; }
+    if (!next[i].selected.empty()) {
+      auto image=std::make_shared<WallpaperPixels>(); WallpaperBmp bmp;
+      if (read_image(next[i].selected,bmp,next[i].error) && decode_wallpaper_bmp(bmp.data(),bmp.size(),*image)) next[i].pixels=image;
+      else if (next[i].error.empty()) next[i].error="wallpaper_invalid";
+    }
+  }
+  std::lock_guard lock(g_snapshot_mutex);
+  g_ambient_config_valid=valid;
+  if (valid) g_ambient=std::move(next);
+  else for (auto &item:g_ambient) item.error="ambient_wallpaper_record_invalid";
+  return valid;
+}
+bool ambient_wallpaper_select(unsigned scene, const std::string &name, std::string &error) {
+  std::lock_guard io(g_io_mutex);
+  if (scene>=4 || (!name.empty() && !wallpaper_name_valid(name))) { error="invalid_ambient_wallpaper"; return false; }
+  std::array<AmbientWallpaper,4> next;
+  {
+    std::lock_guard lock(g_snapshot_mutex);
+    if (!g_ambient_config_valid) { error="ambient_wallpaper_record_invalid"; return false; }
+    next=g_ambient;
+  }
+  std::shared_ptr<WallpaperPixels> pixels;
+  if (!name.empty()) {
+    pixels=std::make_shared<WallpaperPixels>(); WallpaperBmp bmp;
+    if (!read_image(name,bmp,error)) return false;
+    if (!decode_wallpaper_bmp(bmp.data(),bmp.size(),*pixels)) { error="wallpaper_invalid"; return false; }
+  }
+  next[scene]={name,"",pixels};
+  JsonDocument config; config["schema"]=1;
+  auto names=config["wallpapers"].to<JsonArray>();
+  for (const auto &item:next) names.add(item.selected);
+  std::string serialized; serializeJson(config,serialized);
+  if (!lunaredu::lunaros::storage_write_text_file(kAmbientConfig,serialized.c_str())) { error="ambient_wallpaper_save_failed"; return false; }
+  std::lock_guard lock(g_snapshot_mutex); g_ambient=std::move(next); return true;
+}
+
 bool wallpaper_list(std::vector<std::string> &names, std::string &error) {
   std::lock_guard io(g_io_mutex); return list_images(names, error);
 }
@@ -504,7 +571,7 @@ bool wallpaper_select(const std::string &name, std::string &error) {
 bool wallpaper_remove(const std::string &name, std::string &error) {
   std::lock_guard io(g_io_mutex);
   if (!wallpaper_name_valid(name)) { error = "invalid_wallpaper_name"; return false; }
-  if (desktop_resources_snapshot().selected == name) { error = "wallpaper_in_use"; return false; }
+  if ((desktop_resources_snapshot().selected == name || ambient_wallpaper_in_use(name))) { error = "wallpaper_in_use"; return false; }
   std::string base;
   if (!directory(base, error)) return false;
   if (remove((base + "/" + name).c_str()) != 0) { error = "wallpaper_remove_failed"; return false; }

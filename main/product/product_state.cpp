@@ -7,9 +7,7 @@
 
 namespace smart_speaker::product {
 namespace {
-constexpr uint32_t kTelemetryStaleMs = 10'000;
-
-uint8_t module_count() { return 7; }
+uint8_t module_count() { return 6; }
 uint8_t child_count(Module module) {
   switch (module) {
     case Module::Music: return 2;       // local library, white noise
@@ -17,7 +15,6 @@ uint8_t child_count(Module module) {
     case Module::Time: return 2;       // clock, pomodoro/reminders
     case Module::Games: return 2;      // wood fish, 2048
     case Module::Information: return 2; // calendar, weather
-    case Module::Computer: return 1;  // metrics
     case Module::Settings: return 3;  // network, device info, account
     default: return 1;
   }
@@ -143,8 +140,8 @@ bool Navigation::handle(Input input) {
         } else if (input == Input::Back) state_.page = Page::Desktop;
         break;
       case Page::ModuleMenu:
-        if (input == Input::Up) state_.item = static_cast<uint8_t>((state_.item + child_count(state_.module) - 1) % child_count(state_.module));
-        else if (input == Input::Down) state_.item = static_cast<uint8_t>((state_.item + 1) % child_count(state_.module));
+        if (input == Input::Up && state_.item > 0) --state_.item;
+        else if (input == Input::Down && state_.item + 1 < child_count(state_.module)) ++state_.item;
         else if (input == Input::Confirm) {
           if (state_.module == Module::Assistant && state_.item == 1) {
             state_.page = Page::PetActions;
@@ -157,8 +154,8 @@ bool Navigation::handle(Input input) {
         if (input == Input::Back) state_.page = Page::ModuleMenu;
         break;
       case Page::Settings:
-        if (input == Input::Up) state_.item = static_cast<uint8_t>((state_.item + child_count(Module::Settings) - 1) % child_count(Module::Settings));
-        else if (input == Input::Down) state_.item = static_cast<uint8_t>((state_.item + 1) % child_count(Module::Settings));
+        if (input == Input::Up && state_.item > 0) --state_.item;
+        else if (input == Input::Down && state_.item + 1 < child_count(Module::Settings)) ++state_.item;
         else if (input == Input::Back) { state_.page = Page::ModuleList; state_.item = static_cast<uint8_t>(Module::Settings); }
         break;
       case Page::PetActions:
@@ -309,29 +306,6 @@ std::vector<DueReminder> TimeState::tick(uint32_t monotonic_seconds, int64_t epo
   return due;
 }
 
-bool ComputerPairing::pair(std::string id) { if (id.empty()) return false; paired_id_ = std::move(id); connected_ = false; sample_ = {}; return true; }
-bool ComputerPairing::disconnect(const std::string &computer_id) {
-  if (!accepts(computer_id)) return false;
-  connected_ = false;
-  return true;
-}
-void ComputerPairing::clear() { paired_id_.clear(); connected_ = false; sample_ = {}; }
-bool ComputerPairing::accepts(const std::string &id) const { return !paired_id_.empty() && paired_id_ == id; }
-bool ComputerPairing::update(const std::string &id, const ComputerTelemetry &sample, uint32_t now) { if (!accepts(id)) return false; sample_ = sample; sample_at_ms_ = now; connected_ = true; ++sample_.revision; return true; }
-ComputerTelemetry ComputerPairing::snapshot(uint32_t now) const {
-  auto result = sample_;
-  if (paired_id_.empty()) { result = {}; return result; }
-  if (!connected_) { result.cpu = result.gpu = result.temperature = result.fan = TelemetryStatus::Offline; return result; }
-  result.sample_age_ms = now - sample_at_ms_;
-  if (result.sample_age_ms > kTelemetryStaleMs) {
-    if (result.cpu == TelemetryStatus::Fresh) result.cpu = TelemetryStatus::Stale;
-    if (result.gpu == TelemetryStatus::Fresh) result.gpu = TelemetryStatus::Stale;
-    if (result.temperature == TelemetryStatus::Fresh) result.temperature = TelemetryStatus::Stale;
-    if (result.fan == TelemetryStatus::Fresh) result.fan = TelemetryStatus::Stale;
-  }
-  return result;
-}
-
 Game2048::Game2048() { reset(); }
 Game2048::Game2048(const std::array<uint16_t, 16> &board) : board_(board) {}
 void Game2048::reset() { board_.fill(0); score_ = 0; spawn(); spawn(); }
@@ -365,13 +339,11 @@ bool Game2048::move(int dx, int dy) {
   spawn(); return true;
 }
 
-ProductSnapshot ProductState::snapshot(uint32_t monotonic_seconds, uint32_t now_ms) const {
+ProductSnapshot ProductState::snapshot(uint32_t monotonic_seconds, uint32_t) const {
   ProductSnapshot snapshot;
   snapshot.navigation = navigation.snapshot();
   snapshot.pomodoro = time.pomodoro(monotonic_seconds);
   snapshot.reminders = time.reminders();
-  snapshot.computer = computer.snapshot(now_ms);
-  snapshot.paired_computer = computer.paired_id();
   snapshot.wood_fish = wood_fish;
   snapshot.game_board = game.board();
   snapshot.game_score = game.score();
@@ -407,6 +379,5 @@ bool ProductState::restore_time(bool active, uint32_t remaining_seconds, uint8_t
   return true;
 }
 const char *page_name(Page page) { return page == Page::Desktop ? "desktop" : page == Page::ModuleList ? "module_list" : page == Page::ModuleMenu ? "module_menu" : page == Page::Feature ? "feature" : page == Page::PetActions ? "pet_actions" : "settings"; }
-const char *module_name(Module module) { static constexpr const char *names[] = {"music", "assistant", "time", "information", "games", "computer", "settings"}; return names[static_cast<uint8_t>(module)]; }
-const char *telemetry_status_name(TelemetryStatus status) { static constexpr const char *names[] = {"unavailable", "no_permission", "offline", "fresh", "stale"}; return names[static_cast<uint8_t>(status)]; }
+const char *module_name(Module module) { static constexpr const char *names[] = {"music", "assistant", "time", "information", "games", "settings"}; return names[static_cast<uint8_t>(module)]; }
 }

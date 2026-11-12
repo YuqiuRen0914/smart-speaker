@@ -1,3 +1,4 @@
+#include "smart_speaker_audio_read_guard.h"
 #include "smart_speaker_lyrics_store.h"
 #include "smart_speaker_runtime.h"
 #include "runtime_internal.h"
@@ -48,7 +49,7 @@
 #include "smart_speaker_display.h"
 #include "smart_speaker_character.h"
 #include "smart_speaker_cover.h"
-#include "smart_speaker_noise.h"
+#include "smart_speaker_ambient.h"
 #include "smart_speaker_log_buffer.h"
 #include "smart_speaker_sensors.h"
 #include "smart_speaker_touch_routing.h"
@@ -124,7 +125,7 @@ bool changes_playback_intent(CommandType type) {
   return type == CommandType::kPlay || type == CommandType::kPlayTrack ||
       type == CommandType::kPause || type == CommandType::kStop ||
       type == CommandType::kNext || type == CommandType::kPrevious ||
-      type == CommandType::kWhiteNoise;
+      type == CommandType::kWhiteNoise || type == CommandType::kAmbientSelect;
 }
 
 bool enqueue_command(CommandType type, int value, uint32_t playlist_revision,
@@ -147,7 +148,12 @@ bool enqueue_command(CommandType type, int value, uint32_t playlist_revision,
     command.focus_generation = focus_generation;
     command.intent_revision = intent_revision;
     std::lock_guard<std::mutex> admission(g_command_admission_mutex);
-    if (xQueueSend(g_command_queue, &command, 0) != pdTRUE) return false;
+    // Focus acquisition must pause the old decoder even when music requests
+    // are already waiting for voice to release the physical output.
+    const auto queued = type == CommandType::kAssistantPause
+        ? xQueueSendToFront(g_command_queue, &command, 0)
+        : xQueueSend(g_command_queue, &command, 0);
+    if (queued != pdTRUE) return false;
     if (changes_playback_intent(type))
       g_playback_intent_revision.fetch_add(1, std::memory_order_acq_rel);
   }
@@ -522,6 +528,7 @@ void update_play_state(bool playing, bool paused, bool auto_advance) {
   std::lock_guard<std::mutex> lock(g_runtime.mutex);
   g_runtime.playing = playing;
   g_runtime.paused = paused;
+  if (g_runtime.white_noise) g_runtime.ambient.reveal(now_ms());
   if (!paused) g_runtime.paused_by_volume = false;
   g_runtime.auto_advance = auto_advance;
 }
@@ -566,6 +573,8 @@ bool play_index(int index) {
     g_runtime.cover_error = cover_error == "cover_not_found" ? "" : cover_error;
     g_runtime.current_index = index;
     g_runtime.white_noise = false;
+    g_runtime.ambient.cancel_timer();
+    g_runtime.ambient_stop_pending = false;
     g_runtime.paused_by_volume = false;
     g_runtime.playing = true;
     g_runtime.paused = false;
@@ -591,45 +600,91 @@ bool play_index(int index) {
   return true;
 }
 
-bool play_white_noise() {
+bool play_white_noise(int requested_scene = -1) {
+  int scene;
   {
     std::lock_guard lock(g_runtime.mutex);
     if (!g_runtime.audio_ready) { set_error_locked("audio_not_ready"); return false; }
+    if (g_runtime.assistant_focus_active || g_runtime.game_focus_active) {
+      set_error_locked("audio_focus_busy"); return false;
+    }
+    scene = requested_scene < 0 ? std::max(0, g_runtime.ambient.scene) : requested_scene;
+    if (!ambient::valid_scene(scene)) { set_error_locked("invalid_ambient_scene"); return false; }
   }
-  FILE *file = noise::open();
-  if (file == nullptr) {
+  std::string path, error;
+  if (!lunaredu::device::tfcard_resolve_path((std::string("/ambient/") + ambient::kIds[scene] + ".wav").c_str(), path)) {
+    std::lock_guard lock(g_runtime.mutex); set_error_locked("sdcard_not_ready"); return false;
+  }
+  FILE *file = ambient::open_loop(path, error);
+  if (!file) { std::lock_guard lock(g_runtime.mutex); set_error_locked(error.c_str()); return false; }
+  {
     std::lock_guard lock(g_runtime.mutex);
-    set_error_locked("noise_source_unavailable");
-    return false;
+    if (g_runtime.assistant_focus_active || g_runtime.game_focus_active) {
+      fclose(file); set_error_locked("audio_focus_busy"); return false;
+    }
+    // Publish under the same mutex as lease acquisition. A newly acquired
+    // lease now sees a playing source and waits for its queued pause.
+    g_runtime.playing = true;
+    g_runtime.lyrics.reset(); g_runtime.cover_image.reset(); g_runtime.cover_error.clear();
+    g_runtime.white_noise = true;
+    g_runtime.ambient.scene = scene; g_runtime.ambient.preview = scene;
+    g_runtime.ambient.choosing = false; g_runtime.ambient.timer_menu = false;
+    g_runtime.ambient.reveal(now_ms()); g_runtime.ambient_stop_pending = false;
+    ambient::set_gain(g_runtime.ambient.timer_duration ? std::min<uint32_t>(1000, g_runtime.ambient.remaining(now_ms())/5) : 1000);
+    g_runtime.playing = true; g_runtime.paused = false; g_runtime.paused_by_volume = false;
+    g_runtime.auto_advance = true; g_runtime.advance_queued = false;
+    g_runtime.first_frame_seen = false; g_runtime.decode_timeout_skip_sent = false;
+    g_runtime.play_started_ms = now_ms(); ++g_runtime.playback_generation;
+    clear_error_locked();
   }
   (void)dual_i2s_audio_fade_to_mute(100);
   dual_i2s_track_clock_reset();
-  {
-    std::lock_guard lock(g_runtime.mutex);
-    g_runtime.lyrics.reset();
-    g_runtime.cover_image.reset();
-    g_runtime.cover_error.clear();
-    g_runtime.white_noise = true;
-    g_runtime.playing = true;
-    g_runtime.paused = false;
-    g_runtime.paused_by_volume = false;
-    g_runtime.auto_advance = true;
-    g_runtime.advance_queued = false;
-    g_runtime.first_frame_seen = false;
-    g_runtime.decode_timeout_skip_sent = false;
-    g_runtime.play_started_ms = now_ms();
-    ++g_runtime.playback_generation;
-    clear_error_locked();
-  }
   if (audio_player_play(file) != ESP_OK) {
-    fclose(file);
-    std::lock_guard lock(g_runtime.mutex);
+    fclose(file); std::lock_guard lock(g_runtime.mutex);
     g_runtime.playing = g_runtime.paused = g_runtime.auto_advance = false;
-    set_error_locked("noise_play_failed");
-    return false;
+    set_error_locked("noise_play_failed"); return false;
   }
   dual_i2s_audio_fade_up();
+  nvs_handle_t handle = 0;
+  esp_err_t saved = nvs_open("spkr_player", NVS_READWRITE, &handle);
+  if (saved == ESP_OK) {
+    saved = nvs_set_u8(handle, "ambient_scene", uint8_t(scene));
+    if (saved == ESP_OK) saved = nvs_commit(handle);
+    nvs_close(handle);
+  }
+  if (saved != ESP_OK) { std::lock_guard lock(g_runtime.mutex); set_error_locked("ambient_save_failed"); }
   return true;
+}
+
+// Runs independently of the visible page and before assistant resume admission.
+void tick_ambient_timer() {
+  std::unique_lock operation(g_player_operation_mutex, std::try_to_lock);
+  if (!operation.owns_lock()) return;
+  bool stop_decoder = false;
+  {
+    std::lock_guard lock(g_runtime.mutex);
+    auto &session = g_runtime.ambient;
+    if (g_runtime.white_noise && session.expired(now_ms())) {
+      ambient::set_gain(0);
+      session.cancel_timer(); session.reveal(now_ms());
+      g_runtime.ambient_stop_pending = true;
+      g_runtime.auto_advance = g_runtime.advance_queued = false;
+      g_runtime.playing = g_runtime.paused = g_runtime.paused_by_volume = false;
+      g_runtime.assistant_focus_was_playing = false;
+      g_runtime.assistant_focus_resume_pending = false;
+      g_runtime.assistant_focus_resume_queued = false;
+      g_playback_intent_revision.fetch_add(1, std::memory_order_acq_rel);
+    } else if (g_runtime.white_noise && !g_runtime.ambient_stop_pending) {
+      ambient::set_gain(session.timer_duration ? std::min<uint32_t>(1000, session.remaining(now_ms())/5) : 1000);
+    }
+    stop_decoder = g_runtime.ambient_stop_pending &&
+        !g_runtime.assistant_focus_active && !g_runtime.game_focus_active;
+  }
+  // Stopping the paused decoder during voice would invoke the shared mute
+  // callback. Defer that hardware action until the voice/game lease is released.
+  if (stop_decoder && audio_player_stop() == ESP_OK) {
+    std::lock_guard lock(g_runtime.mutex); g_runtime.ambient_stop_pending = false;
+  }
 }
 
 void queue_track_completion(bool failed) {
@@ -689,13 +744,21 @@ void handle_audio_event(audio_player_cb_ctx_t *ctx) {
   switch (ctx->audio_event) {
   case AUDIO_PLAYER_CALLBACK_EVENT_PLAYING:
   case AUDIO_PLAYER_CALLBACK_EVENT_COMPLETED_PLAYING_NEXT:
+    speaker_audio_read_error_reset();
     update_play_state(true, false, true);
     break;
   case AUDIO_PLAYER_CALLBACK_EVENT_PAUSE:
     update_play_state(false, true, true);
     break;
   case AUDIO_PLAYER_CALLBACK_EVENT_IDLE: {
-    queue_track_completion(false);
+    if (speaker_audio_read_error_take() || ambient::take_read_error()) {
+      std::lock_guard<std::mutex> lock(g_runtime.mutex);
+      g_runtime.auto_advance = false;
+      g_runtime.advance_queued = false;
+      set_error_locked("track_read_failed");
+    } else {
+      queue_track_completion(false);
+    }
     std::lock_guard<std::mutex> lock(g_runtime.mutex);
     g_runtime.playing = false;
     g_runtime.paused = false;
@@ -712,19 +775,8 @@ void handle_audio_event(audio_player_cb_ctx_t *ctx) {
 
 void process_command(const Command &command) {
   if (command.type == CommandType::kCycleMode) { cycle_playback_mode(); return; }
-  std::unique_lock<std::mutex> player_lock(g_player_operation_mutex, std::try_to_lock);
-  if (!player_lock.owns_lock()) {
-    std::lock_guard lock(g_runtime.mutex);
-    set_error_locked("speaker_busy");
-    if (command.type == CommandType::kAssistantResume &&
-        g_runtime.assistant_focus_generation == command.focus_generation &&
-        g_runtime.assistant_focus_resume_pending) {
-      g_runtime.assistant_focus_resume_queued = false;
-      ++g_runtime.assistant_focus_resume_attempts;
-      g_runtime.assistant_focus_resume_retry_at_ms = now_ms() + 100;
-    }
-    return;
-  }
+  // drain_playback_commands owns the player lock and admits this command only
+  // when voice no longer owns output (except its own priority pause).
   // Explicit transport commands override a pause caused by muting, including
   // a second manual pause while already muted. Volume alone may resume only
   // the playback it paused; it must never start an idle or stopped player.
@@ -797,6 +849,17 @@ void process_command(const Command &command) {
     }
     break;
   }
+  case CommandType::kAmbientTimer: {
+    std::lock_guard lock(g_runtime.mutex);
+    if (!g_runtime.white_noise || (!g_runtime.playing && !g_runtime.paused && !g_runtime.assistant_focus_was_playing))
+      set_error_locked("ambient_not_playing");
+    else if (!g_runtime.ambient.set_timer(command.value, now_ms())) set_error_locked("invalid_ambient_timer");
+    else clear_error_locked();
+    break;
+  }
+  case CommandType::kAmbientSelect:
+    (void)play_white_noise(command.value);
+    break;
   case CommandType::kWhiteNoise:
     (void)play_white_noise();
     break;
@@ -849,6 +912,8 @@ void process_command(const Command &command) {
     {
       std::lock_guard lock(g_runtime.mutex);
       g_runtime.white_noise = false;
+      g_runtime.ambient.cancel_timer();
+      g_runtime.ambient_stop_pending = false;
     }
     update_play_state(false, false, false);
     break;
@@ -907,6 +972,7 @@ void process_command(const Command &command) {
       const int previous = g_runtime.volume;
       volume = clamp_volume(command.type == CommandType::kSetVolume ? command.value : previous + command.value);
       g_runtime.volume = volume;
+      if (g_runtime.white_noise) g_runtime.ambient.reveal(now_ms());
       pause_at_zero = volume == 0 && previous > 0 && g_runtime.playing;
       resume_from_zero = volume > 0 && g_runtime.paused && g_runtime.paused_by_volume;
     }
@@ -941,6 +1007,28 @@ void process_command(const Command &command) {
     }
     break;
   case CommandType::kCycleMode: break; // Handled before the player lock.
+  }
+}
+
+void drain_playback_commands() {
+  std::unique_lock player_lock(g_player_operation_mutex, std::try_to_lock);
+  if (!player_lock.owns_lock()) return; // Keep accepted commands queued.
+  Command command;
+  bool received = false;
+  bool voice_active = false;
+  {
+    std::lock_guard admission(g_command_admission_mutex);
+    std::lock_guard state(g_runtime.mutex);
+    voice_active = g_runtime.assistant_focus_active;
+    if (xQueuePeek(g_command_queue, &command, 0) == pdTRUE &&
+        (!voice_active || command.type == CommandType::kAssistantPause)) {
+      received = xQueueReceive(g_command_queue, &command, 0) == pdTRUE;
+    }
+  }
+  if (received) process_command(command);
+  if (!voice_active) {
+    const int delta = g_pending_volume_delta.exchange(0, std::memory_order_relaxed);
+    if (delta != 0) process_command({CommandType::kAdjustVolume, delta, 0});
   }
 }
 
@@ -1097,7 +1185,9 @@ bool route_local_menu_button_locked(bool confirm,
           case product::Module::Music: {
             const auto status = status_snapshot();
             const bool noise_page = state.navigation.item == 1;
-            if (status.white_noise == noise_page) {
+            if (noise_page && status.ambient.choosing) {
+              (void)enqueue_command(CommandType::kAmbientSelect, status.ambient.preview);
+            } else if (status.white_noise == noise_page) {
               if (status.playing && !status.paused) pause(); else play();
             } else if (noise_page) (void)enqueue_command(CommandType::kWhiteNoise);
             else {
@@ -1125,7 +1215,23 @@ bool route_local_menu_button_locked(bool confirm,
         }
       }
       (void)product::product_navigation_input(product::Input::Confirm);
+      if (state.navigation.page == product::Page::ModuleMenu &&
+          state.navigation.module == product::Module::Music && state.navigation.item == 1) {
+        const auto status = status_snapshot();
+        {
+          std::lock_guard lock(g_runtime.mutex);
+          g_runtime.ambient.choosing = !ambient::valid_scene(g_runtime.ambient.scene);
+          g_runtime.ambient.timer_menu = false;
+          g_runtime.ambient.reveal(now_ms());
+        }
+        if (ambient::valid_scene(status.ambient.scene) && !(status.white_noise && status.playing))
+          (void)enqueue_command(CommandType::kWhiteNoise);
+      }
     } else {
+      if (state.navigation.page == product::Page::Feature && state.navigation.module == product::Module::Music && state.navigation.item == 1) {
+        std::lock_guard lock(g_runtime.mutex);
+        if (g_runtime.ambient.timer_menu) { g_runtime.ambient.timer_menu = false; g_runtime.ambient.reveal(now_ms()); return true; }
+      }
       (void)product::product_navigation_input(product::Input::Back);
       if (product::product_state_snapshot(now_ms() / 1000, now_ms()).navigation.page == product::Page::Desktop) {
         g_menu.product_shell = false;
@@ -1420,7 +1526,7 @@ void poll_local_buttons() {
     }
   }
   const int active = CONFIG_LUNAREDU_SMART_SPEAKER_BUTTON_ACTIVE_LOW ? 0 : 1;
-  bool start_assistant = false, cancel_assistant = false;
+  bool start_assistant = false, cancel_assistant = false, finish_assistant = false;
   const bool both_down =
       gpio_get_level(static_cast<gpio_num_t>(CONFIG_LUNAREDU_SMART_SPEAKER_LEFT_BUTTON_GPIO)) == active &&
       gpio_get_level(static_cast<gpio_num_t>(CONFIG_LUNAREDU_SMART_SPEAKER_RIGHT_BUTTON_GPIO)) == active;
@@ -1442,6 +1548,8 @@ void poll_local_buttons() {
           if (right) {
             g_assistant_start_requested = false;
             cancel_assistant = true;
+          } else if (lunaredu::pet::conversation::runtime_snapshot().listening) {
+            finish_assistant = true;
           }
         } else if (route_local_menu_button_locked(!right, provisioning, link)) {
           // Page owns confirmation/back.
@@ -1467,6 +1575,7 @@ void poll_local_buttons() {
   poll(g_local_right, CONFIG_LUNAREDU_SMART_SPEAKER_RIGHT_BUTTON_GPIO, true);
   // Focus acquisition and network work must run outside the menu mutex.
   if (cancel_assistant) (void)xiaozhi_stop_listening();
+  else if (finish_assistant) (void)xiaozhi_finish_listening();
   else if (start_assistant) {
     if (lunaredu::pet::conversation::runtime_snapshot().activation_ready)
       (void)xiaozhi_start_listening();
@@ -1501,6 +1610,34 @@ void process_touch_gestures() {
   const bool menu_active = menu.open || menu.binding || menu.information ||
       menu.product_shell || menu.network || menu.library || menu.provisioning ||
       (!menu.provisioning_dismissed && network_provisioning_state() != NetworkProvisioningState::Idle);
+  if (menu.product_shell && navigation.page == product::Page::Feature &&
+      navigation.module == product::Module::Music && navigation.item == 1) {
+    const auto touch = smart_speaker_touch_snapshot();
+    int select = -1, minutes = -1;
+    {
+      std::lock_guard lock(g_runtime.mutex);
+      auto &a = g_runtime.ambient;
+      if (a.timer_menu) {
+        if (gesture == TouchGesture::Tap) {
+          if (touch.y >= 60 && touch.y < 220) {
+            constexpr int choices[] = {0,30,60,90};
+            minutes = choices[(touch.y-60)/40];
+          } else { a.timer_menu = false; a.reveal(now_ms()); }
+        }
+      } else if (gesture == TouchGesture::SwipeLeft || gesture == TouchGesture::SwipeRight) {
+        const int next = (a.shown_scene() + (gesture == TouchGesture::SwipeLeft ? 1 : 3)) % 4;
+        if (a.choosing) a.preview = next; else select = next;
+        a.reveal(now_ms());
+      } else if (gesture == TouchGesture::Tap) {
+        if (a.choosing) select = a.preview;
+        else if ((a.visible(now_ms()) || !g_runtime.last_error.empty()) && touch.y >= 188) a.timer_menu = true;
+        else a.reveal(now_ms());
+      }
+    }
+    if (select >= 0) (void)enqueue_command(CommandType::kAmbientSelect, select);
+    if (minutes >= 0) (void)enqueue_command(CommandType::kAmbientTimer, minutes);
+    return;
+  }
   if (menu.product_shell && navigation.page == product::Page::Feature) {
     product::Input input = product::Input::Confirm;
     if (gesture == TouchGesture::SwipeUp) input = product::Input::Up;
@@ -1515,8 +1652,19 @@ void process_touch_gestures() {
   }
   const auto touch_context = !menu_active ? TouchContext::Home :
       menu.product_shell && navigation.page == product::Page::ModuleList ? TouchContext::Launcher :
+      menu.product_shell && (navigation.page == product::Page::ModuleMenu ||
+          navigation.page == product::Page::Settings) ? TouchContext::Secondary :
+      menu.product_shell && navigation.page == product::Page::Feature &&
+          navigation.module == product::Module::Music && navigation.item == 0 &&
+          !status_snapshot().white_noise ? TouchContext::Music :
       menu.product_shell && navigation.page == product::Page::Feature ? TouchContext::Feature : TouchContext::Menu;
   switch (route_touch_gesture(gesture, touch_context)) {
+    case TouchRoute::NextTrack:
+      (void)enqueue_command(CommandType::kNext);
+      break;
+    case TouchRoute::PreviousTrack:
+      (void)enqueue_command(CommandType::kPrevious);
+      break;
     case TouchRoute::MenuConfirm: {
       const auto provisioning = network_provisioning_state();
       const auto link = network_link_state();
@@ -1562,6 +1710,10 @@ bool assistant_playback_focus_acquire(uint32_t timeout_ms) {
   bool was_playing = false;
   bool first_owner = false;
   {
+    // Serialize lease publication with decoder commands, so a command cannot
+    // pass admission immediately before a new voice lease becomes active.
+    std::unique_lock player_lock(g_player_operation_mutex, std::try_to_lock);
+    if (!player_lock.owns_lock()) return false;
     std::lock_guard lock(g_runtime.mutex);
     // A previous turn's deferred release must be consumed before another
     // turn can inherit this lease, otherwise that release could resume music
@@ -1674,6 +1826,11 @@ bool setup_runtime() {
     uint8_t mode = 0;
     if (nvs_get_u8(player_settings, "mode", &mode) == ESP_OK && mode <= 2)
       g_runtime.playback_mode = static_cast<PlaybackMode>(mode);
+    uint8_t scene = 255;
+    if (nvs_get_u8(player_settings, "ambient_scene", &scene) == ESP_OK && ambient::valid_scene(scene)) {
+      g_runtime.ambient.scene = g_runtime.ambient.preview = scene;
+      g_runtime.ambient.choosing = false;
+    }
     nvs_close(player_settings);
   }
   g_command_queue = xQueueCreate(12, sizeof(Command));
@@ -1704,6 +1861,7 @@ bool setup_runtime() {
 
   if (!product::desktop_resources_load())
     ESP_LOGW(kTag, "desktop resources unavailable; showing explicit fallback");
+  (void)product::ambient_wallpapers_load();
   if (!product::weather_load())
     ESP_LOGW(kTag, "weather configuration unavailable; retaining saved record");
 
@@ -1774,18 +1932,27 @@ void tick_runtime() {
     ESP_LOGW(kTag, "first audio frame timeout, skipping track");
     queue_track_completion(true);
   }
+  tick_ambient_timer();
   apply_assistant_focus_release_request();
   if (g_command_queue == nullptr) {
     return;
   }
   retry_assistant_focus_resume();
-  Command command;
-  // Bound work per UI tick so input bursts cannot monopolize this executor.
-  if (xQueueReceive(g_command_queue, &command, 0) == pdTRUE) {
-    process_command(command);
+  const auto game_navigation = product::product_navigation_snapshot();
+  const auto wood_fish = product::product_wood_fish_snapshot();
+  const auto voice = lunaredu::pet::conversation::runtime_snapshot();
+  bool game_sound_ready = false;
+  {
+    std::lock_guard lock(g_runtime.mutex);
+    game_sound_ready = g_runtime.audio_ready && g_runtime.game_focus_active && !g_runtime.game_focus_failed &&
+        !g_runtime.assistant_focus_active && (!g_runtime.playing || g_runtime.paused);
   }
-  const int delta = g_pending_volume_delta.exchange(0, std::memory_order_relaxed);
-  if (delta != 0) process_command({CommandType::kAdjustVolume, delta, 0});
+  dual_i2s_wood_fish_update(game_sound_ready && !voice.interaction_active &&
+      game_navigation.page == product::Page::Feature &&
+      game_navigation.module == product::Module::Games && game_navigation.item == 0,
+      wood_fish.count);
+  // One command per tick; queued music waits until the final voice DMA drain.
+  drain_playback_commands();
 }
 
 RuntimeStatus status_snapshot() {
@@ -1803,12 +1970,13 @@ RuntimeStatus status_snapshot() {
   status.audio_ready = g_runtime.audio_ready;
   status.playing = g_runtime.playing;
   status.white_noise = g_runtime.white_noise;
+  status.ambient = g_runtime.ambient;
   status.paused = g_runtime.paused;
   status.uploading = g_runtime.uploading;
   status.volume = g_runtime.volume;
   status.current_index = g_runtime.white_noise ? -1 : g_runtime.current_index;
   status.playlist_count = g_runtime.playlist.size();
-  if (g_runtime.white_noise) status.current_name = "白噪声";
+  if (g_runtime.white_noise) status.current_name = ambient::kNames[std::max(0, g_runtime.ambient.scene)];
   else if (g_runtime.current_index >= 0 &&
       g_runtime.current_index < static_cast<int>(g_runtime.playlist.size())) {
     const TrackInfo &track =

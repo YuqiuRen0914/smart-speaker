@@ -13,6 +13,7 @@
 #include "smart_speaker_transfer.h"
 #include "smart_speaker_playback_mode.h"
 #include "smart_speaker_cover.h"
+#include "smart_speaker_ambient.h"
 
 namespace smart_speaker {
 bool start_audio_service(std::string &error);
@@ -29,6 +30,7 @@ struct TrackInfo {
 };
 
 struct RuntimeStatus {
+  ambient::Session ambient;
   uint32_t position_ms = 0;
   bool has_lyrics = false;
   int lyrics_delay_ms = 0;

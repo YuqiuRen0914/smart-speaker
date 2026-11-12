@@ -9,7 +9,8 @@ namespace smart_speaker {
 // wallpaper and never sends an opaque tile directly to the LCD.
 class HomePetView {
  public:
-  static constexpr int kBufferSide = 96;
+  static constexpr int kBufferSide = 192;
+  static constexpr PetSpriteRect kConversationRect{24, 0, 192, 192};
   static constexpr int kFallbackSide = 80;
   static constexpr size_t kBufferBytes = kBufferSide * kBufferSide * 3;
   void create(lv_obj_t *parent, uint8_t *buffer);

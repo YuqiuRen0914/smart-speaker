@@ -12,7 +12,7 @@ namespace smart_speaker::product {
 // drivers.  The device page, web projection and assistant tools can all read
 // and mutate this one owner without keeping synchronised copies.
 enum class Page : uint8_t { Desktop, ModuleList, ModuleMenu, Feature, Settings, PetActions };
-enum class Module : uint8_t { Music, Assistant, Time, Information, Games, Computer, Settings };
+enum class Module : uint8_t { Music, Assistant, Time, Information, Games, Settings };
 enum class Input : uint8_t { Up, Down, Left, Right, Confirm, Back, Home, Assistant };
 
 struct NavigationSnapshot {
@@ -127,39 +127,6 @@ class TimeState {
   bool reconcile_after_restore_ = false;
 };
 
-enum class TelemetryStatus : uint8_t { Unavailable, NoPermission, Offline, Fresh, Stale };
-
-struct ComputerTelemetry {
-  TelemetryStatus cpu = TelemetryStatus::Unavailable;
-  TelemetryStatus gpu = TelemetryStatus::Unavailable;
-  TelemetryStatus temperature = TelemetryStatus::Unavailable;
-  TelemetryStatus fan = TelemetryStatus::Unavailable;
-  float cpu_percent = 0;
-  float gpu_percent = 0;
-  float temperature_c = 0;
-  float fan_rpm = 0;
-  uint32_t sample_age_ms = 0;
-  uint32_t revision = 0;
-};
-
-class ComputerPairing {
- public:
-  bool pair(std::string computer_id);
-  bool disconnect(const std::string &computer_id);
-  void clear();
-  bool accepts(const std::string &computer_id) const;
-  bool update(const std::string &computer_id, const ComputerTelemetry &sample,
-              uint32_t now_ms);
-  ComputerTelemetry snapshot(uint32_t now_ms) const;
-  const std::string &paired_id() const { return paired_id_; }
-
- private:
-  std::string paired_id_;
-  ComputerTelemetry sample_{};
-  uint32_t sample_at_ms_ = 0;
-  bool connected_ = false;
-};
-
 struct WoodFish {
   uint32_t count = 0;
   uint32_t last_hit_ms = 0;
@@ -186,8 +153,6 @@ struct ProductSnapshot {
   NavigationSnapshot navigation;
   PomodoroSnapshot pomodoro;
   std::vector<Reminder> reminders;
-  ComputerTelemetry computer;
-  std::string paired_computer;
   WoodFish wood_fish;
   std::array<uint16_t, 16> game_board{};
   uint32_t game_score = 0;
@@ -207,7 +172,6 @@ class ProductState {
                     const std::vector<DueReminder> &pending);
   Navigation navigation;
   TimeState time;
-  ComputerPairing computer;
   WoodFish wood_fish;
   Game2048 game;
   std::vector<DueReminder> pending_reminders;
@@ -215,6 +179,5 @@ class ProductState {
 
 const char *page_name(Page page);
 const char *module_name(Module module);
-const char *telemetry_status_name(TelemetryStatus status);
 
 }  // namespace smart_speaker::product

@@ -2,6 +2,10 @@
 set -eu
 APP_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 CXX=${CXX:-c++}
+MUSIC_SPECTRUM_TEST_BIN=${TMPDIR:-/tmp}/smart-speaker-music-spectrum-test
+$CXX -std=c++17 -Wall -Wextra -Werror -O2 -pthread -I"$APP_DIR/main/smart_speaker" \
+  "$APP_DIR/test/music_spectrum_test.cpp" -o "$MUSIC_SPECTRUM_TEST_BIN"
+"$MUSIC_SPECTRUM_TEST_BIN"
 ASSISTANT_MCP_TEST_BIN=${TMPDIR:-/tmp}/smart-speaker-assistant-mcp-dispatch-test
 $CXX -std=c++17 -Wall -Wextra -Werror -O2 \
   -I"$APP_DIR/lunaros_apps/lunaredu_pet/src" \
@@ -138,7 +142,7 @@ COVER_TEST_BIN=${TMPDIR:-/tmp}/smart-speaker-cover-test
 BOOT_TEST_BIN=${TMPDIR:-/tmp}/smart-speaker-boot-confirmation-test
 "$CXX" -std=c++20 -Wall -Wextra -Werror -I"$APP_DIR/lunaros/include" "$APP_DIR/test/boot_confirmation_test.cpp" -o "$BOOT_TEST_BIN"
 "$BOOT_TEST_BIN"
-for name in xiaozhi_activation lunarlink_protocol lunarlink_bootstrap lunarlink_binding lunarlink_generation lunarlink_capabilities audio_lifecycle transfer lyrics_api cover_api pet_frame_api track_remove local_menu_display local_menu playback_mode mp3_guard; do
+for name in xiaozhi_activation music_voice_queue lunarlink_protocol lunarlink_bootstrap lunarlink_binding lunarlink_generation lunarlink_capabilities audio_lifecycle transfer lyrics_api cover_api pet_frame_api track_remove sd_dma lcd_strip audio_drain music_damage local_menu_display local_menu playback_mode mp3_guard audio_read_guard; do
     python3 "$APP_DIR/test/${name}_test.py"
 done
 
@@ -149,3 +153,20 @@ python3 "$APP_DIR/test/assistant_control_test.py"
 python3 "$APP_DIR/test/wake_model_test.py"
 python3 "$APP_DIR/test/microphone_capture_test.py"
 node "$APP_DIR/test/web_api_test.mjs"
+
+WOOD_FISH_TEST_BIN=${TMPDIR:-/tmp}/smart-speaker-wood-fish-sound-test
+"$CXX" -std=c++17 -Wall -Wextra -Werror -O2 -I"$APP_DIR/main/smart_speaker" \
+  "$APP_DIR/test/wood_fish_sound_test.cpp" "$APP_DIR/main/smart_speaker/smart_speaker_dsp.cpp" \
+  -o "$WOOD_FISH_TEST_BIN"
+"$WOOD_FISH_TEST_BIN"
+
+node "$APP_DIR/test/music_metadata_test.mjs"
+
+node "$APP_DIR/test/library_refresh_test.mjs"
+
+AMBIENT_TEST_BIN=${TMPDIR:-/tmp}/smart-speaker-ambient-test
+"$CXX" -std=c++17 -Wall -Wextra -Werror -O2 -I"$APP_DIR/main/smart_speaker" \
+  "$APP_DIR/test/ambient_test.cpp" "$APP_DIR/main/smart_speaker/smart_speaker_ambient.cpp" -o "$AMBIENT_TEST_BIN"
+"$AMBIENT_TEST_BIN"
+
+python3 "$APP_DIR/test/ambient_upload_test.py"

@@ -13,7 +13,7 @@ release = source[source.index("void apply_assistant_focus_release_request()"):
 game = source[source.index("void sync_game_audio_focus()"):
               source.index("uint32_t now_ms()")]
 command_cases = source[source.index("  case CommandType::kAssistantPause:"):
-                       source.index("  case CommandType::kWhiteNoise:")]
+                       source.index("  case CommandType::kAmbientTimer:")]
 
 acquire = source[source.index("bool assistant_playback_focus_acquire("):
                  source.index("void assistant_playback_focus_release()")]
@@ -63,6 +63,7 @@ struct Runtime {
   std::string last_error;
 };
 Runtime g_runtime;
+std::mutex g_player_operation_mutex;
 std::atomic<uint32_t> g_playback_intent_revision{0};
 std::atomic<bool> g_assistant_focus_release_requested{false};
 std::vector<Command> queued;

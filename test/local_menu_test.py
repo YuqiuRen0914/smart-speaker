@@ -10,11 +10,23 @@ header = (app / 'main/smart_speaker/smart_speaker_runtime.h').read_text(encoding
 menu = re.search(r'struct LocalMenuState \{.*?\n\};', header, re.S).group()
 button = re.search(r'struct LocalButtonState \{.*?\n\};', source, re.S).group()
 encoder = source[source.index('void sync_local_library_locked('):source.index('void poll_encoder()')]
-routine_end = source.index('void process_touch_gestures()') if 'void process_touch_gestures()' in source else source.index('void ota_lifecycle(')
+routine_end = source.index('void ota_lifecycle(')
 routine = source[source.index('void poll_local_buttons() {'):routine_end]
 prefix = r'''
 #include "product_state_runtime.h"
 #include "desktop_resources.h"
+#include "smart_speaker_touch_routing.h"
+#include "smart_speaker_ambient.h"
+namespace ambient=smart_speaker::ambient;
+smart_speaker::SmartSpeakerTouchSnapshot touch_snapshot;
+smart_speaker::SmartSpeakerTouchSnapshot smart_speaker_touch_snapshot(){return touch_snapshot;}
+using smart_speaker::TouchGesture;
+using smart_speaker::TouchContext;
+using smart_speaker::TouchRoute;
+using smart_speaker::route_touch_gesture;
+TouchGesture pending_touch = TouchGesture::None;
+void smart_speaker_cancel_touch(){pending_touch=TouchGesture::None;}
+TouchGesture smart_speaker_take_touch_gesture(){auto value=pending_touch;pending_touch=TouchGesture::None;return value;}
 namespace product = smart_speaker::product;
 bool catalog_ready = false;
 int requested_pet_action = -1;
@@ -58,22 +70,25 @@ bool cancel_device_link_pairing() { return true; }
 bool request_device_link_pairing() { ++pairing_requests; return true; }
 struct TransferStatus { bool receiving=false, batch_open=false; } transfer;
 TransferStatus transfer_snapshot() { return transfer; }
-enum class CommandType { kNext, kPrevious, kPlayTrack, kCycleMode, kWhiteNoise };
+enum class CommandType { kNext, kPrevious, kPlayTrack, kCycleMode, kWhiteNoise, kAmbientSelect, kAmbientTimer };
 int mode_changes = 0;
+CommandType last_command = CommandType::kPlayTrack;
 int tracks = 0, queued_index = -1; uint32_t queued_revision = 0;
-bool enqueue_command(CommandType type, int index = 0, uint32_t revision = 0) { if(type==CommandType::kCycleMode)++mode_changes;else ++tracks; queued_index=index; queued_revision=revision; return true; }
+bool enqueue_command(CommandType type, int index = 0, uint32_t revision = 0) { last_command=type;if(type==CommandType::kCycleMode)++mode_changes;else ++tracks; queued_index=index; queued_revision=revision; return true; }
 struct TrackInfo {std::string name, path;};
-struct Runtime { std::mutex mutex; std::vector<TrackInfo> playlist; int current_index=0; uint32_t playlist_revision=1; bool uploading=false, audio_ready=true; } g_runtime;
+struct Runtime { std::string last_error; ambient::Session ambient; std::mutex mutex; std::vector<TrackInfo> playlist; int current_index=0; uint32_t playlist_revision=1; bool uploading=false, audio_ready=true; } g_runtime;
 uint32_t clock_ms = 0;
 bool left_down = false, right_down = false;
 uint32_t now_ms() { return clock_ms; }
-struct PlayerStatus {bool playing=false,paused=false,white_noise=false;};
-PlayerStatus status_snapshot(){return {};}
+struct PlayerStatus {ambient::Session ambient; bool playing=false,paused=false,white_noise=false;};
+PlayerStatus player_status;
+PlayerStatus status_snapshot(){auto s=player_status;s.ambient=g_runtime.ambient;return s;}
 void play(){}
 void pause(){}
-int assistant_starts=0, assistant_cancels=0;
+int assistant_starts=0, assistant_cancels=0, assistant_finishes=0;
 bool xiaozhi_start_listening(){++assistant_starts;return true;}
 bool xiaozhi_stop_listening(){++assistant_cancels;return true;}
+bool xiaozhi_finish_listening(){++assistant_finishes;return true;}
 bool xiaozhi_start_activation(){return true;}
 namespace lunaredu::pet::conversation {
 struct Snapshot {bool activation_ready=true;};
@@ -86,6 +101,7 @@ int gpio_get_level(int pin) { return (pin == 1 ? left_down : right_down) ? 0 : 1
 state = r'''
 bool g_assistant_start_requested = false;
 LocalMenuState g_menu;
+LocalMenuState local_menu_snapshot(){return g_menu;}
 LocalButtonState g_local_left, g_local_right;
 std::mutex g_menu_mutex;
 std::atomic<bool> g_provisioning_requested{false}, g_provisioning_cancel_requested{false};
@@ -98,7 +114,8 @@ void click(bool confirm) {
   (!confirm ? right_down : left_down) = false; tick(); tick(31);
 }
 void reset(uint32_t start = 0) {
-  mode_changes=0; transfer={}; assistant_starts=assistant_cancels=0;
+  pending_touch=TouchGesture::None;player_status={};
+  mode_changes=0; transfer={}; assistant_starts=assistant_cancels=assistant_finishes=0;
   lunaredu::pet::conversation::assistant = {};
   g_assistant_start_requested = false;
   product::product_navigation_input(product::Input::Home);
@@ -135,7 +152,56 @@ void enter_setup() {
   route_local_encoder(-1); click(true);
   assert(!g_menu.open && g_menu.provisioning && g_provisioning_requested);
 }
+void swipe(TouchGesture gesture) {
+  process_touch_gestures(); // Establish the new page's input epoch first.
+  pending_touch=gesture;
+  process_touch_gestures();
+  process_touch_gestures(); // Consumed input must not dispatch twice.
+}
 int main() {
+  reset(); launcher(0); click(true); click(true); // Local music feature.
+  const auto music_page = product::product_navigation_snapshot();
+  assert(music_page.page == product::Page::Feature);
+  tracks=0;
+  swipe(TouchGesture::SwipeLeft);
+  assert(tracks==1 && last_command==CommandType::kNext);
+  swipe(TouchGesture::SwipeRight);
+  assert(tracks==2 && last_command==CommandType::kPrevious);
+  assert(product::product_navigation_snapshot().revision==music_page.revision);
+  assert(!route_local_encoder(1)); // Rotary continues to the volume owner.
+  swipe(TouchGesture::SwipeUp);swipe(TouchGesture::SwipeDown);
+  assert(tracks==2);
+  player_status.paused=true;swipe(TouchGesture::SwipeLeft);
+  assert(tracks==3 && last_command==CommandType::kNext);
+  player_status.white_noise=true;swipe(TouchGesture::SwipeLeft);assert(tracks==3);
+  player_status.white_noise=false;
+  for (int phase=0;phase<4;++phase) {
+    auto &a=lunaredu::pet::conversation::assistant;a={};
+    a.opening=phase==0;a.listening=phase==1;a.thinking=phase==2;a.speaking=phase==3;
+    swipe(TouchGesture::SwipeLeft);assert(tracks==3);
+  }
+  lunaredu::pet::conversation::assistant={};g_assistant_start_requested=true;
+  swipe(TouchGesture::SwipeRight);assert(tracks==3);g_assistant_start_requested=false;
+  // A swipe queued on the music page cannot act on its parent after return.
+  process_touch_gestures();pending_touch=TouchGesture::SwipeLeft;click(false);
+  process_touch_gestures();assert(tracks==3);
+  assert(product::product_navigation_snapshot().page==product::Page::ModuleMenu);
+  swipe(TouchGesture::SwipeLeft);assert(tracks==3);
+  assert(product::product_navigation_snapshot().item==1); // Select white noise.
+  click(true);swipe(TouchGesture::SwipeLeft);assert(tracks==3);
+  assert(g_runtime.ambient.preview==1); // First entry previews, without starting audio.
+  click(true);assert(last_command==CommandType::kAmbientSelect && queued_index==1);
+  g_runtime.ambient.scene=1;g_runtime.ambient.choosing=false;
+  swipe(TouchGesture::SwipeLeft);assert(last_command==CommandType::kAmbientSelect && queued_index==2);
+  touch_snapshot.y=200;g_runtime.ambient.reveal(clock_ms);
+  swipe(TouchGesture::Tap);assert(g_runtime.ambient.timer_menu);
+  touch_snapshot.y=150;swipe(TouchGesture::Tap);
+  assert(last_command==CommandType::kAmbientTimer && queued_index==60);
+  click(false);assert(!g_runtime.ambient.timer_menu);
+  assert(product::product_navigation_snapshot().page==product::Page::Feature);
+  reset();launcher(4);click(true);click(true); // Wood fish is not a music page.
+  swipe(TouchGesture::SwipeLeft);assert(tracks==0);
+  reset();
   reset();
   (void)product::product_navigation_input(product::Input::Home);
   (void)product::product_navigation_input(product::Input::Confirm);
@@ -173,6 +239,7 @@ int main() {
     for (int phase=0; phase<4; ++phase) {
       auto &voice=lunaredu::pet::conversation::assistant;
       voice={}; voice.opening=phase==0;voice.listening=phase==1;voice.thinking=phase==2;voice.speaking=phase==3;
+      click(true); assert(assistant_finishes==(phase>=1?1:0));
       click(false); assert(product::product_navigation_snapshot().revision==source.revision);
       assert(route_local_encoder(1));
     }
@@ -181,15 +248,15 @@ int main() {
     // A key pressed before an asynchronous wake cannot act on the new owner.
     reset(start); left_down=true;tick();tick(31);
     lunaredu::pet::conversation::assistant.listening=true;
-    release(false);assert(tracks==0 && assistant_starts==0);
+    release(false);assert(tracks==0 && assistant_starts==0 && assistant_finishes==0);
   }
   // Settings children go back to Settings, then the launcher, then home.
-  reset(); launcher(6);click(true);assert(product::product_navigation_snapshot().page==product::Page::Settings);
+  reset(); launcher(5);click(true);assert(product::product_navigation_snapshot().page==product::Page::Settings);
   click(true);assert(g_menu.network && g_menu.settings_child);
   click(false);assert(g_menu.product_shell && product::product_navigation_snapshot().page==product::Page::Settings);
   click(false);assert(product::product_navigation_snapshot().page==product::Page::ModuleList);
   click(false);assert(!g_menu.open && product::product_navigation_snapshot().page==product::Page::Desktop);
-  launcher(0);assert(product::product_navigation_snapshot().item==6); // Selection survives home.
+  launcher(0);assert(product::product_navigation_snapshot().item==5); // Selection survives home.
   // Account view is safe to confirm/leave; logout requires explicit selection
   // and a second confirmation with Cancel selected by default.
   reset(); pairing.state=DeviceLinkBindingState::Bound;open_menu();route_local_encoder(-1);click(true);
@@ -307,6 +374,6 @@ with tempfile.TemporaryDirectory(prefix='speaker-menu-') as temp:
     test = root / 'test.cpp'
     test.write_text(prefix + menu + button + state + encoder + routine + tests, encoding='utf-8')
     binary = root / 'test.exe'
-    subprocess.run(['g++', '-std=c++17','-D_WIN32_WINNT=0x0601','-include',str(app/'lunaros_apps/lunaredu_pet/test/host/mutex.h'), '-O2', '-Wall', '-Wextra', '-Werror', '-I'+str(app/'main/product'), '-I'+str(app/'lunaros/include'), '-I'+str(app/'managed_components/bblanchon__arduinojson/src'), str(app/'test/host/product_time_storage.cpp'), str(test), str(app/'main/product/product_state.cpp'), str(app/'main/product/product_state_runtime.cpp'), '-o', str(binary)], check=True)
+    subprocess.run(['g++', '-std=c++17','-D_WIN32_WINNT=0x0601','-include',str(app/'lunaros_apps/lunaredu_pet/test/host/mutex.h'), '-O2', '-Wall', '-Wextra', '-Werror', '-I'+str(app/'main/product'), '-I'+str(app/'main/smart_speaker'), '-I'+str(app/'lunaros/include'), '-I'+str(app/'managed_components/bblanchon__arduinojson/src'), str(app/'test/host/product_time_storage.cpp'), str(test), str(app/'main/product/product_state.cpp'), str(app/'main/product/product_state_runtime.cpp'), str(app/'main/smart_speaker/smart_speaker_touch_routing.cpp'), '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
 print('Local menu: pending/active/applying/failed setup cancel, return, success, auto-AP and clock-wrap passed')

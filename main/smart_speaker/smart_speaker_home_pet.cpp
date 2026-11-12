@@ -21,9 +21,9 @@ void HomePetView::create(lv_obj_t *parent, uint8_t *buffer) {
   lv_obj_set_style_bg_color(conversation_, lv_color_hex(0x10151E), 0);
   lv_obj_set_style_bg_opa(conversation_, LV_OPA_COVER, 0);
   caption_ = lv_label_create(conversation_);
-  lv_obj_set_size(caption_, 208, 74);
-  lv_obj_set_pos(caption_, 16, 150);
-  lv_label_set_long_mode(caption_, LV_LABEL_LONG_WRAP);
+  lv_obj_set_size(caption_, 208, 32);
+  lv_obj_set_pos(caption_, 16, 196);
+  lv_label_set_long_mode(caption_, LV_LABEL_LONG_SCROLL_CIRCULAR);
   lv_obj_set_style_text_align(caption_, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_color(caption_, lv_color_hex(0xE8E6DF), 0);
   lv_obj_add_flag(conversation_, LV_OBJ_FLAG_HIDDEN);

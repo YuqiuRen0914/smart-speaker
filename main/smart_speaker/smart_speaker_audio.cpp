@@ -1,5 +1,6 @@
 #include "lunaredu_lunaros/kernel/managed_task.h"
 #include "smart_speaker_audio.h"
+#include "smart_speaker_wood_fish_sound.h"
 #include "audio_output_internal.h"
 
 #include <algorithm>
@@ -64,7 +65,13 @@ struct IsrCounters {
   volatile uint32_t queue_overflows = 0;
 };
 
-std::array<AudioBlock, kBlockCount> g_blocks;
+EXT_RAM_BSS_ATTR std::array<AudioBlock, kBlockCount> g_blocks;
+std::atomic<bool> g_wood_fish_enabled{false};
+std::atomic<uint32_t> g_wood_fish_count{0};
+AudioBlock g_wood_fish_block; // Fixed storage, exclusively owned by output_task.
+EXT_RAM_BSS_ATTR music::TapBuffers g_music_tap_buffers;
+music::SpectrumTap g_music_tap(g_music_tap_buffers);
+
 
 bool g_channels_enabled = false;
 volatile bool g_reconfigure_pending = false;
@@ -472,6 +479,8 @@ void output_task(void *) {
   uint32_t last_block_ms = now_ms();
   uint32_t last_write_started_ms = 0;
   bool stream_active = false;
+  WoodFishSound wood_sound;
+  WoodFishStrikeGate wood_gate;
   I2sCompletionMonitor completion_monitor;
   completion_monitor.reset(
       __atomic_load_n(&g_left_isr.completed_frames, __ATOMIC_RELAXED),
@@ -484,6 +493,7 @@ void output_task(void *) {
     }
     apply_control_targets(seen_generation);
     if (g_output_control_pending) {
+      g_music_tap.discard();
       const bool enable = g_output_target_enabled;
       esp_err_t err = ESP_OK;
       if (enable) {
@@ -540,6 +550,9 @@ void output_task(void *) {
       }
     }
     if (g_recovery_pending || g_reconfigure_pending) {
+      g_music_tap.discard();
+      wood_sound.cancel();
+      (void)wood_gate.poll(false, g_wood_fish_count.load(), now_ms());
       do_recovery_or_reconfigure();
       last_block_ms = now_ms();
       stream_active = false;
@@ -549,8 +562,20 @@ void output_task(void *) {
           now_ms());
     }
 
+    const uint32_t hits = g_wood_fish_count.load(std::memory_order_acquire);
+    const bool allow_effect = g_wood_fish_enabled.load(std::memory_order_acquire) &&
+        !g_voice_output_enabled.load(std::memory_order_acquire) &&
+        g_channels_enabled && !g_diagnostics.fault_muted;
     uint8_t index = 0;
-    if (xQueueReceive(g_ready_queue, &index, pdMS_TO_TICKS(2)) != pdTRUE) {
+    const bool have_pcm = xQueueReceive(g_ready_queue, &index,
+        wood_sound.active() ? 0 : pdMS_TO_TICKS(2)) == pdTRUE;
+    // Real PCM (music/voice) always wins; no effect can mix into a late block.
+    const bool permitted = allow_effect && !have_pcm;
+    if (!permitted) wood_sound.cancel();
+    if (wood_gate.poll(permitted, hits, now_ms()))
+      wood_sound.strike(g_diagnostics.sample_rate);
+    const bool effect_block = !have_pcm && allow_effect && wood_sound.active();
+    if (!have_pcm && !effect_block) {
       if (g_processor.fade_state() == dsp::FadeState::kRampDown) {
         // Advance the state even if a decoder ends immediately after mute().
         for (size_t i = 0; i < kFramesPerBlock; ++i) {
@@ -560,6 +585,7 @@ void output_task(void *) {
         }
       }
       if (g_processor.muted()) {
+        g_music_tap.discard();
         stream_active = false;
         __atomic_store_n(&g_audio_expected, false, __ATOMIC_RELAXED);
       }
@@ -573,8 +599,13 @@ void output_task(void *) {
       }
       continue;
     }
-    AudioBlock &block = g_blocks[index];
-    stream_active = true;
+    AudioBlock &block = effect_block ? g_wood_fish_block : g_blocks[index];
+    if (effect_block) {
+      block.frames = kFramesPerBlock;
+      for (size_t i = 0; i < kFramesPerBlock; ++i)
+        block.left[i] = block.right[i] = wood_sound.next();
+    }
+    stream_active = !effect_block;
     bool unmuted_target = false;
     portENTER_CRITICAL(&g_state_lock);
     unmuted_target = !g_mute_target;
@@ -582,7 +613,7 @@ void output_task(void *) {
     // Blocks already queued when pause/stop requests mute must not turn DMA
     // starvation monitoring back on. Only a block belonging to an unmuted
     // playback target proves that continuous PCM is expected.
-    if (unmuted_target)
+    if (unmuted_target && !effect_block)
       __atomic_store_n(&g_audio_expected, true, __ATOMIC_RELAXED);
     last_block_ms = now_ms();
     float expression_peak = 0;
@@ -594,9 +625,9 @@ void output_task(void *) {
       g_processor.process_common(block.left[i], block.right[i], left, right,
                                  pre_volume, !block.bypass_volume);
       expression_peak = std::max(expression_peak, std::abs(pre_volume));
-      g_processor.finalize_output(left, right);
-      // No FFT/VU screen remains. Keep the DSP/output path, but avoid the
-      // legacy per-sample spectrum buffer writes and critical section.
+      g_processor.finalize_output(left, right, !effect_block);
+      // Visual sampling happens once per successful PCM block below, without
+      // per-sample locks or FFT work on the audio owner.
       const int16_t left16 = g_processor.quantize(left);
       const int16_t right16 = g_processor.quantize(right);
       probe_peak0 = std::max(probe_peak0, static_cast<uint32_t>(std::abs(static_cast<int>(right16))));
@@ -645,19 +676,26 @@ void output_task(void *) {
     if (right_written != wanted) ++g_diagnostics.short_writes_right;
     if (left_err != ESP_OK || right_err != ESP_OK || left_written != wanted ||
         right_written != wanted) {
+      g_music_tap.discard();
       mark_fault("short write or timeout");
     } else {
       portENTER_CRITICAL(&g_state_lock);
-      if (block.track_generation == g_track_clock_generation)
+      const bool current_track = block.track_generation == g_track_clock_generation;
+      if (!effect_block && current_track)
         g_track_clock.advance(block.frames, g_diagnostics.sample_rate);
       portEXIT_CRITICAL(&g_state_lock);
+      if (!effect_block && current_track && unmuted_target &&
+          !g_voice_output_enabled.load(std::memory_order_acquire))
+        g_music_tap.push(block.left, block.right, block.frames,
+            g_diagnostics.sample_rate, block.track_generation, now_ms());
+      else g_music_tap.discard();
       g_diagnostics.submitted_frames_left += block.frames;
       g_diagnostics.submitted_frames_right += block.frames;
       if (g_diagnostics.submitted_frames_left !=
           g_diagnostics.submitted_frames_right)
         mark_fault("submitted frame mismatch");
     }
-    (void)xQueueSend(g_free_queue, &index, 0);
+    if (have_pcm) (void)xQueueSend(g_free_queue, &index, 0);
   }
 }
 
@@ -775,10 +813,15 @@ bool smart_speaker_validate_and_log_gpio_ownership() {
 }
 
 void dual_i2s_track_clock_reset() {
+  g_music_tap.invalidate();
   portENTER_CRITICAL(&g_state_lock);
   ++g_track_clock_generation;
   g_track_clock.reset();
   portEXIT_CRITICAL(&g_state_lock);
+}
+void dual_i2s_music_spectrum_enable(bool enabled) { audio_internal::g_music_tap.enable(enabled); }
+bool dual_i2s_music_spectrum_take(music::PcmWindow &out, uint32_t now) {
+  return audio_internal::g_music_tap.take(out, now);
 }
 uint32_t dual_i2s_track_position_ms() {
   portENTER_CRITICAL(&g_state_lock);
@@ -832,6 +875,11 @@ esp_err_t write_audio_blocks(void *audio_buffer, size_t len,
   }
   if (bytes_written) *bytes_written = len;
   return ESP_OK;
+}
+
+void dual_i2s_wood_fish_update(bool enabled, uint32_t count) {
+  g_wood_fish_count.store(count, std::memory_order_release);
+  g_wood_fish_enabled.store(enabled, std::memory_order_release);
 }
 
 esp_err_t dual_i2s_audio_write(void *audio_buffer, size_t len,
@@ -1002,6 +1050,22 @@ int smart_speaker_voice_audio_input_sample_rate() {
 
 int smart_speaker_voice_audio_output_sample_rate() {
   return static_cast<int>(kVoiceSampleRate);
+}
+
+bool dual_i2s_audio_drain(uint32_t timeout_ms) {
+  const uint32_t started = now_ms();
+  while (g_free_queue && uxQueueMessagesWaiting(g_free_queue) < kBlockCount) {
+    if (g_output_muted || g_diagnostics.fault_muted) return false;
+    if (now_ms() - started >= timeout_ms) return false;
+    vTaskDelay(1);
+  }
+  // Decoder EOF is deliberate silence, not starvation. Allow the already
+  // submitted hardware ring to play before the owner's MUTE callback.
+  __atomic_store_n(&g_audio_expected, false, __ATOMIC_RELAXED);
+  const uint32_t rate = g_diagnostics.sample_rate;
+  if (rate) vTaskDelay(std::max<TickType_t>(1, pdMS_TO_TICKS(
+      (kDmaDescriptorCount * kFramesPerBlock * 1000 + rate - 1) / rate)));
+  return true;
 }
 
 esp_err_t dual_i2s_audio_mute(AUDIO_PLAYER_MUTE_SETTING setting) {
