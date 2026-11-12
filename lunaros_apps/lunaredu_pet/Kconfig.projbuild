@@ -6,5 +6,15 @@ config LUNAREDU_ASSISTANT_XIAOZHI
     bool "XiaoZhi official platform"
 config LUNAREDU_ASSISTANT_LUNARLINK
     bool "LunarLink (Board account required)"
+config LUNAREDU_ASSISTANT_MAC
+    bool "Mac companion (local SenseVoice / DeepSeek / Feiyu)"
 endchoice
+config LUNAREDU_ASSISTANT_MAC_URL
+    string "Mac bootstrap URL (trusted LAN only)"
+    depends on LUNAREDU_ASSISTANT_MAC
+    default "http://speaker-mac.local:8765/xiaozhi/ota/"
+config LUNAREDU_ASSISTANT_MAC_TOKEN
+    string "Mac bootstrap shared token (keep sdkconfig private)"
+    depends on LUNAREDU_ASSISTANT_MAC
+    default ""
 endmenu

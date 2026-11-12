@@ -295,13 +295,16 @@ void connect_task(void *argument) {
       const bool has_subscribe_topic =
           !g_runtime.transport.mqtt_subscribe_topic.empty() &&
           g_runtime.transport.mqtt_subscribe_topic != "null";
-      if (has_subscribe_topic && !mqtt_client->Subscribe()) {
+      const bool subscribed = !kAssistantUsesMac && has_subscribe_topic && mqtt_client->Subscribe();
+      if (!kAssistantUsesMac && has_subscribe_topic && !subscribed) {
         std::lock_guard<std::mutex> lock(g_runtime.mutex);
         g_runtime.diagnostics.last_transport_error =
             "service_mqtt_subscribe_failed";
         g_runtime.diagnostics.last_error =
             g_runtime.diagnostics.last_transport_error;
       }
+      // Mac subscribes/opens from the connected event, also covering automatic
+      // MQTT reconnects that never execute this Start() branch again.
     }
 
     {
@@ -417,6 +420,18 @@ bool send_service_text(const std::string &message) {
         fence["session"]["binding_epoch"] != g_runtime.platform_identity.epoch) return false;
     } else {
       wire_message = message;
+      if (kAssistantUsesMac) {
+        JsonDocument local;
+        if (deserializeJson(local, message) != DeserializationError::Ok) return false;
+        const std::string type = local["type"] | "";
+        const std::string state = local["state"] | "";
+        if (type == "listen" && (state == "start" || state == "detect")) {
+          if (++g_runtime.transport.mac_turn_id == 0) ++g_runtime.transport.mac_turn_id;
+        }
+        local["turn_id"] = g_runtime.transport.mac_turn_id;
+        wire_message.clear();
+        serializeJson(local, wire_message);
+      }
     }
     mqtt_session = g_runtime.transport.mqtt_session;
   }
@@ -464,7 +479,8 @@ bool send_service_binary(const std::vector<uint8_t> &message) {
       return false;
     }
     udp_channel = g_runtime.transport.udp_channel;
-    timestamp_ms = g_runtime.transport.audio_uplink_timestamp_ms;
+    timestamp_ms = kAssistantUsesMac ? g_runtime.transport.mac_turn_id
+                                   : g_runtime.transport.audio_uplink_timestamp_ms;
     g_runtime.transport.audio_uplink_timestamp_ms += kFrameDurationMs;
     if (!g_runtime.transport.mqtt_udp_channel.encrypt_payload(
             message.data(), message.size(), timestamp_ms, datagram)) {

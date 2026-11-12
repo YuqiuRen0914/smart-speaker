@@ -156,6 +156,7 @@ void handle_server_text_locked(const std::string &message, std::unique_lock<std:
             sequence = result.sequence;
             expected_sequence = result.expected_sequence;
             timestamp_ms = result.timestamp_ms;
+            if (kAssistantUsesMac && timestamp_ms != g_runtime.transport.mac_turn_id) return;
             const auto &wire = g_runtime.transport.wire;
             if (kAssistantUsesLunarLink && (!wire.first_downlink || sequence < wire.first_downlink ||
                 (wire.expected_last_downlink && sequence > wire.expected_last_downlink))) return;
@@ -222,7 +223,17 @@ void handle_server_text_locked(const std::string &message, std::unique_lock<std:
 
   const std::string message_session = g_runtime.rx_doc["session_id"] | "";
   if (!message_session.empty() && message_session != g_runtime.transport.session_id) return;
+  if (kAssistantUsesMac && (type == "tts" || type == "stt" || type == "llm" || type == "mac_error") &&
+      (!g_runtime.rx_doc["turn_id"].is<uint32_t>() ||
+       g_runtime.rx_doc["turn_id"].as<uint32_t>() != g_runtime.transport.mac_turn_id)) return;
   if (g_runtime.conversation.cancelled || g_runtime.conversation.control_pending) return;
+  if (kAssistantUsesMac && type == "mac_error") {
+    g_runtime.diagnostics.last_error = "mac_assistant_unavailable";
+    conversation_emit_status("助手暂不可用", "请检查 Mac 助手服务", "本地音乐仍可使用", nullptr);
+    (void)post_assistant_event_locked(
+        {AssistantEventType::SessionGoodbye, {}, {}, false});
+    return;
+  }
   if (type == "tts") {
     if (!g_runtime.conversation.accepts_response(g_runtime.session_state)) return;
     g_runtime.conversation.last_tts_state = g_runtime.rx_doc["state"] | "";

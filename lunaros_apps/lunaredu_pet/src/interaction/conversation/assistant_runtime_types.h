@@ -77,6 +77,7 @@ struct TransportState {
   int64_t last_service_activity_at_ms = 0;
   int64_t last_keepalive_sent_at_ms = 0;
   uint32_t audio_uplink_timestamp_ms = 0;
+  uint32_t mac_turn_id = 0; // Local transport fence; never reused across listen starts.
   std::string session_id;
   std::string mqtt_endpoint;
   std::string mqtt_client_id;

@@ -3,7 +3,9 @@
 #include <vector>
 #include <utility>
 namespace lunaredu::lunaros {
+enum class NetworkTransportSecurity { RequireTls, AllowPlaintextDevelopment, AllowPlaintextLocal };
 struct NetworkFetchRequest {
+ NetworkTransportSecurity transport_security=NetworkTransportSecurity::RequireTls;
  std::string method,url,body;
  int timeout_ms=0;
  size_t maximum_response_bytes=0;

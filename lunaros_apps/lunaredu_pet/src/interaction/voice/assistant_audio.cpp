@@ -154,7 +154,7 @@ bool process_uplink_audio_work_item(const std::vector<int16_t> &samples) {
 
     s_encoded.resize(output.encoded_bytes);
     
-    const uint32_t timestamp_ms = static_cast<uint32_t>(now_ms());
+    uint32_t timestamp_ms = 0;
     std::shared_ptr<NetworkUdpChannel> udp_channel;
     uint32_t sequence = 0;
     {
@@ -165,6 +165,10 @@ bool process_uplink_audio_work_item(const std::vector<int16_t> &samples) {
         g_runtime.diagnostics.last_error = g_runtime.diagnostics.last_binary_error;
         return false;
       }
+      // Microphone frames bypass send_service_binary; use the same Mac turn
+      // fence here so recording and the endpoint probe share the wire format.
+      timestamp_ms = kAssistantUsesMac ? g_runtime.transport.mac_turn_id
+                                      : static_cast<uint32_t>(now_ms());
       if (!g_runtime.transport.mqtt_udp_channel.encrypt_payload(
               reinterpret_cast<const uint8_t *>(s_encoded.data()),
               s_encoded.size(), timestamp_ms, s_udp_datagram)) {
@@ -305,11 +309,6 @@ bool poll_local_audio_once() {
     if (!afe_output_ready) {
       remove_pcm_dc_bias(s_mic_buffer);
     }
-    normalize_pcm_peak(s_mic_buffer, kEsp32ListeningTargetPeak,
-                       kEsp32ListeningNormalizeMinPeak,
-                       kEsp32ListeningMaxGainNumerator,
-                       kEsp32ListeningGainDenominator);
-
     {
       std::lock_guard<std::mutex> lock(g_runtime.mutex);
       if (afe_output_ready) {
@@ -357,7 +356,13 @@ bool poll_local_audio_once() {
       }
       return false;
     }
-
+    // Detect silence before uplink gain. Normalizing each quiet frame first
+    // amplifies microphone noise into "speech", so manual turns never send
+    // listen-stop and the server keeps waiting instead of answering.
+    normalize_pcm_peak(s_mic_buffer, kEsp32ListeningTargetPeak,
+                       kEsp32ListeningNormalizeMinPeak,
+                       kEsp32ListeningMaxGainNumerator,
+                       kEsp32ListeningGainDenominator);
   }
 
   if (!should_listen) {

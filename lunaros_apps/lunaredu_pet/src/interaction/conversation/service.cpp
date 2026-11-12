@@ -216,7 +216,7 @@ bool clear_activation() {
     runtime.activation.ota_url = activation_ota_url;
     runtime.activation.timeout_ms = lunaredu::pet::conversation::internal::kActivationTimeoutMsDefault;
     runtime.activation.user_blocked = true;
-    runtime.activation.fresh_pairing_required = !kAssistantUsesLunarLink;
+    runtime.activation.fresh_pairing_required = !kAssistantUsesLunarLink && !kAssistantUsesMac;
     runtime.activation.fresh_pairing_observed = false;
     runtime.activation.remote_binding_still_active = false;
     runtime.transport.connected = false;
@@ -556,12 +556,17 @@ bool send_test_message(const char *text) {
     }
   }
   if (!send_now) return true;
+  const bool focus_acquired = conversation_request_audio_focus("text_test", 500);
   const std::string request = xiaozhi_build_listen_detect_message(
       session_id, message_text);
-  if (lunaredu::pet::conversation::internal::send_service_text(request)) {
+  if (focus_acquired && lunaredu::pet::conversation::internal::send_service_text(request)) {
     return true;
   }
+  if (focus_acquired) conversation_release_audio_focus("text_test_send_failed");
   std::lock_guard<std::mutex> lock(lunaredu::pet::conversation::internal::g_runtime.mutex);
+  if (!focus_acquired)
+    lunaredu::pet::conversation::internal::g_runtime.diagnostics.last_error =
+        "assistant_audio_focus_unavailable";
   auto &conversation = lunaredu::pet::conversation::internal::g_runtime.conversation;
   conversation.one_shot_test_active = false;
   conversation.awaiting_response = false;

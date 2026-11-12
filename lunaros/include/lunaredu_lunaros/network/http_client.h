@@ -11,6 +11,9 @@ namespace lunaredu::lunaros {
 enum class NetworkTransportSecurity {
   RequireTls,
   AllowPlaintextDevelopment,
+  // Explicit private-LAN service request, including a non-default TCP port.
+  // Public Internet HTTP remains rejected by the transport policy.
+  AllowPlaintextLocal,
 };
 
 struct NetworkHttpHeader {

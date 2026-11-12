@@ -142,7 +142,7 @@ COVER_TEST_BIN=${TMPDIR:-/tmp}/smart-speaker-cover-test
 BOOT_TEST_BIN=${TMPDIR:-/tmp}/smart-speaker-boot-confirmation-test
 "$CXX" -std=c++20 -Wall -Wextra -Werror -I"$APP_DIR/lunaros/include" "$APP_DIR/test/boot_confirmation_test.cpp" -o "$BOOT_TEST_BIN"
 "$BOOT_TEST_BIN"
-for name in xiaozhi_activation music_voice_queue lunarlink_protocol lunarlink_bootstrap lunarlink_binding lunarlink_generation lunarlink_capabilities audio_lifecycle transfer lyrics_api cover_api pet_frame_api track_remove sd_dma lcd_strip audio_drain music_damage local_menu_display local_menu playback_mode mp3_guard audio_read_guard; do
+for name in xiaozhi_activation mac_assistant_bootstrap mac_assistant_protocol mac_assistant_capture music_voice_queue mac_assistant_reconnect lunarlink_protocol lunarlink_bootstrap lunarlink_binding lunarlink_generation lunarlink_capabilities audio_lifecycle transfer lyrics_api cover_api pet_frame_api track_remove sd_dma lcd_strip audio_drain music_damage local_menu_display local_menu playback_mode mp3_guard audio_read_guard; do
     python3 "$APP_DIR/test/${name}_test.py"
 done
 
@@ -150,6 +150,7 @@ python3 "$APP_DIR/test/avatar_test.py"
 python3 "$APP_DIR/test/input_budget_test.py"
 python3 "$APP_DIR/test/audio_focus_state_test.py"
 python3 "$APP_DIR/test/assistant_control_test.py"
+python3 "$APP_DIR/test/assistant_capture_test.py"
 python3 "$APP_DIR/test/wake_model_test.py"
 python3 "$APP_DIR/test/microphone_capture_test.py"
 node "$APP_DIR/test/web_api_test.mjs"

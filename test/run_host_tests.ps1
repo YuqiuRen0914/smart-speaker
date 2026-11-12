@@ -94,7 +94,7 @@ if ($LASTEXITCODE -ne 0) { throw 'cover test compilation failed' }
 & $coverBinary
 if ($LASTEXITCODE -ne 0) { throw 'cover test failed' }
 
-foreach ($name in @('xiaozhi_activation', 'music_voice_queue', 'lunarlink_protocol', 'lunarlink_bootstrap', 'lunarlink_binding', 'lunarlink_generation', 'lunarlink_capabilities', 'audio_lifecycle', 'transfer', 'lyrics_api', 'cover_api', 'pet_frame_api', 'track_remove', 'local_menu_display', 'local_menu', 'playback_mode', 'mp3_guard', 'sd_dma', 'lcd_strip', 'audio_drain', 'music_damage', 'audio_read_guard', 'audio_focus_state', 'assistant_control', 'wake_model', 'microphone_capture')) {
+foreach ($name in @('xiaozhi_activation', 'mac_assistant_bootstrap', 'mac_assistant_protocol', 'mac_assistant_capture', 'music_voice_queue', 'mac_assistant_reconnect', 'lunarlink_protocol', 'lunarlink_bootstrap', 'lunarlink_binding', 'lunarlink_generation', 'lunarlink_capabilities', 'audio_lifecycle', 'transfer', 'lyrics_api', 'cover_api', 'pet_frame_api', 'track_remove', 'local_menu_display', 'local_menu', 'playback_mode', 'mp3_guard', 'sd_dma', 'lcd_strip', 'audio_drain', 'music_damage', 'audio_read_guard', 'audio_focus_state', 'assistant_control', 'assistant_capture', 'wake_model', 'microphone_capture')) {
     & python (Join-Path $PSScriptRoot ($name + '_test.py'))
     if ($LASTEXITCODE -ne 0) { throw "$name production regression failed" }
 }

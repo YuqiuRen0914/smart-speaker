@@ -1,5 +1,6 @@
 // XiaoZhi transport retained from this repository baseline.
 #include "interaction/transport/assistant_activation_client.h"
+#include "interaction/transport/assistant_provider.h"
 
 #include <ArduinoJson.h>
 #include <esp_err.h>
@@ -95,6 +96,14 @@ bool http_post_json(const XiaozhiActivationRequest &request,
                                    "bread-compact-wifi-s3cam/pc-style-runtime"});
   fetch_request.headers.push_back({"Accept-Language", "zh-CN"});
   fetch_request.headers.push_back({"Content-Type", "application/json"});
+#if ASSISTANT_USE_MAC
+  fetch_request.transport_security = lunaredu::lunaros::NetworkTransportSecurity::AllowPlaintextLocal;
+  if (std::string(CONFIG_LUNAREDU_ASSISTANT_MAC_TOKEN).size() < 32) {
+    transport_error = "mac_bootstrap_token_missing";
+    return false;
+  }
+  fetch_request.headers.push_back({"X-Voice-Token", CONFIG_LUNAREDU_ASSISTANT_MAC_TOKEN});
+#endif
 
   lunaredu::lunaros::NetworkResponse response;
   if (!lunaredu::lunaros::network_fetch_resource(std::move(fetch_request),

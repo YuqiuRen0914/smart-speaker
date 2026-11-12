@@ -6,7 +6,7 @@
 
 namespace lunaredu::pet::conversation::internal {
 
-inline constexpr const char *kActivationNamespace = "assistant";
+inline constexpr const char *kActivationNamespace = kAssistantUsesMac ? "mac_assistant" : "assistant";
 inline constexpr const char *kPersistMqttEndpointKey = "mqtt_ep";
 inline constexpr const char *kPersistMqttClientIdKey = "mqtt_cid";
 inline constexpr const char *kPersistMqttUserKey = "mqtt_user";
@@ -26,8 +26,12 @@ inline constexpr const char *kPersistTimezoneOffsetKey = "tz_offset";
 inline constexpr const char *kPersistStandbyModeKey = "standby_mode";
 inline constexpr const char *kPersistActivationOtaUrlKey = (kAssistantUsesLunarLink ? "ll_url" : "xz_url");
 inline constexpr const char *kDefaultAssistantOtaUrl =
+#if ASSISTANT_USE_MAC
+    CONFIG_LUNAREDU_ASSISTANT_MAC_URL;
+#else
     kAssistantUsesLunarLink ? "https://gateway.lunaredu.cn/wire/v1/device/bootstrap"
                           : "https://api.tenclass.net/xiaozhi/ota/";
+#endif
 inline constexpr const char *kRemoteBindingStillActiveError =
     "xiaozhi_remote_binding_still_active";
 

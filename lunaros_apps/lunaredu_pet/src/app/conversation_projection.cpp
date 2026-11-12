@@ -39,7 +39,7 @@ void fill_status(JsonObject payload) {
   const AssistantPolicySnapshot policy = assistant_policy_snapshot();
   const auto audio = lunaredu::audio::local_pcm_audio_bridge_status();
   payload["ok"] = status.initialized && !status.failed;
-  payload["assistant_platform"] = kAssistantUsesLunarLink ? "lunarlink" : "xiaozhi";
+  payload["assistant_platform"] = kAssistantUsesMac ? "mac" : kAssistantUsesLunarLink ? "lunarlink" : "xiaozhi";
   payload["available"] = status.initialized;
   payload["initialized"] = status.initialized;
   payload["enabled"] = status.enabled;
@@ -99,7 +99,7 @@ void fill_capabilities(JsonObject payload) {
   payload["supports_product_persistence_callback"] = true;
   payload["supports_manual_listening"] = true;
   payload["supports_mcp_tools"] = !kAssistantUsesLunarLink;
-  payload["assistant_platform"] = kAssistantUsesLunarLink ? "lunarlink" : "xiaozhi";
+  payload["assistant_platform"] = kAssistantUsesMac ? "mac" : kAssistantUsesLunarLink ? "lunarlink" : "xiaozhi";
   payload["supports_device_capabilities"] = kAssistantUsesLunarLink;
   payload["supports_standby_mode"] = true;
   payload["supports_test_message"] = true;

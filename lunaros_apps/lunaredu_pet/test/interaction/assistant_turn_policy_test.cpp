@@ -41,6 +41,14 @@ int main() {
   assert(!should_timeout_empty_single_turn(
       "manual", true, 1000, false, 999, 15000));
 
+  assert(!should_finish_single_turn_at_limit("manual", true, 1000, 30999, 30000));
+  assert(should_finish_single_turn_at_limit("manual", true, 1000, 31000, 30000));
+  assert(should_finish_single_turn_at_limit("auto", true, 1000, 31000, 30000));
+  assert(!should_finish_single_turn_at_limit("realtime", true, 1000, 31000, 30000));
+  assert(!should_finish_single_turn_at_limit("manual", false, 1000, 31000, 30000));
+  assert(!should_finish_single_turn_at_limit("manual", true, 0, 31000, 30000));
+  assert(!should_finish_single_turn_at_limit("manual", true, 1000, 999, 30000));
+
   assert(std::strcmp(single_turn_stop_reason("manual"), "manual_finish") == 0);
   assert(std::strcmp(single_turn_stop_reason("auto"), "auto_stop") == 0);
   assert(!should_resume_after_response("manual", true));

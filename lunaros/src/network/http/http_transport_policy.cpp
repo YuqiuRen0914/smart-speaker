@@ -45,7 +45,7 @@ bool ends_with(std::string_view value, std::string_view suffix) {
          value.substr(value.size() - suffix.size()) == suffix;
 }
 
-std::string plaintext_hostname(const std::string &url) {
+std::string plaintext_hostname(const std::string &url, bool local_port) {
   constexpr std::string_view kScheme = "http://";
   if (url.rfind(kScheme, 0) != 0) return {};
   const size_t authority_start = kScheme.size();
@@ -60,7 +60,15 @@ std::string plaintext_hostname(const std::string &url) {
   }
   const size_t port = authority.find(':');
   if (port != std::string::npos) {
-    if (authority.substr(port + 1) != "80") return {};
+    const auto port_text = authority.substr(port + 1);
+    if (!local_port && port_text != "80") return {};
+    if (port_text.empty() || port_text.size() > 5) return {};
+    unsigned int value = 0;
+    for (unsigned char c : port_text) {
+      if (c < '0' || c > '9') return {};
+      value = value * 10 + (c - '0');
+    }
+    if (value == 0 || value > 65535) return {};
     authority.resize(port);
   }
   std::transform(authority.begin(), authority.end(), authority.begin(),
@@ -70,13 +78,14 @@ std::string plaintext_hostname(const std::string &url) {
   return authority;
 }
 
-bool is_plaintext_development_url(const std::string &url) {
-  const std::string host = plaintext_hostname(url);
+bool is_plaintext_development_url(const std::string &url, bool local_port) {
+  const std::string host = plaintext_hostname(url, local_port);
   if (host.empty()) return false;
   if (host == "localhost" || is_private_ipv4(host) ||
       ends_with(host, ".local")) {
     return true;
   }
+  if (local_port) return false;
 
   // The local developer gateway uses
   // tools.lunaredu.<private-ip>.nip.io. Only accept nip.io when the embedded
@@ -106,9 +115,11 @@ bool network_transport_security_allows(
     return false;
   }
   if (!require_tls_for_production) return true;
+  if (requested_security == NetworkTransportSecurity::AllowPlaintextLocal)
+    return is_plaintext_development_url(url, true);
   return requested_security ==
              NetworkTransportSecurity::AllowPlaintextDevelopment &&
-         is_plaintext_development_url(url);
+         is_plaintext_development_url(url, false);
 }
 
 bool network_transport_policy_failure(const std::string &detail) {

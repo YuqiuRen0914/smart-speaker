@@ -1,5 +1,6 @@
 // XiaoZhi transport retained from this repository baseline.
 #include "interaction/transport/network_xiaozhi_mqtt_udp_channel.h"
+#include "interaction/transport/assistant_provider.h"
 
 #include <algorithm>
 #include <cstring>
@@ -101,7 +102,8 @@ bool XiaozhiMqttUdpChannel::encrypt_payload(const uint8_t *data, size_t length,
                                             uint32_t timestamp_ms,
                                             std::string &datagram) {
   datagram.clear();
-  if (!ready() || data == nullptr || length == 0 || length > 0xffff || base_nonce_.size() < 16) {
+  if (!ready() || data == nullptr || length == 0 || length > 0xffff || base_nonce_.size() < 16 ||
+      (kAssistantUsesMac && (length > 1468 || local_sequence_ > UINT32_MAX - 256U))) {
     return false;
   }
 
@@ -112,7 +114,11 @@ bool XiaozhiMqttUdpChannel::encrypt_payload(const uint8_t *data, size_t length,
   uint8_t* nonce_ptr = reinterpret_cast<uint8_t*>(datagram.data());
   write_be16(nonce_ptr + 2, static_cast<uint16_t>(length));
   write_be32(nonce_ptr + 8, timestamp_ms);
-  write_be32(nonce_ptr + 12, ++local_sequence_);
+  // Mac uses timestamp for turn identity. Reserve 128 AES blocks per packet
+  // so equal-size frames cannot overlap CTR keystream; separate directions.
+  local_sequence_ += kAssistantUsesMac ? 128U : 1U;
+  if (kAssistantUsesMac) nonce_ptr[1] = 0;
+  write_be32(nonce_ptr + 12, local_sequence_);
 
   uint8_t iv[16];
   std::memcpy(iv, nonce_ptr, 16);
@@ -152,11 +158,17 @@ XiaozhiMqttUdpChannel::decrypt_payload(const uint8_t *data, size_t length) {
     result.status = XiaozhiMqttUdpDecodeStatus::InvalidEnvelope;
     return result;
   }
+  if (kAssistantUsesMac && (data[1] != 1 || length > 1484 ||
+      std::memcmp(data + 4, base_nonce_.data() + 4, 4) != 0 ||
+      ((static_cast<size_t>(data[2]) << 8) | data[3]) != length - base_nonce_.size())) {
+    result.status = XiaozhiMqttUdpDecodeStatus::InvalidEnvelope;
+    return result;
+  }
 
   result.timestamp_ms = read_be32(data + 8);
   result.sequence = read_be32(data + 12);
-  result.expected_sequence = remote_sequence_ + 1;
-  if (result.sequence < remote_sequence_) {
+  result.expected_sequence = remote_sequence_ + (kAssistantUsesMac ? 128U : 1U);
+  if (result.sequence < remote_sequence_ || (kAssistantUsesMac && result.sequence == remote_sequence_)) {
     result.status = XiaozhiMqttUdpDecodeStatus::StaleSequence;
     return result;
   }

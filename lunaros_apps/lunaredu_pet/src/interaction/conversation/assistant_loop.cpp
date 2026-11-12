@@ -143,6 +143,15 @@ void enqueue_periodic_events_locked(int64_t now) {
   if (should_end_single_turn_without_speech) {
     (void)post_assistant_event_locked(
         {AssistantEventType::ListeningNoSpeechTimeoutDue, {}, {}, false});
+  } else if (should_finish_single_turn_at_limit(
+                 g_runtime.conversation.listening_mode.c_str(),
+                 g_runtime.session_state == AssistantSessionState::Listening,
+                 g_runtime.conversation.listening_started_at_ms, now,
+                 kMaxListeningDurationMs)) {
+    // Background speech can prevent a silence endpoint indefinitely. The
+    // periodic owner also covers stalled capture, not just successful reads.
+    (void)post_assistant_event_locked(
+        {AssistantEventType::AutoStopRequested, {}, {}, false});
   }
 
   const bool should_fall_back_to_wake_word =
@@ -456,12 +465,24 @@ void handle_listening_no_speech_timeout_due() {
 void handle_flush_pending_mcp() { flush_pending_mcp_messages(); }
 
 void handle_transport_connected_wait_session() {
-  std::lock_guard<std::mutex> lock(g_runtime.mutex);
-  if (g_runtime.conversation.cancelled) {
-    g_runtime.transport.connected = true;
-    return;
+  std::shared_ptr<NetworkMqttSession> mqtt;
+  {
+    std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    if (g_runtime.conversation.cancelled) {
+      g_runtime.transport.connected = true;
+      return;
+    }
+    mark_transport_connected_waiting_session_locked();
+    if (kAssistantUsesMac) mqtt = g_runtime.transport.mqtt_session;
   }
-  mark_transport_connected_waiting_session_locked();
+  // The MQTT library reconnects without calling connect_task's Start branch.
+  // Run the subscription/hello on every connected event, outside its callback
+  // and outside the runtime lock, including the initial connection.
+  if (mqtt && (!mqtt->Subscribe() || !reopen_mqtt_audio_channel())) {
+    std::lock_guard<std::mutex> lock(g_runtime.mutex);
+    (void)post_assistant_event_locked(
+        {AssistantEventType::ConnectFailure, "mac_reconnect_handshake_failed", {}, false});
+  }
 }
 
 void handle_connect_failure(const AssistantEvent &event) {
@@ -469,7 +490,9 @@ void handle_connect_failure(const AssistantEvent &event) {
   enter_idle_after_connect_failure_locked(
       event.text.empty() ? nullptr : event.text.c_str(),
       event.detail.empty() ? nullptr : event.detail.c_str(), event.flag);
-  if (event.text == "service_udp_connect_failed") {
+  if (kAssistantUsesMac) {
+    conversation_emit_status("助手暂不可用", "等待 Mac 恢复连接", "本地音乐仍可使用", nullptr);
+  } else if (event.text == "service_udp_connect_failed") {
     conversation_emit_status("连接异常", "UDP 音频通道连接失败",
                               "等待自动重连", nullptr);
   }
@@ -484,7 +507,9 @@ void handle_transport_disconnected(const char *message) {
   }
   reset_session_locked(should_reconnect ? AssistantSessionState::Failed
                                         : AssistantSessionState::Inactive);
-  if (should_reconnect) {
+  if (kAssistantUsesMac) {
+    conversation_emit_status("助手暂不可用", "等待 Mac 恢复连接", "本地音乐仍可使用", nullptr);
+  } else if (should_reconnect) {
     conversation_emit_status("连接中",
                               message == nullptr ? "连接已断开，正在重连" : message,
                               "自动重连", nullptr);
@@ -502,7 +527,9 @@ void handle_transport_error(const char *message) {
   }
   reset_session_locked(should_reconnect ? AssistantSessionState::Failed
                                         : AssistantSessionState::Inactive);
-  if (should_reconnect) {
+  if (kAssistantUsesMac) {
+    conversation_emit_status("助手暂不可用", "等待 Mac 恢复连接", "本地音乐仍可使用", nullptr);
+  } else if (should_reconnect) {
     conversation_emit_status("连接中", "连接异常，正在重连", "自动重连", message);
   } else {
     conversation_emit_status("已就绪", "等待网络恢复", "", message);
@@ -521,6 +548,7 @@ void handle_session_hello_received() {
     // then lets the send path distinguish a recovery retry from a new test and
     // preserve the retry budget across the channel rebuild.
     if (session_audio_path_ready_locked()) {
+      if (kAssistantUsesMac) g_runtime.conversation.prime_uplink_requested = true;
       pending_test_message = g_runtime.conversation.pending_test_message;
       if (pending_test_message.empty() &&
           !g_runtime.conversation.one_shot_test_active) {
@@ -536,7 +564,7 @@ void handle_session_hello_received() {
              session_audio_path_ready_locked() ? 1 : 0,
              g_runtime.conversation.one_shot_test_active ? 1 : 0);
   }
-  if (!pending_test_message.empty() &&
+  if (!kAssistantUsesMac && !pending_test_message.empty() &&
       !lunaredu::pet::conversation::send_test_message(pending_test_message.c_str())) {
     ESP_LOGW(kTag, "queued XiaoZhi test message could not be sent");
   }
@@ -554,7 +582,7 @@ void handle_audio_channel_ready() {
         !g_runtime.conversation.one_shot_test_active) {
       pending_test_message = g_runtime.conversation.one_shot_test_text;
     }
-    if (!pending_test_message.empty()) {
+    if (kAssistantUsesMac || !pending_test_message.empty()) {
       // Opus encoding has a deep stack footprint. The network executor has an
       // intentionally small internal stack, so ask the 24 KiB audio worker to
       // establish the UDP endpoint and report completion asynchronously.

@@ -211,6 +211,19 @@ void load_state_locked() {
   g_runtime.activation.configured = (!g_runtime.transport.mqtt_endpoint.empty());
   g_runtime.activation.ready = activation_ready_from_state(
       g_runtime.activation.configured, g_runtime.activation.pending);
+#if ASSISTANT_USE_MAC
+  // Always re-bootstrap this local host; never load official cloud credentials.
+  g_runtime.transport.mqtt_endpoint.clear();
+  g_runtime.transport.mqtt_password.clear();
+  g_runtime.activation.configured = false;
+  g_runtime.activation.ready = false;
+  g_runtime.activation.pending = false;
+  g_runtime.activation.user_blocked = user_blocked == "1";
+  g_runtime.activation.fresh_pairing_required = false;
+  g_runtime.activation.fresh_pairing_observed = false;
+  g_runtime.activation.remote_binding_still_active = false;
+  g_runtime.diagnostics.last_error.clear();
+#endif
 #endif
 }
 

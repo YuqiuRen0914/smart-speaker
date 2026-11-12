@@ -32,6 +32,14 @@ inline const char *single_turn_stop_reason(const char *mode) {
       ? "manual_finish" : "auto_stop";
 }
 
+inline bool should_finish_single_turn_at_limit(
+    const char *mode, bool listening, int64_t started_at_ms,
+    int64_t now_ms, uint32_t limit_ms) {
+  return listening && single_turn_mode(mode) && started_at_ms > 0 &&
+      now_ms >= started_at_ms &&
+      now_ms - started_at_ms >= static_cast<int64_t>(limit_ms);
+}
+
 inline bool should_resume_after_response(const char *mode,
                                          bool standby_allows_resume) {
   return mode != nullptr && std::strcmp(mode, "manual") != 0 &&
