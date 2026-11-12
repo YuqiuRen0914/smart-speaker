@@ -862,83 +862,47 @@ bool device_spi_lcd_surface_draw_rgb565_bitmap(uint16_t x, uint16_t y,
     return true;
   }
 
-  const bool full_frame_dma = ensure_panel_dma_buffer(pixel_count, false);
-  if (!full_frame_dma) {
-    // A 240x240 RGB565 frame is 115200 bytes, larger than the free internal
-    // SRAM on service-rich products. Fall back to a DMA-safe scanline buffer;
-    // synchronous/custom panels can then perform their own bounded packing.
-    if (!ensure_panel_dma_buffer(width)) {
+  // Bound resident internal DMA memory. A failed whole-tile allocation used
+  // to fall back to one SPI transaction per scanline (176 for the music disc).
+  // Reuse eight panel rows instead: small enough for audio/TLS, large enough
+  // to amortize address commands and completion fences.
+  const size_t strip_pixels = static_cast<size_t>(g_panel.width) * 8;
+  if (!ensure_panel_dma_buffer(strip_pixels, false) &&
+      !ensure_panel_dma_buffer(width)) {
+    copy_error_out(error);
+    return false;
+  }
+  const uint16_t rows_per_strip = static_cast<uint16_t>(
+      std::max<size_t>(1, g_panel_dma_pixel_capacity / width));
+  std::vector<uint16_t> canonical;
+  if (swap_bytes) canonical.resize(std::min<size_t>(pixel_count, g_panel_dma_pixel_capacity));
+  for (uint16_t row = 0; row < height;) {
+    const uint16_t rows = std::min<uint16_t>(height - row, rows_per_strip);
+    const size_t count = static_cast<size_t>(width) * rows;
+    const uint16_t *source = pixels + static_cast<size_t>(row) * width;
+    for (size_t i = 0; i < count; ++i) {
+      const uint16_t pixel = swap_bytes ? swap_rgb565_bytes(source[i]) : source[i];
+      if (swap_bytes) canonical[i] = pixel;
+      g_panel_dma_pixels[i] = panel_rgb565(pixel);
+    }
+    const esp_err_t result = esp_lcd_panel_draw_bitmap(
+        g_panel.panel, x + g_panel.offset_x, y + row + g_panel.offset_y,
+        x + width + g_panel.offset_x, y + row + rows + g_panel.offset_y,
+        g_panel_dma_pixels);
+    if (result != ESP_OK) {
+      set_last_error(std::string("rgb565_bitmap_draw_failed:") + esp_err_to_name(result));
       copy_error_out(error);
       return false;
     }
-
-    std::vector<uint16_t> canonical_line(width);
-    for (uint16_t row = 0; row < height; ++row) {
-      const uint16_t *source = pixels + static_cast<size_t>(row) * width;
-      for (uint16_t column = 0; column < width; ++column) {
-        const uint16_t pixel =
-            swap_bytes ? swap_rgb565_bytes(source[column]) : source[column];
-        canonical_line[column] = pixel;
-        g_panel_dma_pixels[column] = panel_rgb565(pixel);
-      }
-
-      const esp_err_t result = esp_lcd_panel_draw_bitmap(
-          g_panel.panel, x + g_panel.offset_x,
-          y + row + g_panel.offset_y, x + width + g_panel.offset_x,
-          y + row + 1 + g_panel.offset_y, g_panel_dma_pixels);
-      if (result != ESP_OK) {
-        set_last_error(std::string("rgb565_bitmap_draw_failed:") +
-                       esp_err_to_name(result));
-        copy_error_out(error);
-        return false;
-      }
-      if (!wait_for_panel_transfer("rgb565_bitmap_wait_failed")) {
-        copy_error_out(error);
-        return false;
-      }
-      mirror_bitmap(x, static_cast<uint16_t>(y + row), width, 1,
-                    canonical_line.data());
+    // This buffer is reused immediately; it must remain owned until DMA ends.
+    if (!wait_for_panel_transfer("rgb565_bitmap_wait_failed")) {
+      copy_error_out(error);
+      return false;
     }
-
-    ++g_frame_count;
-    g_last_pattern = "rgb565_frame";
-    set_last_error("");
-    clear_error_out(error);
-    return true;
+    mirror_bitmap(x, y + row, width, rows, swap_bytes ? canonical.data() : source);
+    row += rows;
   }
-
-  const uint16_t *mirror_pixels = pixels;
-  std::vector<uint16_t> canonical_pixels;
-  if (swap_bytes) {
-    canonical_pixels.resize(pixel_count);
-    for (size_t index = 0; index < pixel_count; ++index) {
-      canonical_pixels[index] = swap_rgb565_bytes(pixels[index]);
-    }
-    mirror_pixels = canonical_pixels.data();
-  }
-
-  for (size_t index = 0; index < pixel_count; ++index) {
-    const uint16_t pixel = swap_bytes ? canonical_pixels[index] : pixels[index];
-    g_panel_dma_pixels[index] = panel_rgb565(pixel);
-  }
-
-  const esp_err_t result = esp_lcd_panel_draw_bitmap(
-      g_panel.panel, x + g_panel.offset_x, y + g_panel.offset_y,
-      x + width + g_panel.offset_x, y + height + g_panel.offset_y,
-      g_panel_dma_pixels);
-  if (result != ESP_OK) {
-    set_last_error(std::string("rgb565_bitmap_draw_failed:") +
-                   esp_err_to_name(result));
-    copy_error_out(error);
-    return false;
-  }
-  if (!wait_for_panel_transfer("rgb565_bitmap_wait_failed")) {
-    copy_error_out(error);
-    return false;
-  }
-
   ++g_frame_count;
-  mirror_bitmap(x, y, width, height, mirror_pixels);
   g_last_pattern = "rgb565_frame";
   set_last_error("");
   clear_error_out(error);

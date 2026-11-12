@@ -2,6 +2,7 @@
 
 #include <driver/sdmmc_host.h>
 #include <esp_vfs_fat.h>
+#include <esp_heap_caps.h>
 #include <sdmmc_cmd.h>
 #include <cstring>
 #include <mutex>
@@ -11,6 +12,10 @@ namespace {
 constexpr const char *kDefaultMountPath = "/sdcard";
 
 sdmmc_card_t *g_card = nullptr;
+// FatFS serializes access to this volume. Keep a bounded DMA-capable read chunk for the
+// SDMMC driver's PSRAM/unaligned transfers throughout the mounted lifetime;
+// allocating it per read can fail while audio, Wi-Fi and the display are busy.
+void *g_dma_sector = nullptr;
 char g_mount_path[128] = "/sdcard";
 bool g_claimed = false;
 std::mutex g_sdcard_mutex;
@@ -39,6 +44,13 @@ esp_err_t bsp_sdcard_mount(const char *mount_path) {
 
   sdmmc_host_t host = SDMMC_HOST_DEFAULT();
   host.max_freq_khz = SDMMC_FREQ_DEFAULT;
+  g_dma_sector = heap_caps_malloc(4096, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+  if (g_dma_sector == nullptr) {
+    g_last_error = esp_err_to_name(ESP_ERR_NO_MEM);
+    if (bsp_resource_release(BSP_RESOURCE_TFCARD, "tfcard") == ESP_OK) g_claimed = false;
+    return ESP_ERR_NO_MEM;
+  }
+  host.dma_aligned_buffer = g_dma_sector;
 
   sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
   slot_config.clk =
@@ -67,6 +79,8 @@ esp_err_t bsp_sdcard_mount(const char *mount_path) {
       g_mount_path, &host, &slot_config, &mount_config, &g_card);
   if (result != ESP_OK) {
     g_card = nullptr;
+    heap_caps_free(g_dma_sector);
+    g_dma_sector = nullptr;
     g_capacity_bytes = 0;
     g_last_error = esp_err_to_name(result);
     if (bsp_resource_release(BSP_RESOURCE_TFCARD, "tfcard") == ESP_OK) g_claimed = false;
@@ -88,6 +102,8 @@ esp_err_t bsp_sdcard_unmount() {
       return result;
     }
     g_card = nullptr;
+    heap_caps_free(g_dma_sector);
+    g_dma_sector = nullptr;
     g_capacity_bytes = 0;
   }
   if (g_claimed) {
